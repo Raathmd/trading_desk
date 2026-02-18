@@ -195,17 +195,11 @@ defmodule TradingDesk.Solver.Port do
   # --- Variable encoding ---
 
   defp encode_variables(:ammonia_domestic, %TradingDesk.Variables{} = vars) do
-    # Backward compat: encode old Variables struct, then pad with defaults for new vars
-    old_bin = TradingDesk.Variables.to_binary(vars)
-    # New variables (demand_stl, demand_mem) were added after the original 20
-    # Append their defaults
+    # Convert struct to map and fill in any frame variables missing from the old struct
+    var_map = Map.from_struct(vars)
     defaults = ProductGroup.default_values(:ammonia_domestic)
-    new_keys = ProductGroup.variable_keys(:ammonia_domestic) |> Enum.drop(20)
-    extra = Enum.map(new_keys, fn k ->
-      val = Map.get(defaults, k, 0.0)
-      <<(val / 1.0)::float-little-64>>
-    end) |> IO.iodata_to_binary()
-    old_bin <> extra
+    merged = Map.merge(defaults, var_map)
+    TradingDesk.VariablesDynamic.to_binary(merged, :ammonia_domestic)
   end
 
   defp encode_variables(product_group, vars) when is_map(vars) do

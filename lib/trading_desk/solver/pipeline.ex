@@ -45,6 +45,7 @@ defmodule TradingDesk.Solver.Pipeline do
   alias TradingDesk.Contracts.{ScanCoordinator, NetworkScanner, Store}
   alias TradingDesk.Solver.{Port, SolveAudit, SolveAuditStore}
   alias TradingDesk.Data.LiveState
+  alias TradingDesk.ProductGroup
 
   require Logger
 
@@ -104,7 +105,7 @@ defmodule TradingDesk.Solver.Pipeline do
       caller_ref: caller_ref
     })
 
-    Logger.info("Pipeline #{run_id}: #{mode} for #{product_group}")
+    Logger.info("Pipeline #{run_id}: #{mode} for #{product_group}, solver_opts=#{inspect(solver_opts)}")
 
     # Phase 1: Contract freshness check
     {contract_result, audit} =
@@ -349,12 +350,10 @@ defmodule TradingDesk.Solver.Pipeline do
   # PHASE 2: EXECUTE SOLVE
   # ──────────────────────────────────────────────────────────
 
-  defp execute_solve(%TradingDesk.Variables{} = variables, _product_group, :solve, _n_scenarios, _solver_opts) do
-    Port.solve(variables)
-  end
-
-  defp execute_solve(%TradingDesk.Variables{} = variables, _product_group, :monte_carlo, n_scenarios, _solver_opts) do
-    Port.monte_carlo(variables, n_scenarios)
+  defp execute_solve(%TradingDesk.Variables{} = variables, product_group, mode, n_scenarios, solver_opts) do
+    # Convert struct to map so it takes the frame-ordered encoding path with solver_opts
+    var_map = Map.merge(ProductGroup.default_values(product_group || :ammonia_domestic), Map.from_struct(variables))
+    execute_solve(var_map, product_group || :ammonia_domestic, mode, n_scenarios, solver_opts)
   end
 
   defp execute_solve(variables, product_group, :solve, _n_scenarios, solver_opts) when is_map(variables) do

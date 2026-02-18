@@ -452,6 +452,19 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, assign(socket, :auto_result, auto_result)}
   end
 
+  # Task.Supervisor.async_nolink sends {ref, result} when the task completes
+  @impl true
+  def handle_info({ref, _result}, socket) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+    {:noreply, socket}
+  end
+
+  # Task.Supervisor.async_nolink sends {:DOWN, ...} if the task crashes
+  @impl true
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
+    {:noreply, socket}
+  end
+
   # --- Render ---
 
   @impl true
@@ -463,12 +476,14 @@ defmodule TradingDesk.ScenarioLive do
         <div style="display:flex;align-items:center;gap:12px">
           <div style={"width:8px;height:8px;border-radius:50%;background:#{if @auto_result, do: "#10b981", else: "#64748b"};box-shadow:0 0 8px #{if @auto_result, do: "#10b981", else: "transparent"}"}></div>
           <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px"><%= (@frame && @frame[:name]) || "SCENARIO DESK" %></span>
-          <select phx-change="switch_product_group" name="group"
-            style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer">
-            <%= for pg <- @available_groups do %>
-              <option value={pg.id} selected={pg.id == @product_group}><%= pg.name %></option>
-            <% end %>
-          </select>
+          <form phx-change="switch_product_group" style="display:inline">
+            <select name="group"
+              style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer">
+              <%= for pg <- @available_groups do %>
+                <option value={pg.id} selected={pg.id == @product_group}><%= pg.name %></option>
+              <% end %>
+            </select>
+          </form>
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
         </div>
         <div style="display:flex;align-items:center;gap:16px;font-size:12px">
@@ -532,15 +547,15 @@ defmodule TradingDesk.ScenarioLive do
                 <%= pipeline_button_text(@solving, @pipeline_phase, "MONTE CARLO") %>
               </button>
             </div>
-            <div style="margin-top:8px">
+            <form phx-change="switch_objective" style="margin-top:8px">
               <div style="font-size:10px;color:#64748b;letter-spacing:0.8px;margin-bottom:4px">OBJECTIVE</div>
-              <select phx-change="switch_objective" name="objective"
+              <select name="objective"
                 style="width:100%;background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:6px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">
                 <%= for {val, label} <- [max_profit: "Maximize Profit", min_cost: "Minimize Cost", max_roi: "Maximize ROI", cvar_adjusted: "CVaR-Adjusted", min_risk: "Minimize Risk"] do %>
                   <option value={val} selected={val == @objective_mode}><%= label %></option>
                 <% end %>
               </select>
-            </div>
+            </form>
             <button phx-click="reset"
               style="width:100%;padding:7px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#64748b;cursor:pointer;margin-top:8px">
               📡 RESET TO LIVE
@@ -623,8 +638,8 @@ defmodule TradingDesk.ScenarioLive do
               <div style="background:#111827;border-radius:10px;padding:20px;margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start">
                   <div>
-                    <div style="font-size:11px;color:#64748b;letter-spacing:1px;text-transform:uppercase">Gross Profit</div>
-                    <div style="font-size:36px;font-weight:800;color:#10b981;font-family:monospace">$<%= format_number(@result.profit) %></div>
+                    <div style="font-size:11px;color:#64748b;letter-spacing:1px;text-transform:uppercase"><%= objective_label(@objective_mode) %></div>
+                    <div style="font-size:36px;font-weight:800;color:#10b981;font-family:monospace"><%= objective_value(@result, @objective_mode) %></div>
                   </div>
                   <div style="background:#0f2a1f;padding:6px 14px;border-radius:6px;text-align:center">
                     <div style="font-size:10px;color:#64748b">STATUS</div>
@@ -1142,6 +1157,17 @@ defmodule TradingDesk.ScenarioLive do
   end
   defp format_trigger(%{key: key}), do: trigger_label(key)
   defp format_trigger(_), do: "—"
+
+  defp objective_label(:max_profit), do: "Gross Profit"
+  defp objective_label(:min_cost), do: "Capital Deployed"
+  defp objective_label(:max_roi), do: "Return on Capital"
+  defp objective_label(:cvar_adjusted), do: "CVaR-Adjusted Profit"
+  defp objective_label(:min_risk), do: "Gross Profit (Min Risk)"
+  defp objective_label(_), do: "Gross Profit"
+
+  defp objective_value(result, :min_cost), do: "$#{format_number(result.cost)}"
+  defp objective_value(result, :max_roi), do: "#{Float.round(result.roi, 2)}%"
+  defp objective_value(result, _), do: "$#{format_number(result.profit)}"
 
   defp signal_color(:strong_go), do: "#10b981"
   defp signal_color(:go), do: "#34d399"

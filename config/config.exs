@@ -2,7 +2,8 @@ import Config
 
 config :trading_desk, TradingDesk.Endpoint,
   url: [host: "localhost"],
-  http: [port: 4000],
+  http: [port: 4111, ip: {0, 0, 0, 0}],
+  check_origin: false,
   secret_key_base: String.duplicate("nh3bargetrading", 6),
   live_view: [signing_salt: "nh3livebargedesk"],
   render_errors: [formats: [html: TradingDesk.ErrorHTML]],
