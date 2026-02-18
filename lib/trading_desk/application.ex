@@ -4,10 +4,12 @@ defmodule TradingDesk.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      TradingDesk.Repo,
       TradingDesk.DB.SnapshotLog,
       {Phoenix.PubSub, name: TradingDesk.PubSub},
       TradingDesk.Config.DeltaConfig,
       TradingDesk.Data.LiveState,
+      TradingDesk.Data.AmmoniaPrices,
       TradingDesk.Data.Poller,
       TradingDesk.Solver.Port,
       TradingDesk.Solver.SolveAuditStore,
@@ -16,6 +18,7 @@ defmodule TradingDesk.Application do
       TradingDesk.Contracts.Store,
       TradingDesk.Contracts.CurrencyTracker,
       TradingDesk.Contracts.NetworkScanner,
+      TradingDesk.Contracts.SapRefreshScheduler,
       {Task.Supervisor, name: TradingDesk.Contracts.TaskSupervisor},
       TradingDesk.Endpoint
     ]
