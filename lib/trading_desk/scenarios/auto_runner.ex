@@ -182,6 +182,14 @@ defmodule TradingDesk.Scenarios.AutoRunner do
         # Commit to BSV chain — full payload with trigger details
         chain_commit_async(result, live_vars, product_group, trigger_details, envelope)
 
+        # Persist trigger causation details to SQLite trade history
+        if envelope[:audit_id] && length(trigger_details) > 0 do
+          TradingDesk.TradeDB.Writer.persist_auto_triggers(
+            envelope[:audit_id],
+            trigger_details
+          )
+        end
+
         # Broadcast result immediately
         Phoenix.PubSub.broadcast(
           TradingDesk.PubSub,

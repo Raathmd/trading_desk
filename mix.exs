@@ -29,7 +29,8 @@ defmodule TradingDesk.MixProject do
       {:plug_cowboy, "~> 2.6"},
       {:req, "~> 0.4"},
       {:ecto_sql, "~> 3.11"},
-      {:postgrex, "~> 0.18"}
+      {:postgrex, "~> 0.18"},
+      {:ecto_sqlite3, "~> 0.17"}
     ]
   end
 

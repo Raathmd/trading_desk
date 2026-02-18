@@ -380,6 +380,9 @@ defmodule TradingDesk.Solver.Pipeline do
 
     # Postgres (durable, multi-node — powers audit trail and management reporting)
     TradingDesk.DB.Writer.persist_solve_audit(audit)
+
+    # SQLite trade history (portable, chain-restorable — full normalized record)
+    TradingDesk.TradeDB.Writer.persist_solve(audit)
   end
 
   defp extract_result_status(result, :solve) do
