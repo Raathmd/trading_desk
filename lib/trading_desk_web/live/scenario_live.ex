@@ -213,6 +213,10 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, socket}
   end
 
+  # Stops click propagation from the modal body reaching the backdrop dismiss handler.
+  @impl true
+  def handle_event("noop", _params, socket), do: {:noreply, socket}
+
   @impl true
   def handle_event("update_model_summary", %{"summary" => text}, socket) do
     {:noreply, assign(socket, model_summary: text, model_summary_edited: true)}
@@ -2639,7 +2643,7 @@ defmodule TradingDesk.ScenarioLive do
         <div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center"
              phx-click="cancel_review">
           <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:640px;max-height:80vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5)"
-               phx-click.stop>
+               phx-click.stop="noop">
 
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
               <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">
@@ -2843,7 +2847,7 @@ defmodule TradingDesk.ScenarioLive do
         <div style="position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:2000;display:flex;align-items:center;justify-content:center;padding:24px"
              phx-click="close_explanation_popup">
           <div style="background:#0d1117;border:1px solid #2d3748;border-radius:14px;width:min(860px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 30px 60px rgba(0,0,0,0.7)"
-               phx-click.stop>
+               phx-click.stop="noop">
             <%!-- Header --%>
             <div style="display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid #1e293b">
               <div>
