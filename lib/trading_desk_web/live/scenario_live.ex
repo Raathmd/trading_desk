@@ -117,6 +117,8 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:seed_ingestion_running, false)
       |> assign(:seed_ingestion_result, nil)
       |> assign(:seed_files, TradingDesk.Contracts.SeedLoader.list_seed_files())
+      |> assign(:anon_model_preview, nil)
+      |> assign(:show_anon_preview, false)
       |> assign(:history_source, :river)
       |> assign(:history_year_from, Date.utc_today().year - 1)
       |> assign(:history_year_to, Date.utc_today().year)
@@ -138,11 +140,14 @@ defmodule TradingDesk.ScenarioLive do
   def handle_event("solve", _params, socket) do
     # Show pre-solve review popup instead of solving immediately
     book = TradingDesk.Contracts.SapPositions.book_summary()
+    anon_preview = build_anon_model_preview(socket.assigns.model_summary, book)
     socket =
       socket
       |> assign(:show_review, true)
       |> assign(:review_mode, :solve)
       |> assign(:sap_positions, book)
+      |> assign(:anon_model_preview, anon_preview)
+      |> assign(:show_anon_preview, false)
     # If trader has typed an action, parse intent in background
     socket = maybe_parse_intent(socket)
     {:noreply, socket}
@@ -151,13 +156,21 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def handle_event("monte_carlo", _params, socket) do
     book = TradingDesk.Contracts.SapPositions.book_summary()
+    anon_preview = build_anon_model_preview(socket.assigns.model_summary, book)
     socket =
       socket
       |> assign(:show_review, true)
       |> assign(:review_mode, :monte_carlo)
       |> assign(:sap_positions, book)
+      |> assign(:anon_model_preview, anon_preview)
+      |> assign(:show_anon_preview, false)
     socket = maybe_parse_intent(socket)
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("toggle_anon_preview", _params, socket) do
+    {:noreply, assign(socket, :show_anon_preview, !socket.assigns.show_anon_preview)}
   end
 
   @impl true
@@ -2634,20 +2647,32 @@ defmodule TradingDesk.ScenarioLive do
               <button phx-click="cancel_review" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:16px">X</button>
             </div>
 
-            <%!-- Trader Scenario — shown prominently at top --%>
+            <%!-- Trader Scenario — with toggle to show what Claude receives (anonymized) --%>
             <div style="background:#0a0318;border-radius:8px;padding:14px;margin-bottom:14px;border-left:3px solid #a78bfa">
-              <div style="font-size:10px;color:#a78bfa;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">SCENARIO INPUT</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <div style="font-size:10px;color:#a78bfa;letter-spacing:1.2px;font-weight:700">SCENARIO INPUT</div>
+                <%= if @anon_model_preview && @anon_model_preview != "" do %>
+                  <button phx-click="toggle_anon_preview"
+                    style={"font-size:9px;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:600;letter-spacing:0.5px;border:1px solid #{if @show_anon_preview, do: "#a78bfa", else: "#374151"};background:#{if @show_anon_preview, do: "#2d1057", else: "transparent"};color:#{if @show_anon_preview, do: "#c4b5fd", else: "#64748b"}"}>
+                    <%= if @show_anon_preview, do: "← Show Original", else: "🔒 Anonymized (sent to Claude)" %>
+                  </button>
+                <% end %>
+              </div>
               <%
-                # Extract just the non-comment, non-empty header lines for preview
-                scenario_preview = (@model_summary || "")
+                raw_text = if @show_anon_preview, do: @anon_model_preview, else: @model_summary
+                display_lines = (raw_text || "")
                   |> String.split("\n")
                   |> Enum.reject(&(String.starts_with?(String.trim(&1), "#") or String.trim(&1) == ""))
-                  |> Enum.take(6)
-                  |> Enum.join("\n")
+                  |> Enum.take(if @show_anon_preview, do: 20, else: 6)
+                display_text = Enum.join(display_lines, "\n")
               %>
-              <%= if scenario_preview != "" do %>
-                <pre style="font-size:10px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace"><%= scenario_preview %></pre>
-                <div style="font-size:9px;color:#475569;margin-top:4px">…and more — full model summary submitted for analysis</div>
+              <%= if display_text != "" do %>
+                <pre style="font-size:10px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:200px;overflow-y:auto"><%= display_text %></pre>
+                <%= if not @show_anon_preview do %>
+                  <div style="font-size:9px;color:#475569;margin-top:4px">…full model summary submitted · click <em>Anonymized</em> to preview what Claude sees</div>
+                <% else %>
+                  <div style="font-size:9px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
+                <% end %>
               <% else %>
                 <div style="font-size:12px;color:#475569;font-style:italic">No scenario text — manual variable adjustments only</div>
               <% end %>
@@ -3695,14 +3720,24 @@ defmodule TradingDesk.ScenarioLive do
   # Generates the structured text shown in the SCENARIO MODEL textarea.
   # Traders can edit this text and submit it as the scenario input.
 
+  # Anonymize the model summary the same way IntentMapper will before sending to Claude.
+  # Returns the anonymized text string (for display in the pre-solve review popup).
+  defp build_anon_model_preview(model_summary, book) when is_binary(model_summary) do
+    counterparty_names = TradingDesk.Anonymizer.counterparty_names(book)
+    {anon_text, _} = TradingDesk.Anonymizer.anonymize(model_summary, counterparty_names)
+    anon_text
+  end
+  defp build_anon_model_preview(_, _), do: ""
+
   defp build_model_summary_text(assigns) do
-    frame      = assigns[:frame] || %{}
-    vars       = assigns[:current_vars] || %{}
-    overrides  = assigns[:overrides] || MapSet.new()
-    objective  = assigns[:objective_mode] || :max_profit
+    frame       = assigns[:frame] || %{}
+    vars        = assigns[:current_vars] || %{}
+    overrides   = assigns[:overrides] || MapSet.new()
+    objective   = assigns[:objective_mode] || :max_profit
     vessel_data = assigns[:vessel_data]
-    date       = Date.utc_today() |> Date.to_string()
-    pg_name    = (frame[:name] || "Trading Desk") |> String.upcase()
+    product_group = assigns[:product_group] || :ammonia_domestic
+    date        = Date.utc_today() |> Date.to_string()
+    pg_name     = (frame[:name] || "Trading Desk") |> String.upcase()
 
     # Forecast data (may not be available)
     forecast = safe_call(fn -> LiveState.get_supplementary(:forecast) end, nil)
@@ -3725,6 +3760,7 @@ defmodule TradingDesk.ScenarioLive do
     #{build_forecast_summary_text(forecast)}
     #{build_routes_summary_text(frame[:routes] || [])}
     #{build_constraints_summary_text(frame[:constraints] || [], vars)}
+    #{build_obligations_summary_text(product_group)}
     #{build_positions_summary_text(book)}
     #{build_fleet_summary_text(fleet, vessel_data)}
     """
@@ -3818,6 +3854,82 @@ defmodule TradingDesk.ScenarioLive do
       end
     end)
     "--- CONSTRAINTS ---\n#{lines}"
+  end
+
+  defp build_obligations_summary_text(product_group) do
+    # Use :ammonia as the Store key (seed contracts are stored under :ammonia)
+    store_key = if product_group == :ammonia_domestic, do: :ammonia, else: product_group
+
+    penalty_sched =
+      safe_call(fn ->
+        TradingDesk.Contracts.ConstraintBridge.penalty_schedule(store_key)
+      end, [])
+
+    active_contracts =
+      safe_call(fn ->
+        TradingDesk.Contracts.Store.get_active_set(store_key)
+      end, [])
+
+    schedules = TradingDesk.Trader.DeliverySchedule.from_contracts(active_contracts)
+    total_exposure = TradingDesk.Trader.DeliverySchedule.total_daily_exposure(schedules)
+
+    if penalty_sched == [] and schedules == [] do
+      ""
+    else
+      penalty_lines =
+        if penalty_sched != [] do
+          penalty_sched
+          |> Enum.sort_by(& &1.max_exposure, :desc)
+          |> Enum.map_join("\n", fn p ->
+            type = p.penalty_type |> to_string() |> String.replace("_", " ")
+            dir  = if p.counterparty_type == :supplier, do: "BUY", else: "SELL"
+            rate = :erlang.float_to_binary(p.rate_per_ton / 1.0, decimals: 0)
+            open = format_number(p.open_qty / 1.0)
+            exp  = format_number(p.max_exposure / 1.0)
+            "  #{p.counterparty}  #{dir}  #{type}  $#{rate}/MT  open=#{open} MT  max=$#{exp}"
+          end)
+        else
+          "  (no penalty clauses in active contracts)"
+        end
+
+      schedule_lines =
+        if schedules != [] do
+          schedules
+          |> Enum.sort_by(fn s -> s.scheduled_qty_mt * s.penalty_per_mt_per_day end, :desc)
+          |> Enum.map_join("\n", fn s ->
+            dir    = if s.direction == :purchase, do: "from", else: "to"
+            daily  = s.scheduled_qty_mt * s.penalty_per_mt_per_day
+            status = if s.next_window_days == 0, do: "WINDOW OPEN", else: "opens D+#{s.next_window_days}"
+            rate   = :erlang.float_to_binary(s.penalty_per_mt_per_day / 1.0, decimals: 2)
+            "  #{s.counterparty} #{dir}  #{round(s.scheduled_qty_mt)} MT " <>
+            "grace=#{s.grace_period_days}d  $#{rate}/MT/day ($#{round(daily)}/day)  #{status}"
+          end)
+        else
+          "  (no delivery schedule terms loaded)"
+        end
+
+      exposure_line =
+        if total_exposure > 0 do
+          "Total slip exposure: $#{format_number(total_exposure)}/day if all deliveries miss grace"
+        else
+          ""
+        end
+
+      penalty_lines_clean   = String.trim(penalty_lines)
+      schedule_lines_clean  = String.trim(schedule_lines)
+      exposure_line_clean   = String.trim(exposure_line)
+
+      """
+      --- OBLIGATIONS & PENALTIES ---
+      Penalty clauses (solver reduces effective sell margin by weighted-avg rate):
+      #{penalty_lines_clean}
+
+      Delivery schedule obligations:
+      #{schedule_lines_clean}
+      #{if exposure_line_clean != "", do: "\n#{exposure_line_clean}", else: ""}
+      """
+      |> String.trim_trailing()
+    end
   end
 
   defp build_positions_summary_text(nil), do: ""

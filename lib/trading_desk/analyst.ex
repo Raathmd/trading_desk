@@ -95,13 +95,21 @@ defmodule TradingDesk.Analyst do
     forecast = safe_get_forecast()
     forecast_text = format_forecast_for_prompt(forecast)
 
+    # Include contract penalty obligations and delivery schedule
+    store_key = if pg == :ammonia_domestic, do: :ammonia, else: pg
+    {anon_penalty_text, penalty_anon_map} =
+      format_penalty_obligations_for_prompt(store_key, counterparty_names)
+
+    # Merge anon maps so de-anonymization covers both position and penalty entities
+    merged_anon_map = Map.merge(anon_map, penalty_anon_map)
+
     prompt = """
     You are a senior #{frame[:product]} trading analyst at a global commodities firm.
     Product: #{frame[:name]} | Geography: #{frame[:geography]} | Transport: #{frame[:transport_mode]}.
 
     A trader just ran a scenario optimization. Provide a comprehensive analyst note
-    covering: what drove the result, which constraints bound the solution, position
-    impact, operational risks, and recommended follow-up actions.
+    explaining WHY the solver chose this particular allocation — specifically how
+    contract obligations, penalty risk, and margin dynamics drove the decision.
 
     #{if anon_action != "", do: "TRADER SCENARIO: \"#{anon_action}\"\n\n", else: ""}SOLVER INPUTS:
     #{vars_text}
@@ -121,21 +129,28 @@ defmodule TradingDesk.Analyst do
     #{anon_positions}
     Net position: #{book.net_position} MT
 
+    #{if anon_penalty_text != "", do: "CONTRACT OBLIGATIONS & PENALTY RISK:\n#{anon_penalty_text}", else: ""}
+
     Write a comprehensive analyst note (5-8 sentences) covering:
-    1. What drove this result — key margin, constraint, or market driver
-    2. Which constraints bound the solution (use the shadow prices)
-    3. How this scenario affects open positions and delivery obligations
-    4. Any weather or operational risks that could erode this result
-    5. Recommended follow-up actions for the trader
+    1. Why the solver chose this route allocation — which margin or constraint was decisive
+    2. How penalty clauses (volume shortfall / late delivery / demurrage) affected
+       the effective margins and therefore the optimization choice
+    3. Which delivery obligations are most at risk given the chosen allocation and
+       what the daily penalty exposure would be if those slip past the grace period
+    4. Which constraints bound the solution (use the shadow prices) and whether
+       tighter contract bounds changed the feasible set
+    5. Any weather or operational risks that could erode this result or trigger penalties
+    6. Recommended follow-up actions — which contracts to prioritize, whether to hedge,
+       and what the trader should watch in the next 24-48 hours
 
     Be analytical and tactical. Use the anonymized entity codes as-is (e.g., ENTITY_01)
     — do NOT attempt to guess real names. Plain prose, no bullet lists.
     """
 
-    case call_claude(prompt, max_tokens: 800) do
+    case call_claude(prompt, max_tokens: 1000) do
       {:ok, raw_text} ->
         # De-anonymize counterparty codes that Claude may have echoed
-        final_text = Anonymizer.deanonymize(raw_text, anon_map)
+        final_text = Anonymizer.deanonymize(raw_text, merged_anon_map)
         {:ok, final_text, impact}
 
       {:error, reason} ->
@@ -405,6 +420,73 @@ defmodule TradingDesk.Analyst do
     end
   end
   defp format_forecast_for_prompt(_), do: ""
+
+  # Build penalty obligations text for the explanation prompt.
+  # Returns {anonymized_text, anon_map}.
+  defp format_penalty_obligations_for_prompt(store_key, counterparty_names) do
+    penalty_sched =
+      try do
+        TradingDesk.Contracts.ConstraintBridge.penalty_schedule(store_key)
+      rescue
+        _ -> []
+      catch
+        :exit, _ -> []
+      end
+
+    active_contracts =
+      try do
+        TradingDesk.Contracts.Store.get_active_set(store_key)
+      rescue
+        _ -> []
+      catch
+        :exit, _ -> []
+      end
+
+    schedules = TradingDesk.Trader.DeliverySchedule.from_contracts(active_contracts)
+    total_exposure = TradingDesk.Trader.DeliverySchedule.total_daily_exposure(schedules)
+
+    if penalty_sched == [] and schedules == [] do
+      {"", %{}}
+    else
+      penalty_lines =
+        penalty_sched
+        |> Enum.sort_by(& &1.max_exposure, :desc)
+        |> Enum.map_join("\n", fn p ->
+          type = p.penalty_type |> to_string() |> String.replace("_", " ")
+          dir  = if p.counterparty_type == :supplier, do: "purchase", else: "sale"
+          "- #{p.counterparty} (#{dir}): #{type} penalty $#{trunc(p.rate_per_ton)}/MT, " <>
+          "open #{trunc(p.open_qty)} MT, max exposure $#{trunc(p.max_exposure)}"
+        end)
+
+      schedule_lines =
+        schedules
+        |> Enum.sort_by(fn s -> s.scheduled_qty_mt * s.penalty_per_mt_per_day end, :desc)
+        |> Enum.map_join("\n", fn s ->
+          dir    = if s.direction == :purchase, do: "PURCHASE from", else: "SALE to"
+          daily  = s.scheduled_qty_mt * s.penalty_per_mt_per_day
+          status = if s.next_window_days == 0, do: "WINDOW OPEN NOW", else: "opens D+#{s.next_window_days}"
+          "- #{dir} #{s.counterparty}: #{trunc(s.scheduled_qty_mt)} MT/window, " <>
+          "#{s.grace_period_days}-day grace, $#{:erlang.float_to_binary(s.penalty_per_mt_per_day / 1.0, decimals: 2)}/MT/day " <>
+          "($#{round(daily)}/day if delayed), #{status}"
+        end)
+
+      exposure_line =
+        if total_exposure > 0 do
+          "\nTotal book daily exposure if all deliveries miss grace: $#{round(total_exposure)}/day"
+        else
+          ""
+        end
+
+      raw_text =
+        if penalty_lines != "" do
+          "Penalty clauses:\n#{penalty_lines}\n\nDelivery schedules:\n#{schedule_lines}#{exposure_line}"
+        else
+          "Delivery schedules:\n#{schedule_lines}#{exposure_line}"
+        end
+
+      Anonymizer.anonymize(raw_text, counterparty_names)
+    end
+  end
 
   # ── Claude API ──────────────────────────────────────────────
 
