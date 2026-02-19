@@ -125,9 +125,9 @@ defmodule TradingDesk.ScenarioLive do
       # Fleet tab
       |> assign(:fleet_vessels, [])
       |> assign(:fleet_pg_filter, to_string(product_group))
-      # Model summary textarea + explanation popup
+      # Model summary (always computed) + scenario description (trader narrative)
       |> assign(:model_summary, "")
-      |> assign(:model_summary_edited, false)
+      |> assign(:scenario_description, "")
       |> assign(:show_explanation_popup, false)
 
     # Build the initial model summary from the fully-assigned socket
@@ -218,14 +218,10 @@ defmodule TradingDesk.ScenarioLive do
   def handle_event("noop", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_event("update_model_summary", %{"summary" => text}, socket) do
-    {:noreply, assign(socket, model_summary: text, model_summary_edited: true)}
-  end
-
-  @impl true
-  def handle_event("refresh_model_summary", _params, socket) do
+  def handle_event("update_scenario_description", %{"description" => text}, socket) do
+    socket = assign(socket, :scenario_description, text)
     summary = build_model_summary_text(socket.assigns)
-    {:noreply, assign(socket, model_summary: summary, model_summary_edited: false)}
+    {:noreply, assign(socket, :model_summary, summary)}
   end
 
   @impl true
@@ -281,15 +277,12 @@ defmodule TradingDesk.ScenarioLive do
     key_atom = String.to_existing_atom(key)
     parsed = parse_value(key_atom, value)
 
-    new_vars = Map.put(socket.assigns.current_vars, key_atom, parsed)
-    new_overrides = MapSet.put(socket.assigns.overrides, key_atom)
-
     socket =
       socket
-      |> assign(:current_vars, new_vars)
-      |> assign(:overrides, new_overrides)
+      |> assign(:current_vars, Map.put(socket.assigns.current_vars, key_atom, parsed))
+      |> assign(:overrides, MapSet.put(socket.assigns.overrides, key_atom))
 
-    {:noreply, socket}
+    {:noreply, assign(socket, :model_summary, build_model_summary_text(socket.assigns))}
   end
 
   @impl true
@@ -298,14 +291,11 @@ defmodule TradingDesk.ScenarioLive do
 
     {new_vars, new_overrides} =
       if MapSet.member?(socket.assigns.overrides, key_atom) do
-        # Reset to live value
         live_val = Map.get(socket.assigns.live_vars, key_atom)
         {Map.put(socket.assigns.current_vars, key_atom, live_val),
          MapSet.delete(socket.assigns.overrides, key_atom)}
       else
-        # Mark as overridden (keep current value)
-        {socket.assigns.current_vars,
-         MapSet.put(socket.assigns.overrides, key_atom)}
+        {socket.assigns.current_vars, MapSet.put(socket.assigns.overrides, key_atom)}
       end
 
     socket =
@@ -313,7 +303,7 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:current_vars, new_vars)
       |> assign(:overrides, new_overrides)
 
-    {:noreply, socket}
+    {:noreply, assign(socket, :model_summary, build_model_summary_text(socket.assigns))}
   end
 
   @impl true
@@ -328,7 +318,7 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:current_vars, new_vars)
       |> assign(:overrides, new_overrides)
 
-    {:noreply, socket}
+    {:noreply, assign(socket, :model_summary, build_model_summary_text(socket.assigns))}
   end
 
   @impl true
@@ -685,14 +675,17 @@ defmodule TradingDesk.ScenarioLive do
     )
     vars = socket.assigns.current_vars
     intent = socket.assigns.intent
-    trader_action = socket.assigns.trader_action
+    # Use scenario_description as the primary narrative; fall back to trader_action
+    scenario_desc = socket.assigns.scenario_description || ""
+    trader_action  = socket.assigns.trader_action || ""
+    trader_scenario = if scenario_desc != "", do: scenario_desc, else: trader_action
     objective = socket.assigns.objective_mode
     lv_pid = self()
 
     # Spawn explanation + post-solve impact analysis
     spawn(fn ->
       try do
-        case TradingDesk.Analyst.explain_solve_with_impact(vars, result, intent, trader_action, objective) do
+        case TradingDesk.Analyst.explain_solve_with_impact(vars, result, intent, trader_scenario, objective) do
           {:ok, text, impact} ->
             send(lv_pid, {:explanation_result, text})
             send(lv_pid, {:post_solve_impact, impact})
@@ -785,13 +778,7 @@ defmodule TradingDesk.ScenarioLive do
         end)
 
       socket = assign(socket, live_vars: live, current_vars: updated_current)
-      # Auto-refresh model summary unless the trader has manually edited it
-      socket =
-        if not socket.assigns.model_summary_edited do
-          assign(socket, :model_summary, build_model_summary_text(socket.assigns))
-        else
-          socket
-        end
+      socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
       {:noreply, socket}
     else
       {:noreply, socket}
@@ -1069,25 +1056,105 @@ defmodule TradingDesk.ScenarioLive do
 
           <%!-- === TRADER TAB === --%>
           <%= if @active_tab == :trader do %>
-            <%!-- === SCENARIO MODEL INPUT === --%>
+            <%!-- === SCENARIO MODEL FORM === --%>
             <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:10px;padding:16px;margin-bottom:16px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                <div>
-                  <span style="font-size:11px;color:#a78bfa;font-weight:700;letter-spacing:1.2px">SCENARIO MODEL</span>
-                  <span style="font-size:10px;color:#475569;margin-left:8px">— edit to define your scenario, then SOLVE</span>
-                </div>
-                <button phx-click="refresh_model_summary"
-                  style="font-size:10px;color:#64748b;background:none;border:1px solid #1e293b;border-radius:4px;padding:3px 10px;cursor:pointer;letter-spacing:0.5px">
-                  ↺ Refresh from Live
-                </button>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <span style="font-size:11px;color:#a78bfa;font-weight:700;letter-spacing:1.2px">SCENARIO MODEL</span>
+                <span style="font-size:10px;color:#475569">Objective: <%= objective_label(@objective_mode) %></span>
               </div>
-              <textarea phx-change="update_model_summary" phx-debounce="300" name="summary"
-                style="width:100%;min-height:420px;background:#060a11;border:1px solid #1e293b;color:#94a3b8;padding:12px;border-radius:6px;font-size:11px;font-family:'Courier New',Courier,monospace;resize:vertical;line-height:1.6;box-sizing:border-box;white-space:pre"><%= @model_summary %></textarea>
-              <%= if @model_summary_edited do %>
-                <div style="font-size:10px;color:#f59e0b;margin-top:4px;font-style:italic">
-                  * Manually edited — click Refresh from Live to restore from current data
+
+              <%!-- Scenario description --%>
+              <div style="margin-bottom:14px">
+                <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:5px;font-weight:600">WHAT DO YOU WANT TO TEST?</div>
+                <textarea phx-change="update_scenario_description" phx-debounce="300" name="description"
+                  rows="3"
+                  placeholder="e.g. One barge in for repair — assess impact on D+3 delivery schedule"
+                  style="width:100%;background:#060a11;border:1px solid #2d1b69;color:#c8d6e5;padding:10px;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box"><%= @scenario_description %></textarea>
+              </div>
+
+              <%!-- Variable groups (editable) --%>
+              <%= for {group, defs} <- Enum.group_by(@frame[:variables] || [], &(&1[:group])) |> Enum.sort_by(fn {g, _} -> to_string(g) end) do %>
+                <% {booleans, numerics} = Enum.split_with(defs, &(&1[:type] == :boolean)) %>
+                <div style="margin-bottom:12px">
+                  <div style="font-size:9px;color:#475569;letter-spacing:1.4px;font-weight:700;margin-bottom:6px;text-transform:uppercase;padding-bottom:4px;border-bottom:1px solid #1e293b">
+                    <%= to_string(group) |> String.upcase() %>
+                  </div>
+
+                  <%!-- Numeric variables grid --%>
+                  <%= if numerics != [] do %>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;margin-bottom:6px">
+                      <%= for v <- numerics do %>
+                        <% val = Map.get(@current_vars, v[:key]) %>
+                        <% is_override = MapSet.member?(@overrides, v[:key]) %>
+                        <% live_val = Map.get(@live_vars, v[:key]) %>
+                        <% display_val = case val do
+                              fv when is_float(fv) -> :erlang.float_to_binary(fv, [{:decimals, 1}])
+                              iv when is_integer(iv) -> to_string(iv)
+                              _ -> to_string(val)
+                            end %>
+                        <div style={"background:#{if is_override, do: "#0d1a0d", else: "#060a11"};border:1px solid #{if is_override, do: "#166534", else: "#1e293b"};border-radius:6px;padding:7px 9px"}>
+                          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                            <span style="font-size:10px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px" title={v[:label]}><%= v[:label] %></span>
+                            <%= if is_override do %>
+                              <button phx-click="toggle_override" phx-value-key={v[:key]}
+                                style="font-size:8px;color:#4ade80;background:none;border:none;cursor:pointer;padding:0;letter-spacing:0.5px">
+                                ↺ LIVE
+                              </button>
+                            <% else %>
+                              <span style="font-size:8px;color:#334155">LIVE</span>
+                            <% end %>
+                          </div>
+                          <div style="display:flex;align-items:center;gap:4px">
+                            <input type="number"
+                              phx-change="update_var" phx-debounce="400"
+                              phx-value-key={v[:key]}
+                              name="value"
+                              value={display_val}
+                              min={v[:min]} max={v[:max]} step={v[:step] || "any"}
+                              style={"flex:1;min-width:0;background:#0a0f18;border:1px solid #{if is_override, do: "#166534", else: "#1e293b"};color:#{if is_override, do: "#4ade80", else: "#c8d6e5"};padding:4px 6px;border-radius:4px;font-size:12px;font-family:monospace;font-weight:700;width:100%;box-sizing:border-box"} />
+                            <%= if v[:unit] && v[:unit] != "" do %>
+                              <span style="font-size:9px;color:#475569;white-space:nowrap"><%= v[:unit] %></span>
+                            <% end %>
+                          </div>
+                          <%= if is_override and live_val != nil do %>
+                            <div style="font-size:8px;color:#4ade80;margin-top:2px">
+                              live: <%= case live_val do
+                                fv when is_float(fv) -> :erlang.float_to_binary(fv, [{:decimals, 1}])
+                                _ -> to_string(live_val)
+                              end %>
+                            </div>
+                          <% end %>
+                        </div>
+                      <% end %>
+                    </div>
+                  <% end %>
+
+                  <%!-- Boolean variables row --%>
+                  <%= if booleans != [] do %>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px">
+                      <%= for v <- booleans do %>
+                        <% val = Map.get(@current_vars, v[:key]) %>
+                        <% is_outage = val in [true, 1.0] %>
+                        <button phx-click="toggle_bool" phx-value-key={v[:key]}
+                          style={"display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;border:1px solid #{if is_outage, do: "#991b1b", else: "#1e3a5f"};background:#{if is_outage, do: "#7f1d1d22", else: "#0f2a3d22"};cursor:pointer"}>
+                          <span style={"font-size:10px;color:#{if is_outage, do: "#fca5a5", else: "#67e8f9"};font-weight:700"}>
+                            <%= if is_outage, do: "⬤ OUTAGE", else: "◯ ONLINE" %>
+                          </span>
+                          <span style="font-size:10px;color:#64748b"><%= v[:label] %></span>
+                        </button>
+                      <% end %>
+                    </div>
+                  <% end %>
                 </div>
               <% end %>
+
+              <%!-- Collapsible: full model context sent to Claude --%>
+              <details style="margin-top:8px">
+                <summary style="font-size:9px;color:#334155;cursor:pointer;letter-spacing:1px;font-weight:600;user-select:none">
+                  MODEL CONTEXT (sent to Claude) ▸
+                </summary>
+                <pre style="font-size:9px;color:#475569;line-height:1.5;white-space:pre-wrap;margin:6px 0 0;background:#060a11;border:1px solid #1e293b;border-radius:4px;padding:8px;max-height:240px;overflow-y:auto"><%= @model_summary %></pre>
+              </details>
             </div>
 
             <%!-- Solve result --%>
@@ -3739,14 +3806,15 @@ defmodule TradingDesk.ScenarioLive do
   defp build_anon_model_preview(_, _), do: ""
 
   defp build_model_summary_text(assigns) do
-    frame       = assigns[:frame] || %{}
-    vars        = assigns[:current_vars] || %{}
-    overrides   = assigns[:overrides] || MapSet.new()
-    objective   = assigns[:objective_mode] || :max_profit
-    vessel_data = assigns[:vessel_data]
+    frame         = assigns[:frame] || %{}
+    vars          = assigns[:current_vars] || %{}
+    overrides     = assigns[:overrides] || MapSet.new()
+    objective     = assigns[:objective_mode] || :max_profit
+    vessel_data   = assigns[:vessel_data]
     product_group = assigns[:product_group] || :ammonia_domestic
-    date        = Date.utc_today() |> Date.to_string()
-    pg_name     = (frame[:name] || "Trading Desk") |> String.upcase()
+    description   = assigns[:scenario_description] || ""
+    date          = Date.utc_today() |> Date.to_string()
+    pg_name       = (frame[:name] || "Trading Desk") |> String.upcase()
 
     # Forecast data (may not be available)
     forecast = safe_call(fn -> LiveState.get_supplementary(:forecast) end, nil)
@@ -3757,13 +3825,18 @@ defmodule TradingDesk.ScenarioLive do
     # Fleet vessels
     fleet = safe_call(fn -> TrackedVessel.list_active() end, [])
 
+    desc_section =
+      if description != "" do
+        "SCENARIO: #{description}"
+      else
+        "SCENARIO: (none entered)"
+      end
+
     """
     === #{pg_name} — #{date} ===
     Objective: #{objective_label(objective)}
 
-    # Describe your scenario below — what do you want to test?
-    # Examples: "One barge is in for repair" | "Assess D+3 weather impact on schedules"
-    #           "Reallocate ENTITY_01 cargo to ENTITY_02 if river drops below 12ft"
+    #{desc_section}
 
     #{build_variable_summary_text(frame[:variables] || [], vars, overrides)}
     #{build_forecast_summary_text(forecast)}
