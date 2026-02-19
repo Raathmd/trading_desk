@@ -134,7 +134,7 @@ defmodule TradingDesk.Fleet.TrackedVessel do
   end
 
   def mark_discharged(%__MODULE__{} = vessel) do
-    update(vessel, %{status: "discharged"})
+    __MODULE__.update(vessel, %{status: "discharged"})
   end
 
   def delete(%__MODULE__{} = vessel) do
