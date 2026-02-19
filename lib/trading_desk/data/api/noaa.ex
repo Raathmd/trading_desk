@@ -127,6 +127,119 @@ defmodule TradingDesk.Data.API.NOAA do
   end
 
   # ──────────────────────────────────────────────────────────
+  # 7-DAY FORECAST (HOURLY)
+  # ──────────────────────────────────────────────────────────
+
+  # NWS gridpoints for each weather station (pre-resolved to avoid a lookup call)
+  @gridpoints %{
+    baton_rouge: "LIX/66,62",
+    memphis:     "MEG/53,72",
+    st_louis:    "LSX/85,71",
+    vicksburg:   "JAN/44,78"
+  }
+
+  @doc """
+  Fetch 7-day hourly forecast for all stations. Returns forecast data
+  bucketed by day (D+0 through D+6) with the solver-relevant variables.
+
+  Returns `{:ok, %{days: [day_map], worst_case_d3: map}}` where each day_map:
+    - date: ISO date
+    - temp_f_high / temp_f_low
+    - wind_mph_max
+    - precip_in: total expected precipitation
+    - precip_prob_max: max probability of precipitation (%)
+    - vis_mi_min: worst visibility
+  """
+  @spec fetch_forecast() :: {:ok, map()} | {:error, term()}
+  def fetch_forecast do
+    # Fetch from primary station (Baton Rouge)
+    grid = @gridpoints[:baton_rouge]
+    url = "#{@base_url}/gridpoints/#{grid}/forecast/hourly"
+
+    case http_get(url) do
+      {:ok, body} -> parse_hourly_forecast(body)
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Fetch forecast for a specific station by key.
+  """
+  def fetch_forecast(station_key) when is_atom(station_key) do
+    case @gridpoints[station_key] do
+      nil -> {:error, {:unknown_station, station_key}}
+      grid ->
+        url = "#{@base_url}/gridpoints/#{grid}/forecast/hourly"
+        case http_get(url) do
+          {:ok, body} -> parse_hourly_forecast(body)
+          {:error, _} = err -> err
+        end
+    end
+  end
+
+  @doc """
+  Fetch forecast from all stations and return worst-case per day.
+  This is the conservative projection the solver should use.
+  """
+  @spec fetch_all_forecasts() :: {:ok, map()} | {:error, term()}
+  def fetch_all_forecasts do
+    results =
+      @gridpoints
+      |> Enum.map(fn {key, grid} ->
+        url = "#{@base_url}/gridpoints/#{grid}/forecast/hourly"
+        {key, case http_get(url) do
+          {:ok, body} -> parse_hourly_forecast(body)
+          err -> err
+        end}
+      end)
+
+    # Find the first successful result as baseline
+    baseline =
+      results
+      |> Enum.find_value(fn {_k, {:ok, data}} -> data; _ -> nil end)
+
+    if baseline do
+      # Merge worst-case across all stations per day
+      all_days =
+        results
+        |> Enum.filter(fn {_, {:ok, _}} -> true; _ -> false end)
+        |> Enum.flat_map(fn {_, {:ok, %{days: days}}} -> days end)
+        |> Enum.group_by(& &1.date)
+        |> Enum.sort_by(fn {date, _} -> date end)
+        |> Enum.map(fn {date, day_list} ->
+          %{
+            date:           date,
+            temp_f_low:     day_list |> Enum.map(& &1.temp_f_low)     |> Enum.reject(&is_nil/1) |> Enum.min(fn -> nil end),
+            temp_f_high:    day_list |> Enum.map(& &1.temp_f_high)    |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
+            wind_mph_max:   day_list |> Enum.map(& &1.wind_mph_max)   |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
+            precip_in:      day_list |> Enum.map(& &1.precip_in)      |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
+            precip_prob_max: day_list |> Enum.map(& &1.precip_prob_max) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
+            vis_mi_min:     day_list |> Enum.map(& &1.vis_mi_min)     |> Enum.reject(&is_nil/1) |> Enum.min(fn -> nil end)
+          }
+        end)
+
+      # D+3 worst-case for solver: conservative conditions 3 days out
+      d3 = Enum.at(all_days, 3) || Enum.at(all_days, 2) || %{}
+      solver_forecast = %{
+        forecast_temp_f:    d3[:temp_f_low],
+        forecast_wind_mph:  d3[:wind_mph_max],
+        forecast_vis_mi:    d3[:vis_mi_min],
+        forecast_precip_in: d3[:precip_in]
+      }
+
+      {:ok, %{
+        days: all_days,
+        solver_d3: solver_forecast,
+        stations: Map.new(results, fn {k, v} -> {k, elem(v, 1)} end)
+      }}
+    else
+      {:error, :all_forecasts_failed}
+    end
+  rescue
+    _ -> {:error, :forecast_exception}
+  end
+
+  # ──────────────────────────────────────────────────────────
   # PARSING
   # ──────────────────────────────────────────────────────────
 
@@ -175,6 +288,75 @@ defmodule TradingDesk.Data.API.NOAA do
 
       _ ->
         {:error, :parse_failed}
+    end
+  end
+
+  defp parse_hourly_forecast(body) do
+    case Jason.decode(body) do
+      {:ok, %{"properties" => %{"periods" => periods}}} when is_list(periods) ->
+        # Group hourly periods by date, then aggregate per day
+        by_date =
+          periods
+          |> Enum.group_by(fn p ->
+            # startTime is ISO8601 like "2026-02-19T06:00:00-06:00"
+            p["startTime"] |> String.slice(0, 10)
+          end)
+          |> Enum.sort_by(fn {date, _} -> date end)
+          |> Enum.take(7)  # 7 days
+
+        days =
+          Enum.map(by_date, fn {date, hours} ->
+            temps = hours |> Enum.map(& &1["temperature"]) |> Enum.reject(&is_nil/1)
+            winds = hours |> Enum.map(&parse_wind_forecast/1) |> Enum.reject(&is_nil/1)
+            precip_probs = hours |> Enum.map(&get_in(&1, ["probabilityOfPrecipitation", "value"])) |> Enum.reject(&is_nil/1)
+
+            # Estimate precip from probability + detailed text
+            precip_in =
+              hours
+              |> Enum.reduce(0.0, fn h, acc ->
+                prob = get_in(h, ["probabilityOfPrecipitation", "value"]) || 0
+                detail = h["shortForecast"] || ""
+
+                hourly_precip = cond do
+                  prob >= 70 and String.contains?(detail, "Heavy") -> 0.15
+                  prob >= 70 -> 0.08
+                  prob >= 40 -> 0.03
+                  prob >= 20 -> 0.01
+                  true -> 0.0
+                end
+
+                acc + hourly_precip
+              end)
+
+            %{
+              date:            date,
+              temp_f_high:     if(temps != [], do: Enum.max(temps)),
+              temp_f_low:      if(temps != [], do: Enum.min(temps)),
+              wind_mph_max:    if(winds != [], do: Enum.max(winds)),
+              precip_in:       Float.round(precip_in, 2),
+              precip_prob_max: if(precip_probs != [], do: Enum.max(precip_probs), else: 0),
+              vis_mi_min:      nil  # NWS hourly doesn't always include visibility
+            }
+          end)
+
+        {:ok, %{days: days}}
+
+      _ ->
+        {:error, :forecast_parse_failed}
+    end
+  end
+
+  defp parse_wind_forecast(period) do
+    case period["windSpeed"] do
+      s when is_binary(s) ->
+        # "15 mph" or "10 to 20 mph"
+        case Regex.run(~r/(\d+)\s*(?:to\s*(\d+))?\s*mph/i, s) do
+          [_, low, high] -> String.to_integer(high)
+          [_, val]       -> String.to_integer(val)
+          _              -> nil
+        end
+      n when is_number(n) -> n
+      _ -> nil
     end
   end
 
