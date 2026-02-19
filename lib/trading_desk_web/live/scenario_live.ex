@@ -1081,7 +1081,7 @@ defmodule TradingDesk.ScenarioLive do
                   ↺ Refresh from Live
                 </button>
               </div>
-              <textarea phx-blur="update_model_summary" name="summary"
+              <textarea phx-change="update_model_summary" phx-debounce="300" name="summary"
                 style="width:100%;min-height:420px;background:#060a11;border:1px solid #1e293b;color:#94a3b8;padding:12px;border-radius:6px;font-size:11px;font-family:'Courier New',Courier,monospace;resize:vertical;line-height:1.6;box-sizing:border-box;white-space:pre"><%= @model_summary %></textarea>
               <%= if @model_summary_edited do %>
                 <div style="font-size:10px;color:#f59e0b;margin-top:4px;font-style:italic">
@@ -2638,12 +2638,14 @@ defmodule TradingDesk.ScenarioLive do
       </div>
 
       <%!-- === PRE-SOLVE REVIEW POPUP === --%>
-      <%!-- Outer backdrop closes on click; inner modal uses phx-click.stop to block bubbling --%>
       <%= if @show_review do %>
-        <div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center"
-             phx-click="cancel_review">
-          <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:640px;max-height:80vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5)"
-               phx-click.stop="noop">
+        <div style="position:fixed;inset:0;z-index:1000">
+          <%!-- Backdrop: sibling to modal, not parent — keeps LiveView event walk from reaching it --%>
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.7)"
+               phx-click="cancel_review"></div>
+          <%!-- Modal: centered, pointer-events threaded through wrapper --%>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+            <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:640px;max-height:80vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5);pointer-events:auto">
 
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
               <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">
@@ -2837,17 +2839,18 @@ defmodule TradingDesk.ScenarioLive do
                 CONFIRM <%= if @review_mode == :monte_carlo, do: "MONTE CARLO", else: "SOLVE" %>
               </button>
             </div>
+            </div>
           </div>
         </div>
       <% end %>
 
       <%!-- === ANALYST EXPLANATION POPUP === --%>
-      <%!-- Full analysis in large popup with save button --%>
       <%= if @show_explanation_popup do %>
-        <div style="position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:2000;display:flex;align-items:center;justify-content:center;padding:24px"
-             phx-click="close_explanation_popup">
-          <div style="background:#0d1117;border:1px solid #2d3748;border-radius:14px;width:min(860px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 30px 60px rgba(0,0,0,0.7)"
-               phx-click.stop="noop">
+        <div style="position:fixed;inset:0;z-index:2000">
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.82)"
+               phx-click="close_explanation_popup"></div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:none">
+            <div style="background:#0d1117;border:1px solid #2d3748;border-radius:14px;width:min(860px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 30px 60px rgba(0,0,0,0.7);pointer-events:auto">
             <%!-- Header --%>
             <div style="display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid #1e293b">
               <div>
@@ -2962,6 +2965,7 @@ defmodule TradingDesk.ScenarioLive do
                   </table>
                 </div>
               <% end %>
+            </div>
             </div>
           </div>
         </div>
