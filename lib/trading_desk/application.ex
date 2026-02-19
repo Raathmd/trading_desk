@@ -20,6 +20,7 @@ defmodule TradingDesk.Application do
       TradingDesk.Contracts.NetworkScanner,
       TradingDesk.Contracts.SapRefreshScheduler,
       {Task.Supervisor, name: TradingDesk.Contracts.TaskSupervisor},
+      TradingDesk.Data.AIS.AISStreamConnector,
       TradingDesk.Endpoint
     ]
 

@@ -30,7 +30,8 @@ defmodule TradingDesk.MixProject do
       {:req, "~> 0.4"},
       {:ecto_sql, "~> 3.11"},
       {:postgrex, "~> 0.18"},
-      {:ecto_sqlite3, "~> 0.17"}
+      {:ecto_sqlite3, "~> 0.17"},
+      {:websockex, "~> 0.4"}
     ]
   end
 

@@ -1998,11 +1998,17 @@ defmodule TradingDesk.ScenarioLive do
 
                   <%= if is_nil(@vessel_data) do %>
                     <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
-                      No AIS provider configured. Set one of:
-                      <code style="color:#06b6d4;display:block;margin-top:6px">VESSELFINDER_API_KEY</code>
-                      <code style="color:#06b6d4">MARINETRAFFIC_API_KEY</code>
-                      <code style="color:#06b6d4">AISHUB_API_KEY</code>
-                      <span style="display:block;margin-top:6px;color:#334155">VesselFinder is the easiest starting point — free developer key at api.vesselfinder.com. MarineTraffic PS06 covers ocean vessels. AISHub is free if you run a receiver.</span>
+                      No AIS data yet.
+                      <span style="display:block;margin-top:6px;color:#06b6d4;font-weight:600">
+                        Set AISSTREAM_API_KEY (free at aisstream.io) to enable real-time tracking.
+                      </span>
+                      <span style="display:block;margin-top:6px;color:#334155;line-height:1.6">
+                        Tracks: Mississippi towboats · ocean ammonia carriers · sulphur/petcoke bulk carriers · ocean-going barges (Class B equipped).<br/>
+                        River barges don't carry AIS — tracked via their towboat.<br/>
+                        <span style="color:#475569">For ocean routes add:</span>
+                        <code style="color:#94a3b8;display:block;margin-top:4px">AISSTREAM_EXTRA_BBOX=lat_tl,lon_tl,lat_br,lon_br</code>
+                        e.g. Black Sea: <code style="color:#475569">48.0,28.0,40.9,41.0</code> · Persian Gulf: <code style="color:#475569">30.0,48.0,22.0,60.0</code>
+                      </span>
                     </div>
                   <% else %>
                     <table style="width:100%;border-collapse:collapse;font-size:11px">

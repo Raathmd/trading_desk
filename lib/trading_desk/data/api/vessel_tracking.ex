@@ -1,41 +1,49 @@
 defmodule TradingDesk.Data.API.VesselTracking do
   @moduledoc """
-  AIS vessel tracking integration for barge towboats on the Mississippi River.
+  AIS vessel tracking integration for towboats on the Mississippi River and
+  ocean vessels (ammonia carriers, sulphur/petcoke bulk carriers).
 
-  Tracks towboat positions via AIS (Automatic Identification System) to determine
-  where product is currently located along the river. Vessel positions are used to:
+  Tracks vessel positions via AIS (Automatic Identification System) to determine
+  where product is currently located. Positions are used to:
 
     - Fetch vessel-proximate weather (conditions at the vessel's current location)
-    - Fetch local tides/currents data (from nearest NOAA CO-OPS station)
     - Estimate transit times and arrival windows
     - Display fleet position on the scenario desk
 
   ## AIS Data Sources (priority order)
 
-    1. **VesselFinder** — REST API, credit-based, good inland waterway coverage
-       Env: `VESSELFINDER_API_KEY`
+    1. **AISstream.io** — Free WebSocket stream, real-time, no cost.
+       Register at https://aisstream.io and set `AISSTREAM_API_KEY`.
+       The persistent connector caches positions; this module reads from that cache.
 
-    2. **MarineTraffic** — PS06 bounding box queries, comprehensive AIS network
+    2. **MarineTraffic** — PS06 bounding box queries, comprehensive AIS network.
        Env: `MARINETRAFFIC_API_KEY`
 
-    3. **AISHub** — Community AIS sharing, free tier, spotty inland coverage
+    3. **AISHub** — Community AIS sharing.
        Env: `AISHUB_API_KEY`
 
   ## Vessel Identification
 
   We track towboats, not barges (barges don't carry AIS transponders).
-  Towboat identification is by MMSI or vessel name configured in env:
+  For ocean vessels (ammonia carriers, bulk carriers), the vessels carry Class A
+  transponders directly.
 
-    - `TRACKED_VESSELS` — comma-separated MMSI numbers or vessel names
+  Configure specific vessels to track:
+    - `TRACKED_VESSELS` — comma-separated MMSI numbers
 
-  ## Bounding Box
+  ## Bounding Boxes
 
-  The Lower Mississippi River corridor from NOLA to Cairo, IL:
-    - SW corner: 29.0°N, -91.5°W (below NOLA)
-    - NE corner: 37.2°N, -88.5°W (Cairo, IL)
+  Mississippi River corridor (default):
+    - SW corner: 29.0°N, 91.5°W (below NOLA)
+    - NE corner: 37.2°N, 88.5°W (Cairo, IL)
+
+  For ocean vessels, set `AISSTREAM_EXTRA_BBOX=lat_tl,lon_tl,lat_br,lon_br`
+  to add a second bounding box (e.g. the Atlantic or a specific trade route).
   """
 
   require Logger
+
+  alias TradingDesk.Data.AIS.AISStreamConnector
 
   # Mississippi River corridor bounding box
   @bbox %{
@@ -80,8 +88,8 @@ defmodule TradingDesk.Data.API.VesselTracking do
 
     result =
       cond do
-        has_key?("VESSELFINDER_API_KEY") ->
-          fetch_vesselfinder(tracked)
+        AISStreamConnector.has_data?() ->
+          {:ok, AISStreamConnector.get_vessels()}
 
         has_key?("MARINETRAFFIC_API_KEY") ->
           fetch_marinetraffic(tracked)
@@ -153,70 +161,6 @@ defmodule TradingDesk.Data.API.VesselTracking do
 
       [] ->
         0.0
-    end
-  end
-
-  # ──────────────────────────────────────────────────────────
-  # VESSELFINDER
-  # ──────────────────────────────────────────────────────────
-
-  defp fetch_vesselfinder(tracked_vessels) do
-    api_key = System.get_env("VESSELFINDER_API_KEY")
-
-    # VesselFinder supports fetching by MMSI list or bounding box
-    url =
-      if length(tracked_vessels) > 0 do
-        mmsis = Enum.join(tracked_vessels, ",")
-        "https://api.vesselfinder.com/vessels?userkey=#{api_key}&mmsi=#{mmsis}"
-      else
-        # Bounding box query for all vessels in corridor
-        "https://api.vesselfinder.com/vessels?userkey=#{api_key}" <>
-          "&latmin=#{@bbox.min_lat}&latmax=#{@bbox.max_lat}" <>
-          "&lonmin=#{@bbox.min_lon}&lonmax=#{@bbox.max_lon}" <>
-          "&type=70,71,72,79"  # Cargo/tanker vessel types
-      end
-
-    case http_get(url) do
-      {:ok, body} -> parse_vesselfinder(body)
-      {:error, _} = err -> err
-    end
-  end
-
-  defp parse_vesselfinder(body) do
-    case Jason.decode(body) do
-      {:ok, %{"AIS" => ais_list}} when is_list(ais_list) ->
-        vessels =
-          Enum.map(ais_list, fn ais ->
-            %{
-              mmsi: to_string(ais["MMSI"]),
-              name: ais["NAME"] || ais["SHIPNAME"] || "Unknown",
-              lat: parse_num(ais["LATITUDE"]),
-              lon: parse_num(ais["LONGITUDE"]),
-              course: parse_num(ais["COURSE"]),
-              speed: parse_num(ais["SPEED"]),
-              heading: parse_num(ais["HEADING"]),
-              status: parse_nav_status(ais["NAVSTAT"]),
-              imo: ais["IMO"],
-              ship_type: ais["TYPE"],
-              destination: ais["DESTINATION"],
-              eta: ais["ETA"],
-              timestamp: ais["TIMESTAMP"],
-              source: :vesselfinder
-            }
-          end)
-          |> Enum.filter(fn v -> v.lat != nil and v.lon != nil end)
-
-        {:ok, vessels}
-
-      {:ok, %{"error" => error}} ->
-        {:error, {:api_error, error}}
-
-      {:ok, other} ->
-        Logger.warning("VesselFinder: unexpected response format: #{inspect(other)}")
-        {:error, :unexpected_format}
-
-      {:error, reason} ->
-        {:error, {:json_parse, reason}}
     end
   end
 
