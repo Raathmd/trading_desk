@@ -15,16 +15,4 @@ config :logger, level: :info
 
 config :phoenix, :json_library, Jason
 
-# SQLite trade history database — portable, self-contained, chain-restorable.
-# Stores every solve (auto + manual), all variable snapshots, contract data,
-# and blockchain commit queue. Independent from the operational Postgres DB.
-config :trading_desk, TradingDesk.TradeRepo,
-  adapter: Ecto.Adapters.SQLite3,
-  database: "priv/trade_history.db",
-  pool_size: 1,
-  journal_mode: :wal,
-  cache_size: -64_000,
-  foreign_keys: :on,
-  temp_store: :memory
-
-config :trading_desk, ecto_repos: [TradingDesk.Repo, TradingDesk.TradeRepo]
+config :trading_desk, ecto_repos: [TradingDesk.Repo]

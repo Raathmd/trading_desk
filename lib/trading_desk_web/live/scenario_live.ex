@@ -24,6 +24,7 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.Data.LiveState
   alias TradingDesk.Scenarios.Store
   alias TradingDesk.ProductGroup
+  alias TradingDesk.Traders
 
   @impl true
   def mount(_params, _session, socket) do
@@ -34,14 +35,24 @@ defmodule TradingDesk.ScenarioLive do
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "sap_events")
     end
 
-    product_group = :ammonia_domestic
+    # Load traders from DB; default to first active trader
+    available_traders = Traders.list_active()
+    selected_trader   = List.first(available_traders)
+
+    # Product group defaults from trader's primary assignment
+    product_group =
+      if selected_trader,
+        do: Traders.primary_product_group(selected_trader),
+        else: :ammonia_domestic
+
+    trader_id = if selected_trader, do: to_string(selected_trader.id), else: "trader_1"
 
     # Defensive: GenServer calls may fail if services haven't started yet
     live_vars = safe_call(fn -> LiveState.get() end, ProductGroup.default_values(product_group))
     auto_result = safe_call(fn -> TradingDesk.Scenarios.AutoRunner.latest() end, nil)
     vessel_data = safe_call(fn -> LiveState.get_supplementary(:vessel_tracking) end, nil)
     tides_data = safe_call(fn -> LiveState.get_supplementary(:tides) end, nil)
-    saved = safe_call(fn -> Store.list("trader_1") end, [])
+    saved = safe_call(fn -> Store.list(trader_id) end, [])
 
     # Load frame-driven metadata (pure functions — safe)
     frame = ProductGroup.frame(product_group)
@@ -57,6 +68,8 @@ defmodule TradingDesk.ScenarioLive do
 
     socket =
       socket
+      |> assign(:available_traders, available_traders)
+      |> assign(:selected_trader, selected_trader)
       |> assign(:product_group, product_group)
       |> assign(:frame, frame)
       |> assign(:live_vars, current_vars)
@@ -66,7 +79,7 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:distribution, nil)
       |> assign(:auto_result, auto_result)
       |> assign(:saved_scenarios, saved)
-      |> assign(:trader_id, "trader_1")
+      |> assign(:trader_id, trader_id)
       |> assign(:metadata, metadata)
       |> assign(:route_names, route_names)
       |> assign(:constraint_names, constraint_names)
@@ -247,7 +260,9 @@ defmodule TradingDesk.ScenarioLive do
           socket.assigns.trader_id,
           name,
           socket.assigns.current_vars,
-          result
+          result,
+          nil,
+          to_string(socket.assigns.product_group)
         )
         scenarios = Store.list(socket.assigns.trader_id)
         {:noreply, assign(socket, :saved_scenarios, scenarios)}
@@ -305,6 +320,42 @@ defmodule TradingDesk.ScenarioLive do
           |> assign(:overrides, MapSet.new(Map.keys(scenario.variables)))
 
         {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("switch_trader", %{"trader" => trader_id_str}, socket) do
+    trader_id = String.to_integer(trader_id_str)
+    trader = Enum.find(socket.assigns.available_traders, &(&1.id == trader_id))
+
+    if trader do
+      product_group = Traders.primary_product_group(trader)
+      frame = ProductGroup.frame(product_group)
+
+      if frame do
+        socket =
+          socket
+          |> assign(:selected_trader, trader)
+          |> assign(:trader_id, to_string(trader.id))
+          |> assign(:product_group, product_group)
+          |> assign(:frame, frame)
+          |> assign(:metadata, ProductGroup.variable_metadata(product_group))
+          |> assign(:route_names, ProductGroup.route_names(product_group))
+          |> assign(:constraint_names, ProductGroup.constraint_names(product_group))
+          |> assign(:variable_groups, TradingDesk.VariablesDynamic.groups(product_group))
+          |> assign(:current_vars, ProductGroup.default_values(product_group))
+          |> assign(:live_vars, ProductGroup.default_values(product_group))
+          |> assign(:overrides, MapSet.new())
+          |> assign(:result, nil)
+          |> assign(:distribution, nil)
+          |> assign(:saved_scenarios, safe_call(fn -> Store.list(to_string(trader.id)) end, []))
+
+        {:noreply, socket}
+      else
+        {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
     end
   end
 
@@ -617,6 +668,13 @@ defmodule TradingDesk.ScenarioLive do
         <div style="display:flex;align-items:center;gap:12px">
           <div style={"width:8px;height:8px;border-radius:50%;background:#{if @auto_result, do: "#10b981", else: "#64748b"};box-shadow:0 0 8px #{if @auto_result, do: "#10b981", else: "transparent"}"}></div>
           <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px"><%= (@frame && @frame[:name]) || "SCENARIO DESK" %></span>
+          <select phx-change="switch_trader" name="trader"
+            style="background:#111827;border:1px solid #2563eb;color:#60a5fa;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer"
+            title="Active trader">
+            <%= for t <- @available_traders do %>
+              <option value={t.id} selected={@selected_trader && t.id == @selected_trader.id}><%= t.name %></option>
+            <% end %>
+          </select>
           <select phx-change="switch_product_group" name="group"
             style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer">
             <%= for pg <- @available_groups do %>

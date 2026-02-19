@@ -2,7 +2,7 @@ defmodule TradingDesk.Data.History.Ingester do
   @moduledoc """
   Market history ingestion pipeline.
 
-  Populates three history tables in the SQLite TradeRepo:
+  Populates three history tables in Postgres (TradingDesk.Repo):
 
     - `river_stage_history`   — daily USGS gauge readings (all four gauges)
     - `ammonia_price_history` — ammonia benchmark price snapshots
@@ -42,7 +42,7 @@ defmodule TradingDesk.Data.History.Ingester do
 
   require Logger
 
-  alias TradingDesk.TradeRepo
+  alias TradingDesk.Repo
   alias TradingDesk.Data.History.{RiverStageHistory, AmmoniaPriceHistory, FreightRateHistory}
   alias TradingDesk.Data.AmmoniaPrices
   alias TradingDesk.Data.API.{USGS, Broker}
@@ -348,7 +348,7 @@ defmodule TradingDesk.Data.History.Ingester do
 
       case %RiverStageHistory{}
            |> RiverStageHistory.changeset(attrs)
-           |> TradeRepo.insert(on_conflict: :nothing, conflict_target: [:date, :gauge_key]) do
+           |> Repo.insert(on_conflict: :nothing, conflict_target: [:date, :gauge_key]) do
         {:ok, _}    -> count + 1
         {:error, _} -> count
       end
@@ -363,7 +363,7 @@ defmodule TradingDesk.Data.History.Ingester do
     Enum.reduce(rows, 0, fn attrs, count ->
       case %AmmoniaPriceHistory{}
            |> AmmoniaPriceHistory.changeset(attrs)
-           |> TradeRepo.insert(on_conflict: :nothing, conflict_target: [:date, :benchmark_key]) do
+           |> Repo.insert(on_conflict: :nothing, conflict_target: [:date, :benchmark_key]) do
         {:ok, _}    -> count + 1
         {:error, _} -> count
       end
@@ -378,7 +378,7 @@ defmodule TradingDesk.Data.History.Ingester do
     Enum.reduce(rows, 0, fn attrs, count ->
       case %FreightRateHistory{}
            |> FreightRateHistory.changeset(attrs)
-           |> TradeRepo.insert(on_conflict: :nothing, conflict_target: [:date, :route]) do
+           |> Repo.insert(on_conflict: :nothing, conflict_target: [:date, :route]) do
         {:ok, _}    -> count + 1
         {:error, _} -> count
       end

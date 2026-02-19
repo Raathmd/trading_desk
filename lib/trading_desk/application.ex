@@ -5,7 +5,6 @@ defmodule TradingDesk.Application do
   def start(_type, _args) do
     children = [
       TradingDesk.Repo,
-      TradingDesk.TradeRepo,
       TradingDesk.DB.SnapshotLog,
       {Phoenix.PubSub, name: TradingDesk.PubSub},
       TradingDesk.Config.DeltaConfig,
