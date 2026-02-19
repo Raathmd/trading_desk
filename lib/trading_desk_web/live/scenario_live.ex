@@ -25,6 +25,7 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.Scenarios.Store
   alias TradingDesk.ProductGroup
   alias TradingDesk.Traders
+  alias TradingDesk.Data.History.{Ingester, Stats}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -110,6 +111,11 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:contracts_data, load_contracts_data())
       |> assign(:api_status, load_api_status())
       |> assign(:solve_history, [])
+      |> assign(:history_stats, nil)
+      |> assign(:ingestion_running, false)
+      |> assign(:history_source, :river)
+      |> assign(:history_year_from, Date.utc_today().year - 1)
+      |> assign(:history_year_to, Date.utc_today().year)
 
     {:ok, socket}
   end
@@ -415,11 +421,49 @@ defmodule TradingDesk.ScenarioLive do
           assign(socket, contracts_data: load_contracts_data())
         :solves ->
           assign(socket, solve_history: load_solve_history(socket.assigns.product_group))
+        :history ->
+          assign(socket, history_stats: Stats.all(history_filter_opts(socket.assigns)))
         _ ->
           socket
       end
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("filter_history", params, socket) do
+    source = params["source"] && String.to_existing_atom(params["source"])
+    year_from = params["year_from"] && String.to_integer(params["year_from"])
+    year_to   = params["year_to"]   && String.to_integer(params["year_to"])
+
+    socket =
+      socket
+      |> then(fn s -> if source,    do: assign(s, :history_source, source),         else: s end)
+      |> then(fn s -> if year_from, do: assign(s, :history_year_from, year_from),   else: s end)
+      |> then(fn s -> if year_to,   do: assign(s, :history_year_to, year_to),       else: s end)
+
+    socket = assign(socket, :history_stats, Stats.all(history_filter_opts(socket.assigns)))
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("trigger_backfill", _params, socket) do
+    pid = self()
+    Task.Supervisor.start_child(TradingDesk.Contracts.TaskSupervisor, fn ->
+      Ingester.run_full_backfill()
+      send(pid, :history_ingestion_complete)
+    end)
+    {:noreply, assign(socket, :ingestion_running, true)}
+  end
+
+  @impl true
+  def handle_event("snapshot_today", _params, socket) do
+    pid = self()
+    Task.Supervisor.start_child(TradingDesk.Contracts.TaskSupervisor, fn ->
+      Ingester.snapshot_today()
+      send(pid, :history_ingestion_complete)
+    end)
+    {:noreply, assign(socket, :ingestion_running, true)}
   end
 
   # --- Async solve handlers ---
@@ -647,6 +691,15 @@ defmodule TradingDesk.ScenarioLive do
   end
 
   @impl true
+  def handle_info(:history_ingestion_complete, socket) do
+    socket =
+      socket
+      |> assign(:ingestion_running, false)
+      |> assign(:history_stats, Stats.all(history_filter_opts(socket.assigns)))
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_info({:auto_explanation, text}, socket) do
     auto_result =
       if socket.assigns.auto_result do
@@ -816,7 +869,7 @@ defmodule TradingDesk.ScenarioLive do
         <div style="overflow-y:auto;padding:16px">
           <%!-- Tab buttons --%>
           <div style="display:flex;gap:2px;margin-bottom:16px">
-            <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}] do %>
+            <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}, {:history, "History", "#06b6d4"}] do %>
               <button phx-click="switch_tab" phx-value-tab={tab}
                 style={"padding:8px 16px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @active_tab == tab, do: "#111827", else: "transparent"};color:#{if @active_tab == tab, do: "#e2e8f0", else: "#475569"};border-bottom:2px solid #{if @active_tab == tab, do: color, else: "transparent"}"}>
                 <%= label %>
@@ -1724,6 +1777,267 @@ defmodule TradingDesk.ScenarioLive do
             </div>
           <% end %>
 
+          <%!-- ═══════ HISTORY TAB ═══════ --%>
+          <%= if @active_tab == :history do %>
+            <div style="background:#111827;border-radius:10px;padding:16px">
+              <%!-- Header row --%>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="font-size:12px;font-weight:700;color:#06b6d4;letter-spacing:1px">MARKET HISTORY</div>
+                <div style="display:flex;gap:8px">
+                  <%= if @ingestion_running do %>
+                    <span style="font-size:11px;color:#06b6d4;padding:6px 14px;border:1px solid #06b6d4;border-radius:6px;opacity:0.6">Running…</span>
+                  <% else %>
+                    <%= if @history_stats && (@history_stats.river.count > 0 || @history_stats.prices.count > 0) do %>
+                      <button phx-click="snapshot_today"
+                        style="font-size:11px;color:#06b6d4;padding:5px 12px;background:transparent;border:1px solid #06b6d4;border-radius:6px;cursor:pointer;font-weight:600">
+                        Snapshot Today
+                      </button>
+                    <% end %>
+                    <button phx-click="trigger_backfill"
+                      style={"font-size:11px;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:600;#{if !@history_stats || @history_stats.river.count == 0, do: "background:#06b6d4;color:#0a0f18;border:none;", else: "background:transparent;color:#475569;border:1px solid #1e293b;"}"}>
+                      <%= if !@history_stats || @history_stats.river.count == 0, do: "Run Full Backfill", else: "Re-run Backfill" %>
+                    </button>
+                  <% end %>
+                </div>
+              </div>
+
+              <%!-- Filter bar --%>
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 12px;background:#0a0f18;border-radius:8px;flex-wrap:wrap">
+                <%!-- Source selector --%>
+                <div style="display:flex;gap:2px">
+                  <%= for {src, label} <- [{:river, "River"}, {:prices, "Prices"}, {:freight, "Freight"}, {:vessels, "Vessels"}] do %>
+                    <button phx-click="filter_history" phx-value-source={src}
+                      style={"font-size:10px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @history_source == src, do: "background:#06b6d4;color:#0a0f18;", else: "background:#1e293b;color:#64748b;"}"}>
+                      <%= label %>
+                    </button>
+                  <% end %>
+                </div>
+
+                <div style="width:1px;height:20px;background:#1e293b"></div>
+
+                <%!-- Year from --%>
+                <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b">
+                  <span>From</span>
+                  <select phx-change="filter_history" name="year_from"
+                    style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 6px;border-radius:4px;font-size:10px;cursor:pointer">
+                    <%= for yr <- (Date.utc_today().year - 7)..(Date.utc_today().year) do %>
+                      <option value={yr} selected={yr == @history_year_from}><%= yr %></option>
+                    <% end %>
+                  </select>
+                  <span>To</span>
+                  <select phx-change="filter_history" name="year_to"
+                    style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 6px;border-radius:4px;font-size:10px;cursor:pointer">
+                    <%= for yr <- (Date.utc_today().year - 7)..(Date.utc_today().year) do %>
+                      <option value={yr} selected={yr == @history_year_to}><%= yr %></option>
+                    <% end %>
+                  </select>
+                </div>
+
+                <%= if @history_stats do %>
+                  <div style="margin-left:auto;font-size:10px;color:#334155">
+                    <%= case @history_source do
+                      :river   -> "#{@history_stats.river.count} rows"
+                      :prices  -> "#{@history_stats.prices.count} rows"
+                      :freight -> "#{@history_stats.freight.count} rows"
+                      _        -> ""
+                    end %>
+                  </div>
+                <% end %>
+              </div>
+
+              <%= if is_nil(@history_stats) do %>
+                <div style="text-align:center;padding:40px;color:#475569;font-size:12px">
+                  No data loaded yet.
+                  <span style="display:block;margin-top:8px;color:#06b6d4">Click Run Full Backfill to seed river history (5 years) and record today's prices and freight rates.</span>
+                </div>
+              <% else %>
+                <%!-- ── RIVER STAGE ── --%>
+                <%= if @history_source == :river do %>
+                <div style="margin-bottom:20px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">RIVER STAGE (USGS)</div>
+                    <div style="font-size:10px;color:#475569">
+                      <%= @history_stats.river.count %> rows
+                      <%= if @history_stats.river.min_date do %>
+                        &middot; <%= @history_stats.river.min_date %> → <%= @history_stats.river.max_date %>
+                      <% end %>
+                    </div>
+                  </div>
+                  <%= if @history_stats.river.count == 0 do %>
+                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
+                      No river stage data — backfill will fetch up to 5 years of USGS daily readings for Baton Rouge, Vicksburg, Memphis, and Cairo.
+                    </div>
+                  <% else %>
+                    <table style="width:100%;border-collapse:collapse;font-size:11px">
+                      <thead>
+                        <tr style="border-bottom:1px solid #1e293b">
+                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Date</th>
+                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Gauge</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Stage (ft)</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Flow (cfs)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <%= for row <- @history_stats.river.recent do %>
+                          <tr style="border-bottom:1px solid #0f172a">
+                            <td style="padding:5px 8px;color:#94a3b8;font-family:monospace"><%= row.date %></td>
+                            <td style="padding:5px 8px;color:#e2e8f0"><%= row.gauge_key %></td>
+                            <td style="padding:5px 8px;text-align:right;color:#06b6d4;font-family:monospace;font-weight:600">
+                              <%= if row.stage_ft, do: Float.round(row.stage_ft, 1), else: "—" %>
+                            </td>
+                            <td style="padding:5px 8px;text-align:right;color:#475569;font-family:monospace">
+                              <%= if row.flow_cfs, do: :erlang.float_to_binary(row.flow_cfs / 1.0, decimals: 0), else: "—" %>
+                            </td>
+                          </tr>
+                        <% end %>
+                      </tbody>
+                    </table>
+                  <% end %>
+                </div>
+
+                <% end %>
+                <%!-- ── AMMONIA PRICES ── --%>
+                <%= if @history_source == :prices do %>
+                <div style="margin-bottom:20px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">AMMONIA PRICES</div>
+                    <div style="font-size:10px;color:#475569">
+                      <%= @history_stats.prices.count %> rows
+                      <%= if @history_stats.prices.min_date do %>
+                        &middot; <%= @history_stats.prices.min_date %> → <%= @history_stats.prices.max_date %>
+                      <% end %>
+                    </div>
+                  </div>
+                  <%= if @history_stats.prices.count == 0 do %>
+                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
+                      No price history — use Snapshot Today to record current benchmarks, or import a CSV from Argus/Fertecon via <code style="color:#06b6d4">Ingester.import_prices/1</code>.
+                    </div>
+                  <% else %>
+                    <table style="width:100%;border-collapse:collapse;font-size:11px">
+                      <thead>
+                        <tr style="border-bottom:1px solid #1e293b">
+                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Date</th>
+                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Benchmark</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Price</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Source</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <%= for row <- @history_stats.prices.recent do %>
+                          <tr style="border-bottom:1px solid #0f172a">
+                            <td style="padding:5px 8px;color:#94a3b8;font-family:monospace"><%= row.date %></td>
+                            <td style="padding:5px 8px;color:#e2e8f0"><%= row.benchmark_key %></td>
+                            <td style="padding:5px 8px;text-align:right;color:#10b981;font-family:monospace;font-weight:600">
+                              $<%= Float.round(row.price_usd, 2) %> <span style="color:#475569;font-size:10px"><%= row.unit %></span>
+                            </td>
+                            <td style="padding:5px 8px;text-align:right;color:#475569;font-size:10px"><%= row.source %></td>
+                          </tr>
+                        <% end %>
+                      </tbody>
+                    </table>
+                  <% end %>
+                </div>
+
+                <% end %>
+                <%!-- ── FREIGHT RATES ── --%>
+                <%= if @history_source == :freight do %>
+                <div style="margin-bottom:20px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">BARGE FREIGHT RATES</div>
+                    <div style="font-size:10px;color:#475569">
+                      <%= @history_stats.freight.count %> rows
+                      <%= if @history_stats.freight.min_date do %>
+                        &middot; <%= @history_stats.freight.min_date %> → <%= @history_stats.freight.max_date %>
+                      <% end %>
+                    </div>
+                  </div>
+                  <%= if @history_stats.freight.count == 0 do %>
+                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
+                      No freight history — Snapshot Today will record current broker rates, or import via <code style="color:#06b6d4">Ingester.import_freight/1</code>.
+                    </div>
+                  <% else %>
+                    <table style="width:100%;border-collapse:collapse;font-size:11px">
+                      <thead>
+                        <tr style="border-bottom:1px solid #1e293b">
+                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Date</th>
+                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Route</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Rate ($/ton)</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Source</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <%= for row <- @history_stats.freight.recent do %>
+                          <tr style="border-bottom:1px solid #0f172a">
+                            <td style="padding:5px 8px;color:#94a3b8;font-family:monospace"><%= row.date %></td>
+                            <td style="padding:5px 8px;color:#e2e8f0"><%= row.route %></td>
+                            <td style="padding:5px 8px;text-align:right;color:#f59e0b;font-family:monospace;font-weight:600">
+                              $<%= Float.round(row.rate_per_ton, 2) %>
+                            </td>
+                            <td style="padding:5px 8px;text-align:right;color:#475569;font-size:10px"><%= row.source %></td>
+                          </tr>
+                        <% end %>
+                      </tbody>
+                    </table>
+                  <% end %>
+                </div>
+
+                <% end %>
+                <%!-- ── VESSEL POSITIONS (AIS) ── --%>
+                <%= if @history_source == :vessels do %>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">VESSEL POSITIONS (AIS)</div>
+                    <%= if @vessel_data do %>
+                      <div style="font-size:10px;color:#475569">
+                        <%= @vessel_data.fleet_summary.total_vessels %> tracked
+                        &middot; <%= @vessel_data.fleet_summary.northbound %> NB
+                        &middot; <%= @vessel_data.fleet_summary.southbound %> SB
+                      </div>
+                    <% end %>
+                  </div>
+
+                  <%= if is_nil(@vessel_data) do %>
+                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
+                      No AIS provider configured. Set one of:
+                      <code style="color:#06b6d4;display:block;margin-top:6px">VESSELFINDER_API_KEY</code>
+                      <code style="color:#06b6d4">MARINETRAFFIC_API_KEY</code>
+                      <code style="color:#06b6d4">AISHUB_API_KEY</code>
+                      <span style="display:block;margin-top:6px;color:#334155">VesselFinder is the easiest starting point — free developer key at api.vesselfinder.com. MarineTraffic PS06 covers ocean vessels. AISHub is free if you run a receiver.</span>
+                    </div>
+                  <% else %>
+                    <table style="width:100%;border-collapse:collapse;font-size:11px">
+                      <thead>
+                        <tr style="border-bottom:1px solid #1e293b">
+                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Vessel</th>
+                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Near</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Mile</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Speed (kn)</th>
+                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <%= for v <- @vessel_data.vessels do %>
+                          <tr style="border-bottom:1px solid #0f172a">
+                            <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.name %></td>
+                            <td style="padding:5px 8px;color:#94a3b8;font-size:10px"><%= v.nearest_waypoint %></td>
+                            <td style="padding:5px 8px;text-align:right;color:#06b6d4;font-family:monospace"><%= v.river_mile %></td>
+                            <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace"><%= v.speed || "—" %></td>
+                            <td style="padding:5px 8px;text-align:right">
+                              <span style={"font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;#{case v.status do :underway_engine -> "background:#14532d;color:#4ade80"; :moored -> "background:#1e3a5f;color:#60a5fa"; :at_anchor -> "background:#422006;color:#fb923c"; _ -> "background:#1e293b;color:#64748b" end}"}>
+                                <%= v.status |> to_string() |> String.replace("_", " ") |> String.upcase() %>
+                              </span>
+                            </td>
+                          </tr>
+                        <% end %>
+                      </tbody>
+                    </table>
+                  <% end %>
+                </div>
+                <% end %>
+              <% end %>
+            </div>
+          <% end %>
+
           <%!-- ═══════ SOLVES TAB ═══════ --%>
           <%= if @active_tab == :solves do %>
             <div style="background:#111827;border-radius:10px;padding:16px">
@@ -2186,6 +2500,15 @@ defmodule TradingDesk.ScenarioLive do
       total_sale_open: book.total_sale_open,
       net_position: book.net_position
     }
+  end
+
+  defp history_filter_opts(assigns) do
+    year_from = Map.get(assigns, :history_year_from, Date.utc_today().year - 1)
+    year_to   = Map.get(assigns, :history_year_to,   Date.utc_today().year)
+    [
+      from: Date.new!(year_from, 1, 1),
+      to:   Date.new!(year_to, 12, 31)
+    ]
   end
 
   defp load_api_status do
