@@ -21,6 +21,8 @@ defmodule TradingDesk.IntentMapper do
 
   alias TradingDesk.ProductGroup
   alias TradingDesk.Contracts.SapPositions
+  alias TradingDesk.Contracts.Store, as: ContractStore
+  alias TradingDesk.Trader.DeliverySchedule
 
   @model "claude-sonnet-4-5-20250929"
 
@@ -44,6 +46,15 @@ defmodule TradingDesk.IntentMapper do
     vars_text = format_current_vars(current_vars, frame)
     positions_text = format_positions(book)
 
+    # Load active delivery schedules for penalty exposure context
+    active_contracts = safe_active_contracts(product_group)
+    schedules = DeliverySchedule.from_contracts(active_contracts)
+    delivery_text =
+      if schedules != [],
+        do: DeliverySchedule.format_for_prompt(schedules),
+        else: "No active delivery schedules loaded."
+    total_exposure = DeliverySchedule.total_daily_exposure(schedules)
+
     prompt = """
     You are a commodity trading desk system that interprets trader actions.
 
@@ -58,6 +69,17 @@ defmodule TradingDesk.IntentMapper do
 
     Net position: #{book.net_position} MT (positive = Trammo is long ammonia)
 
+    DELIVERY SCHEDULES (sorted by daily penalty exposure, highest first):
+    #{delivery_text}
+    Total daily exposure if all deliveries slip: $#{round(total_exposure)}/day
+
+    AVAILABLE SOLVER OBJECTIVES:
+    - max_profit: Maximize total profit across all routes
+    - min_cost: Minimize total cost (best when capital or fleet is constrained)
+    - max_roi: Maximize return on working capital
+    - cvar_adjusted: CVaR-adjusted optimization (reduces tail risk)
+    - min_risk: Minimize risk exposure (most conservative; avoids penalty exposure)
+
     INSTRUCTIONS:
     Interpret the trader's intent and return ONLY a JSON object (no markdown, no explanation) with these fields:
 
@@ -68,15 +90,24 @@ defmodule TradingDesk.IntentMapper do
         {"counterparty": "name", "direction": "purchase|sale", "impact": "description of impact", "open_qty_change": 0}
       ],
       "risk_notes": ["any penalties or contract risks triggered by this action"],
-      "confidence": "high|medium|low"
+      "confidence": "high|medium|low",
+      "objective": "max_profit|min_cost|max_roi|cvar_adjusted|min_risk",
+      "event_type": "barge_failure|port_outage|market_move|volume_change|other",
+      "priority_deliveries": ["counterparty names that must be served first given capacity constraints"],
+      "deferred_deliveries": ["counterparty names whose delivery can be deferred if capacity is short"],
+      "penalty_exposure": 0.0
     }
 
     Rules:
     - variable_adjustments keys MUST be valid solver variable keys from the list above
     - Only include variables that the trader's action would change
     - If the trader describes a market scenario (river drop, outage, price change), adjust those variables
+    - If the trader describes a fleet event (barge failure, repair), reduce barge_count accordingly
     - If the trader describes a trading action (redirect cargo, increase volume), note the affected contracts
     - risk_notes should mention specific penalty clauses if volume shortfall or late delivery is possible
+    - objective should be the solver objective best suited to the scenario (e.g. min_cost for fleet constraints)
+    - priority_deliveries and deferred_deliveries should reflect penalty exposure — serve highest-penalty customers first
+    - penalty_exposure should estimate total $ penalty if deferred deliveries are delayed past grace period
     - Return ONLY the JSON, nothing else
     """
 
@@ -130,7 +161,12 @@ defmodule TradingDesk.IntentMapper do
             net_position: book.net_position,
             total_purchase: book.total_purchase_open,
             total_sale: book.total_sale_open
-          }
+          },
+          objective: parse_objective(Map.get(parsed, "objective")),
+          event_type: parse_event_type(Map.get(parsed, "event_type")),
+          priority_deliveries: Map.get(parsed, "priority_deliveries", []),
+          deferred_deliveries: Map.get(parsed, "deferred_deliveries", []),
+          penalty_exposure: parse_number(Map.get(parsed, "penalty_exposure", 0))
         }}
 
       {:error, _} ->
@@ -145,7 +181,12 @@ defmodule TradingDesk.IntentMapper do
             net_position: book.net_position,
             total_purchase: book.total_purchase_open,
             total_sale: book.total_sale_open
-          }
+          },
+          objective: nil,
+          event_type: nil,
+          priority_deliveries: [],
+          deferred_deliveries: [],
+          penalty_exposure: 0.0
         }}
     end
   end
@@ -179,6 +220,23 @@ defmodule TradingDesk.IntentMapper do
   end
   defp parse_number(v) when is_number(v), do: v / 1
   defp parse_number(_), do: 0.0
+
+  @valid_objectives ~w[max_profit min_cost max_roi cvar_adjusted min_risk]
+  defp parse_objective(s) when is_binary(s) and s in @valid_objectives, do: String.to_atom(s)
+  defp parse_objective(_), do: nil
+
+  @valid_event_types ~w[barge_failure port_outage market_move volume_change other]
+  defp parse_event_type(s) when is_binary(s) and s in @valid_event_types, do: String.to_atom(s)
+  defp parse_event_type(s) when is_binary(s), do: :other
+  defp parse_event_type(_), do: nil
+
+  defp safe_active_contracts(product_group) do
+    ContractStore.get_active_set(product_group)
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
 
   defp call_claude(prompt) do
     api_key = System.get_env("ANTHROPIC_API_KEY")

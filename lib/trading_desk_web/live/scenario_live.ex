@@ -132,13 +132,15 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_event("confirm_solve", _params, socket) do
-    # Apply intent variable adjustments if any, then solve
+    # Apply intent variable adjustments and recommended objective if any, then solve
     vars = apply_intent_adjustments(socket.assigns.current_vars, socket.assigns.intent)
+    objective = maybe_intent_objective(socket.assigns.intent, socket.assigns.objective_mode)
     mode = socket.assigns.review_mode
 
     socket =
       socket
       |> assign(:current_vars, vars)
+      |> assign(:objective_mode, objective)
       |> assign(:show_review, false)
       |> assign(:solving, true)
       |> assign(:pipeline_phase, :checking_contracts)
@@ -1734,6 +1736,31 @@ defmodule TradingDesk.ScenarioLive do
                     <div style="font-size:11px;color:#fca5a5;padding:2px 0"><%= note %></div>
                   <% end %>
                 <% end %>
+
+                <%= if Map.get(@intent, :penalty_exposure, 0) > 0 do %>
+                  <div style="font-size:10px;color:#f97316;letter-spacing:1px;margin-bottom:4px;margin-top:8px">DELIVERY PENALTY EXPOSURE</div>
+                  <div style="font-size:13px;font-weight:700;font-family:monospace;color:#fdba74">
+                    $<%= format_number(Map.get(@intent, :penalty_exposure, 0)) %>
+                  </div>
+                  <%= if length(Map.get(@intent, :priority_deliveries, [])) > 0 do %>
+                    <div style="font-size:10px;color:#4ade80;margin-top:4px">
+                      PRIORITY: <%= Enum.join(Map.get(@intent, :priority_deliveries, []), ", ") %>
+                    </div>
+                  <% end %>
+                  <%= if length(Map.get(@intent, :deferred_deliveries, [])) > 0 do %>
+                    <div style="font-size:10px;color:#f59e0b;margin-top:2px">
+                      DEFER: <%= Enum.join(Map.get(@intent, :deferred_deliveries, []), ", ") %>
+                    </div>
+                  <% end %>
+                <% end %>
+
+                <%= if Map.get(@intent, :objective) do %>
+                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:2px;margin-top:8px">AI RECOMMENDED OBJECTIVE</div>
+                  <div style="font-size:12px;font-weight:700;color:#60a5fa">
+                    <%= objective_label(Map.get(@intent, :objective)) %>
+                  </div>
+                  <div style="font-size:10px;color:#475569">Applied automatically when you confirm</div>
+                <% end %>
               </div>
             <% end %>
 
@@ -2191,6 +2218,9 @@ defmodule TradingDesk.ScenarioLive do
   end
   defp apply_intent_adjustments(vars, _), do: vars
 
+  defp maybe_intent_objective(%{objective: obj}, _default) when not is_nil(obj), do: obj
+  defp maybe_intent_objective(_, default), do: default
+
   defp parse_value(_key, "true"), do: true
   defp parse_value(_key, "false"), do: false
   defp parse_value(_key, value) when is_binary(value) do
@@ -2202,6 +2232,13 @@ defmodule TradingDesk.ScenarioLive do
   defp parse_value(_key, value), do: value
 
   # --- Pipeline UI helpers ---
+
+  defp objective_label(:max_profit), do: "Maximize Profit"
+  defp objective_label(:min_cost), do: "Minimize Cost"
+  defp objective_label(:max_roi), do: "Maximize ROI"
+  defp objective_label(:cvar_adjusted), do: "CVaR-Adjusted"
+  defp objective_label(:min_risk), do: "Minimize Risk"
+  defp objective_label(_), do: "Custom Objective"
 
   defp analyst_error_text(:no_api_key), do: "ANTHROPIC_API_KEY not set. Export it in your shell to enable analyst explanations."
   defp analyst_error_text(:api_error), do: "Claude API returned an error. Check logs for details."

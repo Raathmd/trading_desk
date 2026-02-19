@@ -353,6 +353,25 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
                         "demurrage_interaction" => "not_affected_unless_dock_inaccessible"}
         ),
 
+        # DELIVERY_SCHEDULE_TERMS: Quarterly delivery commitments with late penalty.
+        # Extracted by DeliverySchedule.from_contract/1 to calculate penalty exposure.
+        clause("DELIVERY_SCHEDULE_TERMS", :delivery, :logistics,
+          "Quarterly delivery commitment: minimum 10,000 Metric Tons per loading window " <>
+          "as nominated. Each delivery window is open for 14 days from the scheduled " <>
+          "nomination date. Grace period: 5 business days before late delivery penalties " <>
+          "accrue. Late delivery penalty: USD 2.50 per Metric Ton per day of delay " <>
+          "beyond grace period. Penalty cap: 10% of affected shipment invoice value.",
+          fields: %{
+            "scheduled_qty_mt"       => 10_000.0,
+            "frequency"              => "quarterly",
+            "delivery_window_days"   => 14,
+            "grace_period_days"      => 5,
+            "penalty_per_mt_per_day" => 2.50,
+            "penalty_cap_pct"        => 10.0,
+            "next_window_days"       => 30
+          }
+        ),
+
         # ── NON-LP CLAUSES (legal, compliance, vessel ops) ──
 
         clause("INCOTERMS", :metadata, :metadata,
@@ -672,6 +691,23 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
                         "demurrage_interaction" => "not_tolled_unless_dock_inaccessible"}
         ),
 
+        # DELIVERY_SCHEDULE_TERMS: Spot delivery window — currently open.
+        clause("DELIVERY_SCHEDULE_TERMS", :delivery, :logistics,
+          "Spot delivery: 3,000 Metric Tons within 10-day loading window from contract " <>
+          "date. Delivery window currently open. Grace period: 2 business days. " <>
+          "Late delivery penalty: USD 3.00 per Metric Ton per day after grace period. " <>
+          "Penalty cap: 10% of cargo invoice value.",
+          fields: %{
+            "scheduled_qty_mt"       => 3_000.0,
+            "frequency"              => "spot",
+            "delivery_window_days"   => 10,
+            "grace_period_days"      => 2,
+            "penalty_per_mt_per_day" => 3.00,
+            "penalty_cap_pct"        => 10.0,
+            "next_window_days"       => 0
+          }
+        ),
+
         # Non-LP clauses
         clause("INCOTERMS", :metadata, :metadata,
           "INCOTERMS 2020 — FOB Geismar, Louisiana.",
@@ -885,6 +921,24 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
                         "quality_basis" => "discharge_port_cert"}
         ),
 
+        # DELIVERY_SCHEDULE_TERMS: Spot sale delivery — window currently open.
+        clause("DELIVERY_SCHEDULE_TERMS", :delivery, :logistics,
+          "Spot delivery commitment: 5,000 Metric Tons within 14-day delivery window, " <>
+          "currently open. Grace period: 3 business days after scheduled delivery date " <>
+          "before late delivery penalties accrue. " <>
+          "Late delivery penalty: USD 4.00 per Metric Ton per day. " <>
+          "Penalty cap: 10% of contract value.",
+          fields: %{
+            "scheduled_qty_mt"       => 5_000.0,
+            "frequency"              => "spot",
+            "delivery_window_days"   => 14,
+            "grace_period_days"      => 3,
+            "penalty_per_mt_per_day" => 4.00,
+            "penalty_cap_pct"        => 10.0,
+            "next_window_days"       => 0
+          }
+        ),
+
         # Non-LP clauses
         clause("INCOTERMS", :metadata, :metadata,
           "INCOTERMS 2020 — DAP St. Louis, Missouri.",
@@ -1084,6 +1138,23 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
                         "cost_split" => "50_50",
                         "qty_basis" => "flow_meter",
                         "quality_basis" => "discharge_cert"}
+        ),
+
+        # DELIVERY_SCHEDULE_TERMS: Spot sale delivery to Memphis — window currently open.
+        clause("DELIVERY_SCHEDULE_TERMS", :delivery, :logistics,
+          "Spot delivery commitment: 4,000 Metric Tons within 10-day delivery window, " <>
+          "currently open. Grace period: 2 business days. " <>
+          "Late delivery penalty: USD 3.50 per Metric Ton per day after grace period. " <>
+          "Penalty cap: 10% of shipment invoice value.",
+          fields: %{
+            "scheduled_qty_mt"       => 4_000.0,
+            "frequency"              => "spot",
+            "delivery_window_days"   => 10,
+            "grace_period_days"      => 2,
+            "penalty_per_mt_per_day" => 3.50,
+            "penalty_cap_pct"        => 10.0,
+            "next_window_days"       => 0
+          }
         ),
 
         # Non-LP clauses
@@ -1336,6 +1407,24 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
           fields:     %{"inspector_appointer" => "jointly",
                         "cost_split" => "50_50",
                         "qty_basis" => "certified_scale_weight"}
+        ),
+
+        # DELIVERY_SCHEDULE_TERMS: Quarterly supply schedule — next window in 14 days.
+        clause("DELIVERY_SCHEDULE_TERMS", :delivery, :logistics,
+          "Quarterly delivery schedule: 7,500 Metric Tons per quarter within 21-day " <>
+          "delivery window per Seller's quarterly plan. Next window opens in 14 days. " <>
+          "Grace period: 5 business days per shipment before penalty accrues. " <>
+          "Late delivery penalty: USD 2.00 per Metric Ton per day. " <>
+          "Penalty cap: 10% of quarterly invoice value. Annual commitment: 30,000 MT.",
+          fields: %{
+            "scheduled_qty_mt"       => 7_500.0,
+            "frequency"              => "quarterly",
+            "delivery_window_days"   => 21,
+            "grace_period_days"      => 5,
+            "penalty_per_mt_per_day" => 2.00,
+            "penalty_cap_pct"        => 10.0,
+            "next_window_days"       => 14
+          }
         ),
 
         # Non-LP clauses
