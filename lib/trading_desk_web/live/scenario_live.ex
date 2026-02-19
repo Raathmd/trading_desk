@@ -26,6 +26,7 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.ProductGroup
   alias TradingDesk.Traders
   alias TradingDesk.Data.History.{Ingester, Stats}
+  alias TradingDesk.Fleet.TrackedVessel
 
   @impl true
   def mount(_params, _session, socket) do
@@ -116,6 +117,9 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:history_source, :river)
       |> assign(:history_year_from, Date.utc_today().year - 1)
       |> assign(:history_year_to, Date.utc_today().year)
+      # Fleet tab
+      |> assign(:fleet_vessels, [])
+      |> assign(:fleet_pg_filter, to_string(product_group))
 
     {:ok, socket}
   end
@@ -423,12 +427,72 @@ defmodule TradingDesk.ScenarioLive do
           assign(socket, solve_history: load_solve_history(socket.assigns.product_group))
         :history ->
           assign(socket, history_stats: Stats.all(history_filter_opts(socket.assigns)))
+        :fleet ->
+          assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))
         _ ->
           socket
       end
 
     {:noreply, socket}
   end
+
+  # ── Fleet tab events ──
+
+  @impl true
+  def handle_event("fleet_filter_pg", %{"pg" => pg}, socket) do
+    socket =
+      socket
+      |> assign(:fleet_pg_filter, pg)
+      |> assign(:fleet_vessels, load_fleet_vessels(pg))
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("fleet_toggle_tracking", %{"id" => id}, socket) do
+    vessel = TradingDesk.Repo.get(TrackedVessel, id)
+    if vessel do
+      new_status = if vessel.status in ["active", "in_transit"], do: "cancelled", else: "active"
+      TrackedVessel.update(vessel, %{status: new_status})
+      # Refresh AIS subscription with updated MMSI list
+      TradingDesk.Data.AIS.AISStreamConnector.refresh_tracked()
+    end
+    {:noreply, assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))}
+  end
+
+  @impl true
+  def handle_event("fleet_add_vessel", params, socket) do
+    attrs = %{
+      vessel_name: String.trim(params["vessel_name"] || ""),
+      mmsi: nilify(params["mmsi"]),
+      imo: nilify(params["imo"]),
+      sap_shipping_number: nilify(params["sap_shipping"]),
+      sap_contract_id: nilify(params["sap_contract"]),
+      product_group: socket.assigns.fleet_pg_filter,
+      cargo: nilify(params["cargo"]),
+      loading_port: nilify(params["loading_port"]),
+      discharge_port: nilify(params["discharge_port"]),
+      eta: parse_date(params["eta"]),
+      status: "active"
+    }
+
+    case TrackedVessel.create(attrs) do
+      {:ok, _} ->
+        TradingDesk.Data.AIS.AISStreamConnector.refresh_tracked()
+        {:noreply, assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))}
+      {:error, _cs} ->
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("fleet_delete_vessel", %{"id" => id}, socket) do
+    vessel = TradingDesk.Repo.get(TrackedVessel, id)
+    if vessel, do: TrackedVessel.delete(vessel)
+    TradingDesk.Data.AIS.AISStreamConnector.refresh_tracked()
+    {:noreply, assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))}
+  end
+
+  # ── History tab events ──
 
   @impl true
   def handle_event("filter_history", params, socket) do
@@ -869,7 +933,7 @@ defmodule TradingDesk.ScenarioLive do
         <div style="overflow-y:auto;padding:16px">
           <%!-- Tab buttons --%>
           <div style="display:flex;gap:2px;margin-bottom:16px">
-            <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}, {:history, "History", "#06b6d4"}] do %>
+            <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:fleet, "Fleet", "#22d3ee"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}, {:history, "History", "#06b6d4"}] do %>
               <button phx-click="switch_tab" phx-value-tab={tab}
                 style={"padding:8px 16px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @active_tab == tab, do: "#111827", else: "transparent"};color:#{if @active_tab == tab, do: "#e2e8f0", else: "#475569"};border-bottom:2px solid #{if @active_tab == tab, do: color, else: "transparent"}"}>
                 <%= label %>
@@ -1777,6 +1841,132 @@ defmodule TradingDesk.ScenarioLive do
             </div>
           <% end %>
 
+          <%!-- ═══════ FLEET TAB ═══════ --%>
+          <%= if @active_tab == :fleet do %>
+            <div style="background:#111827;border-radius:10px;padding:16px">
+              <%!-- Header --%>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="font-size:12px;font-weight:700;color:#22d3ee;letter-spacing:1px">FLEET MANAGEMENT</div>
+                <div style="font-size:10px;color:#475569"><%= length(@fleet_vessels) %> vessel<%= if length(@fleet_vessels) != 1, do: "s" %></div>
+              </div>
+
+              <%!-- Product group filter — defaults to user's product group --%>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 12px;background:#0a0f18;border-radius:8px">
+                <span style="font-size:10px;color:#64748b;font-weight:600">PRODUCT GROUP</span>
+                <div style="display:flex;gap:2px">
+                  <%= for {pg, label} <- [{"ammonia_domestic", "NH3 Domestic"}, {"ammonia_international", "NH3 Intl"}, {"sulphur_international", "Sulphur"}, {"petcoke", "Petcoke"}, {"all", "All"}] do %>
+                    <button phx-click="fleet_filter_pg" phx-value-pg={pg}
+                      style={"font-size:10px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @fleet_pg_filter == pg, do: "background:#22d3ee;color:#0a0f18;", else: "background:#1e293b;color:#64748b;"}"}>
+                      <%= label %>
+                    </button>
+                  <% end %>
+                </div>
+              </div>
+
+              <%!-- Vessel table --%>
+              <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
+                <thead>
+                  <tr style="border-bottom:1px solid #1e293b">
+                    <th style="text-align:center;padding:5px 6px;color:#64748b;font-weight:600;width:50px">Track</th>
+                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Vessel</th>
+                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">MMSI</th>
+                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">SAP Ship#</th>
+                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Cargo</th>
+                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Route</th>
+                    <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">ETA</th>
+                    <th style="text-align:center;padding:5px 6px;color:#64748b;font-weight:600;width:40px"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= if length(@fleet_vessels) == 0 do %>
+                    <tr>
+                      <td colspan="8" style="padding:24px;text-align:center;color:#475569;font-size:12px">
+                        No vessels registered for this product group yet. Add one below.
+                      </td>
+                    </tr>
+                  <% end %>
+                  <%= for v <- @fleet_vessels do %>
+                    <tr style={"border-bottom:1px solid #0f172a;#{if v.status in ["discharged", "cancelled"], do: "opacity:0.4;", else: ""}"}>
+                      <td style="padding:5px 6px;text-align:center">
+                        <button phx-click="fleet_toggle_tracking" phx-value-id={v.id}
+                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if v.status in ["active", "in_transit"], do: "background:#22d3ee;", else: "background:#334155;"}"}>
+                          <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left 0.15s;#{if v.status in ["active", "in_transit"], do: "left:14px;", else: "left:2px;"}"}></span>
+                        </button>
+                      </td>
+                      <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.vessel_name %></td>
+                      <td style="padding:5px 8px;color:#94a3b8;font-family:monospace;font-size:10px"><%= v.mmsi || "—" %></td>
+                      <td style="padding:5px 8px;color:#94a3b8;font-size:10px"><%= v.sap_shipping_number || "—" %></td>
+                      <td style="padding:5px 8px;color:#94a3b8"><%= v.cargo || "—" %></td>
+                      <td style="padding:5px 8px;color:#94a3b8;font-size:10px">
+                        <%= if v.loading_port || v.discharge_port do %>
+                          <%= v.loading_port || "?" %> → <%= v.discharge_port || "?" %>
+                        <% else %>
+                          —
+                        <% end %>
+                      </td>
+                      <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px"><%= if v.eta, do: v.eta, else: "—" %></td>
+                      <td style="padding:5px 6px;text-align:center">
+                        <button phx-click="fleet_delete_vessel" phx-value-id={v.id}
+                          data-confirm="Remove this vessel from tracking?"
+                          style="background:none;border:none;color:#475569;cursor:pointer;font-size:12px;padding:2px 4px">
+                          &times;
+                        </button>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+
+              <%!-- Add vessel form --%>
+              <div style="border-top:1px solid #1e293b;padding-top:12px">
+                <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600;margin-bottom:8px">ADD VESSEL</div>
+                <form phx-submit="fleet_add_vessel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;align-items:end">
+                  <div>
+                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">Vessel Name *</label>
+                    <input name="vessel_name" required placeholder="MT Gas Chem Beluga"
+                      style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
+                  </div>
+                  <div>
+                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">MMSI</label>
+                    <input name="mmsi" placeholder="338234567" maxlength="9"
+                      style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:monospace" />
+                  </div>
+                  <div>
+                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">SAP Ship#</label>
+                    <input name="sap_shipping" placeholder="80012345"
+                      style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
+                  </div>
+                  <div>
+                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">Cargo</label>
+                    <input name="cargo" placeholder="Anhydrous Ammonia"
+                      style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
+                  </div>
+                  <div>
+                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">Loading Port</label>
+                    <input name="loading_port" placeholder="Donaldsonville"
+                      style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
+                  </div>
+                  <div>
+                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">Discharge Port</label>
+                    <input name="discharge_port" placeholder="Tampa"
+                      style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
+                  </div>
+                  <div>
+                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">ETA</label>
+                    <input name="eta" type="date"
+                      style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
+                  </div>
+                  <div>
+                    <button type="submit"
+                      style="width:100%;background:#22d3ee;color:#0a0f18;border:none;padding:6px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">
+                      Add Vessel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          <% end %>
+
           <%!-- ═══════ HISTORY TAB ═══════ --%>
           <%= if @active_tab == :history do %>
             <div style="background:#111827;border-radius:10px;padding:16px">
@@ -2506,6 +2696,34 @@ defmodule TradingDesk.ScenarioLive do
       total_sale_open: book.total_sale_open,
       net_position: book.net_position
     }
+  end
+
+  defp load_fleet_vessels(pg_filter) do
+    if pg_filter in ["", "all"] do
+      TrackedVessel.list_all()
+    else
+      import Ecto.Query
+      TradingDesk.Repo.all(
+        from v in TrackedVessel,
+          where: v.product_group == ^pg_filter,
+          order_by: [asc: v.status, desc: v.updated_at]
+      )
+    end
+  rescue
+    _ -> []
+  end
+
+  defp nilify(nil), do: nil
+  defp nilify(""), do: nil
+  defp nilify(s), do: String.trim(s)
+
+  defp parse_date(nil), do: nil
+  defp parse_date(""), do: nil
+  defp parse_date(s) do
+    case Date.from_iso8601(s) do
+      {:ok, d} -> d
+      _ -> nil
+    end
   end
 
   defp history_filter_opts(assigns) do

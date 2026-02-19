@@ -2,37 +2,29 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
   @moduledoc """
   Persistent WebSocket client for aisstream.io — the best free real-time AIS feed.
 
-  Connects to wss://stream.aisstream.io/v0/stream with a bounding box covering
-  the Lower Mississippi River corridor. Incoming position reports are cached in ETS
-  and read by TradingDesk.Data.API.VesselTracking.fetch/0.
+  Connects to wss://stream.aisstream.io/v0/stream. Tracked MMSIs are loaded from
+  the `tracked_vessels` DB table (falls back to TRACKED_VESSELS env var).
 
   ## Setup
 
   1. Register at https://aisstream.io (free, instant key)
   2. Set env: AISSTREAM_API_KEY=your_key_here
-  3. The connector starts automatically and reconnects if disconnected.
+  3. Add vessels via the Fleet tab or `TrackedVessel.create/1`
+  4. The connector starts automatically and refreshes the tracked list every 5 min.
 
   ## ETS cache
 
-  Vessel positions are stored in the `:ais_vessel_cache` ETS table, keyed by MMSI.
-  Each entry is `{mmsi, vessel_map}` where vessel_map matches the shape returned
-  by VesselTracking.
-
-  ## Notes on bounding box
-
-  AISstream uses TopLeft (NW corner) + BottomRight (SE corner):
-    - TopLeft:     37.2°N, 91.5°W  (Cairo, IL)
-    - BottomRight: 29.0°N, 88.5°W  (Gulf approaches)
-
-  To track ocean vessels (ammonia carriers, sulphur bulk), add a second bounding box
-  by setting AISSTREAM_EXTRA_BBOX="lat_tl,lon_tl,lat_br,lon_br" in env.
+  Vessel positions stored in `:ais_vessel_cache` ETS table, keyed by MMSI.
   """
 
   use WebSockex
   require Logger
 
+  alias TradingDesk.Fleet.TrackedVessel
+
   @url "wss://stream.aisstream.io/v0/stream"
   @ets_table :ais_vessel_cache
+  @refresh_interval :timer.minutes(5)
 
   # Mississippi River corridor
   @bbox_mississippi %{
@@ -57,9 +49,7 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
 
       extra_bbox = parse_extra_bbox()
       bboxes = [@bbox_mississippi | extra_bbox]
-
-      # TRACKED_VESSELS narrows subscription to specific MMSIs only
-      tracked = parse_tracked_vessels()
+      tracked = load_tracked_mmsis()
 
       Logger.info(
         "AISStreamConnector: connecting — #{length(bboxes)} bbox(es), " <>
@@ -91,6 +81,13 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
   @doc "True if the ETS cache has at least one vessel position."
   def has_data?, do: get_vessels() != []
 
+  @doc "Force a refresh of the tracked vessel list from DB."
+  def refresh_tracked do
+    if Process.whereis(__MODULE__) do
+      WebSockex.cast(__MODULE__, :refresh_tracked)
+    end
+  end
+
   # ──────────────────────────────────────────────
   # WebSockex callbacks
   # ──────────────────────────────────────────────
@@ -99,29 +96,10 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
   def handle_connect(_conn, state) do
     Logger.info("AISStreamConnector: connected, sending subscription")
 
-    sub_base = %{
-      "ApiKey"             => state.api_key,
-      "BoundingBoxes"      => state.bboxes,
-      "FilterMessageTypes" => ["PositionReport", "StandardClassBPositionReport",
-                               "ExtendedClassBPositionReport"]
-    }
+    # Schedule periodic refresh of tracked vessel list from DB
+    Process.send_after(self(), :refresh_tracked_tick, @refresh_interval)
 
-    # If specific MMSIs configured, tell AISstream to filter server-side.
-    # This reduces data volume and ensures we only cache the vessels we care about.
-    sub =
-      if state.tracked != [] do
-        mmsis = Enum.map(state.tracked, fn m ->
-          case Integer.parse(m) do
-            {n, _} -> n
-            :error -> m
-          end
-        end)
-        Map.put(sub_base, "MMSIs", mmsis)
-      else
-        sub_base
-      end
-
-    {:reply, {:text, Jason.encode!(sub)}, %{state | connected: true}}
+    send_subscription(state)
   end
 
   @impl true
@@ -144,9 +122,31 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
   end
 
   @impl true
-  def handle_cast(:ping, state) do
-    {:reply, :ping, state}
+  def handle_cast(:refresh_tracked, state) do
+    new_tracked = load_tracked_mmsis()
+
+    if MapSet.new(new_tracked) != MapSet.new(state.tracked) do
+      Logger.info(
+        "AISStreamConnector: tracked list changed (#{length(state.tracked)} → #{length(new_tracked)}), re-subscribing"
+      )
+      state = %{state | tracked: new_tracked}
+      send_subscription(state)
+    else
+      {:ok, state}
+    end
   end
+
+  def handle_cast(:ping, state), do: {:reply, :ping, state}
+
+  @impl true
+  def handle_info(:refresh_tracked_tick, state) do
+    new_tracked = load_tracked_mmsis()
+    state = %{state | tracked: new_tracked}
+    Process.send_after(self(), :refresh_tracked_tick, @refresh_interval)
+    {:ok, state}
+  end
+
+  def handle_info(_msg, state), do: {:ok, state}
 
   # ──────────────────────────────────────────────
   # Message parsing
@@ -157,7 +157,6 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
                      "ExtendedClassBPositionReport"] do
     mmsi = to_string(meta["MMSI"] || "")
 
-    # Client-side MMSI guard — belt-and-suspenders on top of server-side subscription filter.
     if tracked == [] or mmsi in tracked do
       name = String.trim(meta["ShipName"] || "Unknown")
 
@@ -198,6 +197,55 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
   # Helpers
   # ──────────────────────────────────────────────
 
+  defp send_subscription(state) do
+    sub_base = %{
+      "ApiKey"             => state.api_key,
+      "BoundingBoxes"      => state.bboxes,
+      "FilterMessageTypes" => ["PositionReport", "StandardClassBPositionReport",
+                               "ExtendedClassBPositionReport"]
+    }
+
+    sub =
+      if state.tracked != [] do
+        mmsis = Enum.map(state.tracked, fn m ->
+          case Integer.parse(m) do
+            {n, _} -> n
+            :error -> m
+          end
+        end)
+        Map.put(sub_base, "MMSIs", mmsis)
+      else
+        sub_base
+      end
+
+    {:reply, {:text, Jason.encode!(sub)}, %{state | connected: true}}
+  end
+
+  @doc false
+  def load_tracked_mmsis do
+    # Primary: DB table
+    case TrackedVessel.active_mmsis() do
+      mmsis when is_list(mmsis) and mmsis != [] ->
+        mmsis
+
+      _ ->
+        # Fallback: env var (useful before first migration or for dev)
+        case System.get_env("TRACKED_VESSELS") do
+          nil -> []
+          ""  -> []
+          csv -> String.split(csv, ",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+        end
+    end
+  rescue
+    # DB not yet migrated
+    _ ->
+      case System.get_env("TRACKED_VESSELS") do
+        nil -> []
+        ""  -> []
+        csv -> String.split(csv, ",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+      end
+  end
+
   defp ensure_ets_table do
     if :ets.whereis(@ets_table) == :undefined do
       :ets.new(@ets_table, [:set, :public, :named_table])
@@ -211,14 +259,6 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
   defp nav_status(5), do: :moored
   defp nav_status(8), do: :underway_sailing
   defp nav_status(_), do: :unknown
-
-  defp parse_tracked_vessels do
-    case System.get_env("TRACKED_VESSELS") do
-      nil -> []
-      ""  -> []
-      csv -> String.split(csv, ",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
-    end
-  end
 
   defp parse_extra_bbox do
     case System.get_env("AISSTREAM_EXTRA_BBOX") do
