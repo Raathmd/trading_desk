@@ -64,6 +64,9 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
   # PUBLIC API
   # ──────────────────────────────────────────────────────────
 
+  @doc "Return the 5 NH3 contract structs without ingesting them (useful for testing)."
+  def seed_contracts, do: contracts()
+
   @doc "Seed all 5 NH3 contracts. Idempotent."
   def run do
     results =
