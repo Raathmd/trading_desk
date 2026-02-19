@@ -192,9 +192,102 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   # --- Private: apply all active contracts ---
 
   defp apply_active_contracts(vars, contracts) do
-    Enum.reduce(contracts, {vars, []}, fn contract, {v, applied} ->
-      apply_contract(v, contract, applied)
-    end)
+    {vars_after_clauses, applied} =
+      Enum.reduce(contracts, {vars, []}, fn contract, {v, acc} ->
+        apply_contract(v, contract, acc)
+      end)
+
+    {vars_after_penalty, penalty_applied} =
+      apply_penalty_margin_adjustment(vars_after_clauses, contracts)
+
+    {vars_after_penalty, applied ++ penalty_applied}
+  end
+
+  # Reduce effective sell prices by the weighted-average penalty exposure per ton.
+  # For each active sale contract with volume-shortfall or late-delivery penalties:
+  #   reduction_$/ton = sum(open_qty * rate) / sum(open_qty)
+  # This bakes contract risk into the LP margin so the solver avoids routes
+  # that would trigger penalties.
+  defp apply_penalty_margin_adjustment(vars, contracts) do
+    {stl_num, stl_den, mem_num, mem_den} =
+      Enum.reduce(contracts, {0.0, 0.0, 0.0, 0.0}, fn contract, acc ->
+        if contract.counterparty_type == :customer do
+          penalties = extract_penalty_clauses(contract)
+          rate = Enum.reduce(penalties, 0.0, fn {_type, r}, a -> a + r end)
+          open = max(contract.open_position || 0, 0) / 1.0
+
+          if rate > 0 and open > 0 do
+            dest = penalty_destination(contract)
+            {sn, sd, mn, md} = acc
+
+            case dest do
+              :stl -> {sn + open * rate, sd + open, mn, md}
+              :mem -> {sn, sd, mn + open * rate, md + open}
+              _ ->
+                # Unknown destination — split equally
+                half = open / 2.0
+                {sn + half * rate, sd + half, mn + half * rate, md + half}
+            end
+          else
+            acc
+          end
+        else
+          acc
+        end
+      end)
+
+    stl_reduction = if stl_den > 0, do: Float.round(stl_num / stl_den, 2), else: 0.0
+    mem_reduction = if mem_den > 0, do: Float.round(mem_num / mem_den, 2), else: 0.0
+
+    # Cap reductions at 10% of current sell price to avoid over-penalising
+    sell_stl = get_variable(vars, :sell_stl)
+    sell_mem = get_variable(vars, :sell_mem)
+    stl_adj = if is_number(sell_stl), do: min(stl_reduction, sell_stl * 0.10), else: 0.0
+    mem_adj = if is_number(sell_mem), do: min(mem_reduction, sell_mem * 0.10), else: 0.0
+
+    {vars_out, applied} =
+      Enum.reduce(
+        [{:sell_stl, stl_adj}, {:sell_mem, mem_adj}],
+        {vars, []},
+        fn {param, adj}, {v, acc} ->
+          current = get_variable(v, param)
+
+          if is_number(current) and adj > 0 do
+            new_val = Float.round(current - adj, 2)
+            {set_variable(v, param, new_val),
+             [%{
+               counterparty: "penalty_adjustment",
+               clause_id: "PENALTY_MARGIN",
+               parameter: param,
+               original: current,
+               applied: new_val
+             } | acc]}
+          else
+            {v, acc}
+          end
+        end
+      )
+
+    Logger.debug(
+      "ConstraintBridge: penalty margin — sell_stl -#{stl_adj}/t, sell_mem -#{mem_adj}/t"
+    )
+
+    {vars_out, applied}
+  end
+
+  # Guess delivery destination for a customer contract from name/family_id
+  defp penalty_destination(%{counterparty: name, family_id: fid}) do
+    n = String.downcase(name || "")
+    f = to_string(fid || "")
+
+    cond do
+      String.contains?(n, "stl") or String.contains?(n, "st. louis") or
+        String.contains?(n, "nutrien") or String.contains?(f, "stl") or
+        String.contains?(f, "st_louis") -> :stl
+      String.contains?(n, "mem") or String.contains?(n, "memphis") or
+        String.contains?(n, "koch") or String.contains?(f, "mem") -> :mem
+      true -> :unknown
+    end
   end
 
   defp apply_contract(vars, %Contract{} = contract, applied) do

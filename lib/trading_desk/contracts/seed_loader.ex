@@ -107,6 +107,92 @@ defmodule TradingDesk.Contracts.SeedLoader do
   end
 
   @doc """
+  Force re-ingest all seed contracts and return a detailed ingestion summary.
+
+  Unlike load_all/0, this always creates a new contract version, superseding
+  any existing ones. Returns a summary map suitable for the UI to display.
+
+  Returns:
+    %{
+      loaded: count,
+      errors: count,
+      contracts: [%{counterparty, file, clauses, penalties, incoterm, ...}],
+      available_files: [...],
+      total_purchase_open: MT,
+      total_sale_open: MT,
+      net_position: MT,
+      total_clauses: count,
+      total_penalty_clauses: count
+    }
+  """
+  def reload_all do
+    seed_path = Application.app_dir(:trading_desk, @seed_dir)
+    available = list_seed_files_in(seed_path)
+
+    results =
+      @seed_positions
+      |> Enum.map(fn {prefix, counterparty, cp_type, open_qty} ->
+        case find_seed_file(seed_path, prefix) do
+          {:ok, file_path} ->
+            result = load_one(file_path, counterparty, cp_type, open_qty)
+            {prefix, counterparty, cp_type, open_qty, file_path, result}
+
+          :not_found ->
+            Logger.warning("Seed file not found for prefix: #{prefix}")
+            {prefix, counterparty, cp_type, open_qty, nil, {:error, :file_not_found}}
+        end
+      end)
+
+    loaded_tuples = Enum.filter(results, fn {_, _, _, _, _, r} -> match?({:ok, _}, r) end)
+    error_tuples  = Enum.filter(results, fn {_, _, _, _, _, r} -> match?({:error, _}, r) end)
+
+    contract_summaries =
+      Enum.map(loaded_tuples, fn {_prefix, counterparty, cp_type, open_qty, file_path, {:ok, c}} ->
+        n_clauses  = length(c.clauses || [])
+        n_penalties = count_penalties(c.clauses || [])
+        %{
+          counterparty:      counterparty,
+          counterparty_type: cp_type,
+          open_qty:          open_qty,
+          file:              if(file_path, do: Path.basename(file_path), else: ""),
+          clauses:           n_clauses,
+          penalties:         n_penalties,
+          incoterm:          c.incoterm,
+          family_id:         c.family_id,
+          contract_number:   c.contract_number
+        }
+      end)
+
+    purchases        = Enum.filter(contract_summaries, & &1.counterparty_type == :supplier)
+    sales            = Enum.filter(contract_summaries, & &1.counterparty_type == :customer)
+    total_purchase   = Enum.reduce(purchases, 0, & &1.open_qty + &2)
+    total_sale       = Enum.reduce(sales,     0, & &1.open_qty + &2)
+    total_penalties  = Enum.reduce(contract_summaries, 0, & &1.penalties + &2)
+    total_clauses    = Enum.reduce(contract_summaries, 0, & &1.clauses + &2)
+
+    %{
+      loaded:                length(loaded_tuples),
+      errors:                length(error_tuples),
+      contracts:             contract_summaries,
+      available_files:       available,
+      total_purchase_open:   total_purchase,
+      total_sale_open:       total_sale,
+      net_position:          total_purchase - total_sale,
+      total_clauses:         total_clauses,
+      total_penalty_clauses: total_penalties
+    }
+  end
+
+  @doc """
+  List available seed contract files without loading them.
+  Useful for the UI to preview what will be ingested.
+  """
+  def list_seed_files do
+    seed_path = Application.app_dir(:trading_desk, @seed_dir)
+    list_seed_files_in(seed_path)
+  end
+
+  @doc """
   Return the seed position data without loading (for testing/inspection).
   """
   def seed_positions, do: @seed_positions
@@ -189,6 +275,25 @@ defmodule TradingDesk.Contracts.SeedLoader do
         Logger.error("Failed to ingest seed contract #{counterparty}: #{inspect(error)}")
         error
     end
+  end
+
+  defp list_seed_files_in(seed_path) do
+    Enum.map(@seed_positions, fn {prefix, counterparty, cp_type, open_qty} ->
+      file_path =
+        case Path.wildcard(Path.join(seed_path, "#{prefix}*.txt")) do
+          [f | _] -> f
+          []      -> nil
+        end
+
+      %{
+        prefix:            prefix,
+        counterparty:      counterparty,
+        counterparty_type: cp_type,
+        open_qty:          open_qty,
+        file:              if(file_path, do: Path.basename(file_path), else: nil),
+        found:             not is_nil(file_path)
+      }
+    end)
   end
 
   defp find_seed_file(seed_path, prefix) do

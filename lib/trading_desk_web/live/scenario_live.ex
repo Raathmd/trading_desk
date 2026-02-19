@@ -114,6 +114,9 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:solve_history, [])
       |> assign(:history_stats, nil)
       |> assign(:ingestion_running, false)
+      |> assign(:seed_ingestion_running, false)
+      |> assign(:seed_ingestion_result, nil)
+      |> assign(:seed_files, TradingDesk.Contracts.SeedLoader.list_seed_files())
       |> assign(:history_source, :river)
       |> assign(:history_year_from, Date.utc_today().year - 1)
       |> assign(:history_year_to, Date.utc_today().year)
@@ -588,6 +591,18 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, assign(socket, :ingestion_running, true)}
   end
 
+  # --- Seed contract ingestion ---
+
+  @impl true
+  def handle_event("ingest_seed_contracts", _params, socket) do
+    pid = self()
+    Task.Supervisor.start_child(TradingDesk.Contracts.TaskSupervisor, fn ->
+      result = TradingDesk.Contracts.SeedLoader.reload_all()
+      send(pid, {:seed_ingestion_complete, result})
+    end)
+    {:noreply, assign(socket, seed_ingestion_running: true, seed_ingestion_result: nil)}
+  end
+
   # --- Async solve handlers ---
 
   @impl true
@@ -826,6 +841,17 @@ defmodule TradingDesk.ScenarioLive do
       socket
       |> assign(:ingestion_running, false)
       |> assign(:history_stats, Stats.all(history_filter_opts(socket.assigns)))
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:seed_ingestion_complete, result}, socket) do
+    socket =
+      socket
+      |> assign(:seed_ingestion_running, false)
+      |> assign(:seed_ingestion_result, result)
+      |> assign(:contracts_data, load_contracts_data())
+      |> assign(:seed_files, TradingDesk.Contracts.SeedLoader.list_seed_files())
     {:noreply, socket}
   end
 
@@ -1328,6 +1354,114 @@ defmodule TradingDesk.ScenarioLive do
 
           <%!-- === CONTRACTS TAB === --%>
           <%= if @active_tab == :contracts do %>
+
+            <%!-- Seed Contract Ingestion Panel --%>
+            <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div>
+                  <div style="font-size:10px;color:#a78bfa;letter-spacing:1px;font-weight:700">CONTRACT INGESTION</div>
+                  <div style="font-size:10px;color:#475569;margin-top:2px">
+                    Seed files in <code style="color:#94a3b8">priv/contracts/seed/</code> — parsed and loaded into the solver
+                  </div>
+                </div>
+                <%= if @seed_ingestion_running do %>
+                  <span style="font-size:11px;color:#a78bfa;padding:8px 18px;border:1px solid #a78bfa;border-radius:6px;opacity:0.6">Ingesting…</span>
+                <% else %>
+                  <button phx-click="ingest_seed_contracts"
+                    style="font-size:11px;font-weight:600;color:#111;background:#a78bfa;padding:8px 18px;border:none;border-radius:6px;cursor:pointer">
+                    ↻ Refresh Contracts
+                  </button>
+                <% end %>
+              </div>
+
+              <%!-- File list --%>
+              <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px">
+                <thead><tr style="border-bottom:1px solid #1e293b">
+                  <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:9px">FILE</th>
+                  <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:9px">COUNTERPARTY</th>
+                  <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:9px">TYPE</th>
+                  <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:9px">OPEN QTY</th>
+                  <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:9px">STATUS</th>
+                </tr></thead>
+                <tbody>
+                  <%= for sf <- @seed_files do %>
+                    <tr style="border-bottom:1px solid #1e293b22">
+                      <td style="padding:4px 6px;font-family:monospace;font-size:9px;color:#64748b"><%= sf.file || sf.prefix %></td>
+                      <td style="padding:4px 6px;color:#e2e8f0;font-weight:600"><%= sf.counterparty %></td>
+                      <td style={"text-align:center;padding:4px 6px;font-size:9px;font-weight:600;color:#{if sf.counterparty_type == :supplier, do: "#60a5fa", else: "#f59e0b"}"}>
+                        <%= if sf.counterparty_type == :supplier, do: "PURCHASE", else: "SALE" %>
+                      </td>
+                      <td style="text-align:right;padding:4px 6px;font-family:monospace;color:#94a3b8"><%= sf.open_qty |> round() |> Integer.to_string() |> String.replace(~r/(\d{3})(?=\d)/, "\\1,") %> MT</td>
+                      <td style="text-align:center;padding:4px 6px">
+                        <%= if sf.found do %>
+                          <span style="font-size:9px;color:#4ade80">✓ found</span>
+                        <% else %>
+                          <span style="font-size:9px;color:#f87171">✗ missing</span>
+                        <% end %>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+
+            <%!-- Ingestion Result Summary --%>
+            <%= if @seed_ingestion_result do %>
+              <%!-- assign a local for convenience --%>
+              <% r = @seed_ingestion_result %>
+              <div style="background:#0a130a;border:1px solid #166534;border-radius:10px;padding:16px;margin-bottom:16px">
+                <div style="font-size:10px;color:#4ade80;letter-spacing:1px;font-weight:700;margin-bottom:10px">
+                  INGESTION COMPLETE — <%= r.loaded %> contracts loaded, <%= r.errors %> errors
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+                  <div style="background:#0a1f0a;padding:8px;border-radius:6px;text-align:center">
+                    <div style="font-size:9px;color:#64748b">Contracts</div>
+                    <div style="font-size:20px;font-weight:800;color:#4ade80;font-family:monospace"><%= r.loaded %></div>
+                  </div>
+                  <div style="background:#0a1f0a;padding:8px;border-radius:6px;text-align:center">
+                    <div style="font-size:9px;color:#64748b">Total Clauses</div>
+                    <div style="font-size:20px;font-weight:800;color:#34d399;font-family:monospace"><%= r.total_clauses %></div>
+                  </div>
+                  <div style="background:#0a1f0a;padding:8px;border-radius:6px;text-align:center">
+                    <div style="font-size:9px;color:#64748b">Penalty Clauses</div>
+                    <div style="font-size:20px;font-weight:800;color:#fb923c;font-family:monospace"><%= r.total_penalty_clauses %></div>
+                  </div>
+                  <div style="background:#0a1f0a;padding:8px;border-radius:6px;text-align:center">
+                    <div style="font-size:9px;color:#64748b">Net Position</div>
+                    <div style={"font-size:16px;font-weight:800;font-family:monospace;color:#{if r.net_position > 0, do: "#4ade80", else: "#f87171"}"}>
+                      <%= if r.net_position > 0, do: "+", else: "" %><%= format_number(r.net_position / 1) %> MT
+                    </div>
+                  </div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:10px">
+                  <thead><tr style="border-bottom:1px solid #166534">
+                    <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:9px">COUNTERPARTY</th>
+                    <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:9px">TYPE</th>
+                    <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:9px">INCOTERM</th>
+                    <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:9px">OPEN MT</th>
+                    <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:9px">CLAUSES</th>
+                    <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:9px">PENALTIES</th>
+                    <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:9px">FILE</th>
+                  </tr></thead>
+                  <tbody>
+                    <%= for c <- r.contracts do %>
+                      <tr style="border-bottom:1px solid #1e293b22">
+                        <td style="padding:4px 6px;color:#e2e8f0;font-weight:600"><%= c.counterparty %></td>
+                        <td style={"text-align:center;padding:4px 6px;font-size:9px;font-weight:600;color:#{if c.counterparty_type == :supplier, do: "#60a5fa", else: "#f59e0b"}"}>
+                          <%= if c.counterparty_type == :supplier, do: "BUY", else: "SELL" %>
+                        </td>
+                        <td style="text-align:center;padding:4px 6px;color:#94a3b8"><%= c.incoterm |> to_string() |> String.upcase() %></td>
+                        <td style="text-align:right;padding:4px 6px;font-family:monospace;color:#e2e8f0"><%= format_number(c.open_qty / 1) %></td>
+                        <td style="text-align:right;padding:4px 6px;font-family:monospace;color:#94a3b8"><%= c.clauses %></td>
+                        <td style={"text-align:right;padding:4px 6px;font-family:monospace;color:#{if c.penalties > 0, do: "#fb923c", else: "#475569"}"}><%= c.penalties %></td>
+                        <td style="padding:4px 6px;font-size:9px;color:#475569;font-family:monospace"><%= c.file %></td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+            <% end %>
+
             <%!-- Ammonia Price Board --%>
             <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
               <div style="font-size:10px;color:#a78bfa;letter-spacing:1px;font-weight:700;margin-bottom:10px">AMMONIA BENCHMARK PRICES</div>
@@ -2921,30 +3055,40 @@ defmodule TradingDesk.ScenarioLive do
     book = TradingDesk.Contracts.SapPositions.book_summary()
     positions = book.positions
 
+    # Pull live penalty schedule from ConstraintBridge (sourced from parsed contracts)
+    penalty_by_counterparty =
+      try do
+        TradingDesk.Contracts.ConstraintBridge.penalty_schedule(:ammonia)
+        |> Enum.group_by(& &1.counterparty)
+      rescue
+        _ -> %{}
+      catch
+        :exit, _ -> %{}
+      end
+
     contracts =
       positions
       |> Enum.sort_by(fn {_k, v} -> v.open_qty_mt end, :desc)
       |> Enum.map(fn {name, pos} ->
-        # Get penalty info from seed loader positions
-        penalties = case pos.direction do
-          :purchase ->
-            case name do
-              "NGC Trinidad" -> [%{type: "Volume shortfall", rate: "$15/MT", applies_to: "Buyer"}]
-              "SABIC Agri-Nutrients" -> [%{type: "Volume shortfall", rate: "$12/MT", applies_to: "Buyer"}]
-              "LSB Industries" -> [%{type: "Volume shortfall", rate: "$10/MT", applies_to: "Buyer"}]
-              _ -> []
-            end
-          :sale ->
-            case name do
-              "Mosaic Company" -> [%{type: "Late delivery", rate: "$20/MT", applies_to: "Seller"}, %{type: "Volume shortfall", rate: "$18/MT", applies_to: "Seller"}]
-              "IFFCO" -> [%{type: "Late delivery", rate: "$15/MT", applies_to: "Seller"}, %{type: "Volume shortfall", rate: "$12/MT", applies_to: "Seller"}]
-              "OCP Group" -> [%{type: "Late delivery", rate: "$22/MT", applies_to: "Seller"}]
-              "Nutrien StL" -> [%{type: "Volume shortfall", rate: "$12/MT", applies_to: "Seller"}, %{type: "Late delivery", rate: "$8/MT", applies_to: "Seller"}]
-              "Koch Fertilizer" -> [%{type: "Volume shortfall", rate: "$10/MT", applies_to: "Seller"}]
-              "BASF SE" -> [%{type: "Late delivery", rate: "$25/MT", applies_to: "Seller"}]
-              _ -> []
-            end
-        end
+        penalties =
+          case Map.get(penalty_by_counterparty, name) do
+            nil ->
+              []
+            entries ->
+              Enum.map(entries, fn p ->
+                type_label = case p.penalty_type do
+                  :volume_shortfall -> "Volume shortfall"
+                  :late_delivery    -> "Late delivery"
+                  :demurrage        -> "Demurrage"
+                  other             -> other |> to_string() |> String.replace("_", " ") |> String.capitalize()
+                end
+                %{
+                  type: type_label,
+                  rate: "$#{:erlang.float_to_binary(p.rate_per_ton / 1.0, decimals: 0)}/MT",
+                  applies_to: if(pos.direction == :purchase, do: "Buyer", else: "Seller")
+                }
+              end)
+          end
 
         %{
           counterparty: name,
