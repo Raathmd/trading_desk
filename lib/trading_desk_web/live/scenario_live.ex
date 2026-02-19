@@ -682,12 +682,13 @@ defmodule TradingDesk.ScenarioLive do
     vars = socket.assigns.current_vars
     intent = socket.assigns.intent
     trader_action = socket.assigns.trader_action
+    objective = socket.assigns.objective_mode
     lv_pid = self()
 
     # Spawn explanation + post-solve impact analysis
     spawn(fn ->
       try do
-        case TradingDesk.Analyst.explain_solve_with_impact(vars, result, intent, trader_action) do
+        case TradingDesk.Analyst.explain_solve_with_impact(vars, result, intent, trader_action, objective) do
           {:ok, text, impact} ->
             send(lv_pid, {:explanation_result, text})
             send(lv_pid, {:post_solve_impact, impact})

@@ -71,7 +71,7 @@ defmodule TradingDesk.Analyst do
 
   Returns {:ok, explanation_text, impact_map} or {:ok, text} or {:error, reason}.
   """
-  def explain_solve_with_impact(variables, result, intent, trader_action) do
+  def explain_solve_with_impact(variables, result, intent, trader_action, objective \\ :max_profit) do
     pg = Map.get(result, :product_group) || :ammonia_domestic
     vars = to_var_map(variables)
     frame = ProductGroup.frame(pg)
@@ -103,18 +103,26 @@ defmodule TradingDesk.Analyst do
     # Merge anon maps so de-anonymization covers both position and penalty entities
     merged_anon_map = Map.merge(anon_map, penalty_anon_map)
 
+    obj_label    = objective_label_for_prompt(objective)
+    obj_framing  = objective_framing_for_prompt(objective)
+    obj_metric   = objective_primary_metric(objective)
+
     prompt = """
     You are a senior #{frame[:product]} trading analyst at a global commodities firm.
     Product: #{frame[:name]} | Geography: #{frame[:geography]} | Transport: #{frame[:transport_mode]}.
 
-    A trader just ran a scenario optimization. Provide a comprehensive analyst note
-    explaining WHY the solver chose this particular allocation — specifically how
-    contract obligations, penalty risk, and margin dynamics drove the decision.
+    The trader ran this optimization with objective: #{obj_label}.
+    #{obj_framing}
+
+    Explain WHY the solver chose this allocation through the lens of that objective —
+    how contract obligations, penalty risk, and the objective function itself drove
+    the route selection and tonnage split.
 
     #{if anon_action != "", do: "TRADER SCENARIO: \"#{anon_action}\"\n\n", else: ""}SOLVER INPUTS:
     #{vars_text}
 
     #{if forecast_text != "", do: "WEATHER FORECAST (D+3):\n#{forecast_text}\n\n", else: ""}SOLVER RESULT:
+    - Objective: #{obj_label}
     - Status: OPTIMAL
     - Gross profit: $#{format_number(Map.get(result, :profit))}
     - Total tons shipped: #{format_number(Map.get(result, :tons))}
@@ -131,25 +139,28 @@ defmodule TradingDesk.Analyst do
 
     #{if anon_penalty_text != "", do: "CONTRACT OBLIGATIONS & PENALTY RISK:\n#{anon_penalty_text}", else: ""}
 
-    Write a comprehensive analyst note (5-8 sentences) covering:
-    1. Why the solver chose this route allocation — which margin or constraint was decisive
-    2. How penalty clauses (volume shortfall / late delivery / demurrage) affected
-       the effective margins and therefore the optimization choice
-    3. Which delivery obligations are most at risk given the chosen allocation and
-       what the daily penalty exposure would be if those slip past the grace period
-    4. Which constraints bound the solution (use the shadow prices) and whether
-       tighter contract bounds changed the feasible set
-    5. Any weather or operational risks that could erode this result or trigger penalties
-    6. Recommended follow-up actions — which contracts to prioritize, whether to hedge,
-       and what the trader should watch in the next 24-48 hours
+    Write a comprehensive analyst note (5-8 sentences) framed entirely around #{obj_label}:
+    1. Why this allocation was the solver's optimal choice for #{obj_label} — what
+       trade-offs it made versus alternative allocations, and which route or contract
+       drove the result on the #{obj_metric} axis
+    2. How penalty clauses (volume shortfall / late delivery / demurrage) shifted the
+       effective margins and how the #{obj_label} objective weighted that penalty risk
+       in the allocation decision
+    3. Which delivery obligations are most exposed given this allocation and what the
+       daily penalty cost would be if they slip past their grace periods
+    4. Which constraints are binding (shadow prices) and whether relaxing any of them
+       would improve #{obj_metric} further
+    5. Any weather, river, or operational risks that could erode the #{obj_metric}
+       outcome or trigger penalty obligations
+    6. Recommended follow-up actions consistent with #{obj_label} — contracts to
+       prioritize, hedges to consider, and what to watch in the next 24-48 hours
 
-    Be analytical and tactical. Use the anonymized entity codes as-is (e.g., ENTITY_01)
-    — do NOT attempt to guess real names. Plain prose, no bullet lists.
+    Be analytical and tactical. Use anonymized entity codes as-is (e.g., ENTITY_01).
+    Plain prose, no bullet lists.
     """
 
     case call_claude(prompt, max_tokens: 1000) do
       {:ok, raw_text} ->
-        # De-anonymize counterparty codes that Claude may have echoed
         final_text = Anonymizer.deanonymize(raw_text, merged_anon_map)
         {:ok, final_text, impact}
 
@@ -403,6 +414,62 @@ defmodule TradingDesk.Analyst do
       _ -> nil
     catch
       :exit, _ -> nil
+    end
+  end
+
+  # ── Objective helpers ────────────────────────────────────────
+
+  defp objective_label_for_prompt(obj) do
+    case obj do
+      :max_profit    -> "Maximize Profit"
+      :min_cost      -> "Minimize Cost"
+      :max_roi       -> "Maximize ROI"
+      :cvar_adjusted -> "CVaR-Adjusted (risk-weighted profit)"
+      :min_risk      -> "Minimize Risk"
+      _              -> "Maximize Profit"
+    end
+  end
+
+  # A one-sentence description of what the solver is optimising for,
+  # used as the framing sentence immediately after the objective label.
+  defp objective_framing_for_prompt(obj) do
+    case obj do
+      :max_profit ->
+        "The solver maximized gross profit in absolute dollar terms — " <>
+        "volume and margin were the primary drivers; capital efficiency was secondary."
+
+      :min_cost ->
+        "The solver minimized total capital deployed — it prioritized lower-cost routes " <>
+        "and tighter tonnage even if that left margin on the table."
+
+      :max_roi ->
+        "The solver maximized return on invested capital — it preferred high-margin, " <>
+        "capital-efficient routes and avoided deploying extra barges for marginal gains."
+
+      :cvar_adjusted ->
+        "The solver maximized risk-weighted profit using CVaR — it discounted routes " <>
+        "with high tail-risk (weather exposure, penalty clauses, low feasibility rate) " <>
+        "in favour of more reliable, lower-variance allocations."
+
+      :min_risk ->
+        "The solver minimized operational and financial risk — it avoided routes with " <>
+        "high penalty exposure, weather sensitivity, or uncertain feasibility, " <>
+        "accepting lower profit to reduce downside variance."
+
+      _ ->
+        "The solver maximized gross profit."
+    end
+  end
+
+  # Short label for the primary metric being optimised — used inline in instructions.
+  defp objective_primary_metric(obj) do
+    case obj do
+      :max_profit    -> "gross profit"
+      :min_cost      -> "capital deployed"
+      :max_roi       -> "ROI"
+      :cvar_adjusted -> "risk-adjusted profit"
+      :min_risk      -> "risk exposure"
+      _              -> "gross profit"
     end
   end
 
