@@ -120,6 +120,13 @@ defmodule TradingDesk.ScenarioLive do
       # Fleet tab
       |> assign(:fleet_vessels, [])
       |> assign(:fleet_pg_filter, to_string(product_group))
+      # Model summary textarea + explanation popup
+      |> assign(:model_summary, "")
+      |> assign(:model_summary_edited, false)
+      |> assign(:show_explanation_popup, false)
+
+    # Build the initial model summary from the fully-assigned socket
+    socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
 
     {:ok, socket}
   end
@@ -188,6 +195,49 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:review_mode, nil)
       |> assign(:intent, nil)
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("update_model_summary", %{"summary" => text}, socket) do
+    {:noreply, assign(socket, model_summary: text, model_summary_edited: true)}
+  end
+
+  @impl true
+  def handle_event("refresh_model_summary", _params, socket) do
+    summary = build_model_summary_text(socket.assigns)
+    {:noreply, assign(socket, model_summary: summary, model_summary_edited: false)}
+  end
+
+  @impl true
+  def handle_event("show_explanation_popup", _params, socket) do
+    {:noreply, assign(socket, :show_explanation_popup, true)}
+  end
+
+  @impl true
+  def handle_event("close_explanation_popup", _params, socket) do
+    {:noreply, assign(socket, :show_explanation_popup, false)}
+  end
+
+  @impl true
+  def handle_event("save_explanation", _params, socket) do
+    # Embed explanation in the result map and save as a scenario
+    result = socket.assigns.result
+    explanation = socket.assigns.explanation
+    if result && is_binary(explanation) do
+      ts = DateTime.utc_now() |> Calendar.strftime("%Y-%m-%d %H:%M")
+      name = "Analysis #{ts}"
+      result_with_note = Map.put(result, :analyst_note, explanation)
+      try do
+        Store.save(socket.assigns.trader_id, name,
+          socket.assigns.current_vars, result_with_note, nil)
+      rescue
+        _ -> :ok
+      end
+      saved = safe_call(fn -> Store.list(socket.assigns.trader_id) end, [])
+      {:noreply, assign(socket, show_explanation_popup: false, saved_scenarios: saved)}
+    else
+      {:noreply, assign(socket, :show_explanation_popup, false)}
+    end
   end
 
   @impl true
@@ -323,11 +373,19 @@ defmodule TradingDesk.ScenarioLive do
     case Enum.find(socket.assigns.saved_scenarios, &(&1.id == id)) do
       nil -> {:noreply, socket}
       scenario ->
+        # Restore analyst note if it was saved in the result
+        analyst_note = Map.get(scenario.result, :analyst_note)
         socket =
           socket
           |> assign(:current_vars, scenario.variables)
           |> assign(:result, scenario.result)
           |> assign(:overrides, MapSet.new(Map.keys(scenario.variables)))
+          |> assign(:active_tab, :trader)
+          |> assign(:explanation, analyst_note)
+          |> assign(:explaining, false)
+
+        # Rebuild model summary from restored variables
+        socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
 
         {:noreply, socket}
     end
@@ -424,7 +482,7 @@ defmodule TradingDesk.ScenarioLive do
         :contracts ->
           assign(socket, contracts_data: load_contracts_data())
         :solves ->
-          assign(socket, solve_history: load_solve_history(socket.assigns.product_group))
+          assign(socket, solve_history: load_solve_history(socket.assigns.product_group, socket.assigns.trader_id))
         :history ->
           assign(socket, history_stats: Stats.all(history_filter_opts(socket.assigns)))
         :fleet ->
@@ -693,7 +751,15 @@ defmodule TradingDesk.ScenarioLive do
           end
         end)
 
-      {:noreply, assign(socket, live_vars: live, current_vars: updated_current)}
+      socket = assign(socket, live_vars: live, current_vars: updated_current)
+      # Auto-refresh model summary unless the trader has manually edited it
+      socket =
+        if not socket.assigns.model_summary_edited do
+          assign(socket, :model_summary, build_model_summary_text(socket.assigns))
+        else
+          socket
+        end
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
@@ -726,7 +792,7 @@ defmodule TradingDesk.ScenarioLive do
 
     # Refresh solve history if on the Solves tab
     socket = if socket.assigns.active_tab == :solves do
-      assign(socket, solve_history: load_solve_history(socket.assigns.product_group))
+      assign(socket, solve_history: load_solve_history(socket.assigns.product_group, socket.assigns.trader_id))
     else
       socket
     end
@@ -941,16 +1007,16 @@ defmodule TradingDesk.ScenarioLive do
             <% end %>
           </div>
 
-          <%!-- Pipeline status banner --%>
-          <%= if @pipeline_phase do %>
-            <div style={"background:#{pipeline_bg(@pipeline_phase)};border:1px solid #{pipeline_border(@pipeline_phase)};border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-size:12px"}>
-              <div style={"width:8px;height:8px;border-radius:50%;background:#{pipeline_dot(@pipeline_phase)};animation:pulse 1.5s infinite"}></div>
-              <span style="color:#e2e8f0;font-weight:600"><%= pipeline_phase_text(@pipeline_phase) %></span>
+          <%!-- Pipeline status banner — always rendered to prevent layout shift --%>
+          <div style={"margin-bottom:12px;#{if is_nil(@pipeline_phase), do: "visibility:hidden", else: ""}"}>
+            <div style={"background:#{pipeline_bg(@pipeline_phase || :solving)};border:1px solid #{pipeline_border(@pipeline_phase || :solving)};border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:12px"}>
+              <div style={"width:8px;height:8px;border-radius:50%;background:#{pipeline_dot(@pipeline_phase || :solving)};#{if @pipeline_phase, do: "animation:pulse 1.5s infinite", else: ""}"}></div>
+              <span style="color:#e2e8f0;font-weight:600"><%= if @pipeline_phase, do: pipeline_phase_text(@pipeline_phase), else: "Ready" %></span>
               <%= if @pipeline_detail do %>
                 <span style="color:#94a3b8">— <%= @pipeline_detail %></span>
               <% end %>
             </div>
-          <% end %>
+          </div>
           <%= if @contracts_stale and not @solving do %>
             <div style="background:#1c1917;border:1px solid #78350f;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:11px;color:#fbbf24">
               ⚠ Contract data may be stale — scanner was unavailable during this solve
@@ -959,6 +1025,27 @@ defmodule TradingDesk.ScenarioLive do
 
           <%!-- === TRADER TAB === --%>
           <%= if @active_tab == :trader do %>
+            <%!-- === SCENARIO MODEL INPUT === --%>
+            <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:10px;padding:16px;margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div>
+                  <span style="font-size:11px;color:#a78bfa;font-weight:700;letter-spacing:1.2px">SCENARIO MODEL</span>
+                  <span style="font-size:10px;color:#475569;margin-left:8px">— edit to define your scenario, then SOLVE</span>
+                </div>
+                <button phx-click="refresh_model_summary"
+                  style="font-size:10px;color:#64748b;background:none;border:1px solid #1e293b;border-radius:4px;padding:3px 10px;cursor:pointer;letter-spacing:0.5px">
+                  ↺ Refresh from Live
+                </button>
+              </div>
+              <textarea phx-blur="update_model_summary" name="summary"
+                style="width:100%;min-height:420px;background:#060a11;border:1px solid #1e293b;color:#94a3b8;padding:12px;border-radius:6px;font-size:11px;font-family:'Courier New',Courier,monospace;resize:vertical;line-height:1.6;box-sizing:border-box;white-space:pre"><%= @model_summary %></textarea>
+              <%= if @model_summary_edited do %>
+                <div style="font-size:10px;color:#f59e0b;margin-top:4px;font-style:italic">
+                  * Manually edited — click Refresh from Live to restore from current data
+                </div>
+              <% end %>
+            </div>
+
             <%!-- Solve result --%>
             <%= if @result && @result.status == :optimal do %>
               <div style="background:#111827;border-radius:10px;padding:20px;margin-bottom:16px">
@@ -1020,6 +1107,10 @@ defmodule TradingDesk.ScenarioLive do
                     <input type="text" name="name" placeholder="Scenario name..." style="flex:1;background:#0a0f18;border:1px solid #1e293b;color:#c8d6e5;padding:8px;border-radius:6px;font-size:12px" />
                     <button type="submit" style="background:#1e293b;border:none;color:#94a3b8;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
                   </form>
+                  <button phx-click="show_explanation_popup" disabled={is_nil(@explanation) or @explaining}
+                    style={"padding:8px 14px;border:1px solid #4c1d95;border-radius:6px;background:#1e1030;color:#{if is_nil(@explanation) or @explaining, do: "#475569", else: "#a78bfa"};cursor:#{if is_nil(@explanation) or @explaining, do: "default", else: "pointer"};font-size:12px;font-weight:600;white-space:nowrap"}>
+                    🧠 Full Analysis
+                  </button>
                 </div>
               </div>
             <% end %>
@@ -2347,16 +2438,60 @@ defmodule TradingDesk.ScenarioLive do
                 </table>
               <% end %>
             </div>
+
+            <%!-- Saved scenarios section --%>
+            <%= if length(@saved_scenarios) > 0 do %>
+              <div style="background:#111827;border-radius:10px;padding:16px;margin-top:16px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                  <div style="font-size:12px;font-weight:700;color:#eab308;letter-spacing:1px">SAVED SCENARIOS</div>
+                  <div style="font-size:10px;color:#64748b"><%= length(@saved_scenarios) %> saved</div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                  <thead><tr style="border-bottom:1px solid #1e293b">
+                    <th style="text-align:left;padding:6px;color:#64748b">Name</th>
+                    <th style="text-align:right;padding:6px;color:#64748b">Profit</th>
+                    <th style="text-align:right;padding:6px;color:#64748b">ROI</th>
+                    <th style="text-align:right;padding:6px;color:#64748b">Tons</th>
+                    <th style="text-align:center;padding:6px;color:#64748b">Note</th>
+                    <th style="text-align:right;padding:6px;color:#64748b">Saved</th>
+                  </tr></thead>
+                  <tbody>
+                    <%= for sc <- @saved_scenarios do %>
+                      <tr phx-click="load_scenario" phx-value-id={sc.id}
+                        style="cursor:pointer;border-bottom:1px solid #1e293b22;transition:background 0.1s"
+                        onmouseover="this.style.background='#0c1629'" onmouseout="this.style.background='transparent'">
+                        <td style="padding:6px;font-weight:600;color:#c8d6e5"><%= sc.name %></td>
+                        <td style="text-align:right;padding:6px;font-family:monospace;color:#10b981">$<%= format_number(sc.result.profit) %></td>
+                        <td style="text-align:right;padding:6px;font-family:monospace"><%= Float.round(sc.result.roi, 1) %>%</td>
+                        <td style="text-align:right;padding:6px;font-family:monospace"><%= format_number(sc.result.tons) %></td>
+                        <td style="text-align:center;padding:6px">
+                          <%= if Map.get(sc.result, :analyst_note) do %>
+                            <span style="font-size:9px;background:#1e1030;color:#a78bfa;padding:2px 6px;border-radius:3px">🧠 has note</span>
+                          <% end %>
+                        </td>
+                        <td style="text-align:right;padding:6px;color:#475569;font-size:10px;white-space:nowrap">
+                          <%= if sc.saved_at, do: Calendar.strftime(sc.saved_at, "%m/%d %H:%M"), else: "" %>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+                <div style="font-size:10px;color:#334155;margin-top:8px;text-align:center">
+                  Click a row to restore the scenario — switches to Trader tab
+                </div>
+              </div>
+            <% end %>
           <% end %>
         </div>
       </div>
 
       <%!-- === PRE-SOLVE REVIEW POPUP === --%>
+      <%!-- Outer backdrop closes on click; inner modal uses phx-click.stop to block bubbling --%>
       <%= if @show_review do %>
         <div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center"
              phx-click="cancel_review">
           <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:640px;max-height:80vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5)"
-               phx-click-away="cancel_review">
+               phx-click.stop>
 
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
               <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">
@@ -2367,9 +2502,18 @@ defmodule TradingDesk.ScenarioLive do
 
             <%!-- Trader Scenario — shown prominently at top --%>
             <div style="background:#0a0318;border-radius:8px;padding:14px;margin-bottom:14px;border-left:3px solid #a78bfa">
-              <div style="font-size:10px;color:#a78bfa;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">TRADER SCENARIO</div>
-              <%= if @trader_action != "" do %>
-                <div style="font-size:13px;color:#e2e8f0;line-height:1.5;font-style:italic">"<%= @trader_action %>"</div>
+              <div style="font-size:10px;color:#a78bfa;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">SCENARIO INPUT</div>
+              <%
+                # Extract just the non-comment, non-empty header lines for preview
+                scenario_preview = (@model_summary || "")
+                  |> String.split("\n")
+                  |> Enum.reject(&(String.starts_with?(String.trim(&1), "#") or String.trim(&1) == ""))
+                  |> Enum.take(6)
+                  |> Enum.join("\n")
+              %>
+              <%= if scenario_preview != "" do %>
+                <pre style="font-size:10px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace"><%= scenario_preview %></pre>
+                <div style="font-size:9px;color:#475569;margin-top:4px">…and more — full model summary submitted for analysis</div>
               <% else %>
                 <div style="font-size:12px;color:#475569;font-style:italic">No scenario text — manual variable adjustments only</div>
               <% end %>
@@ -2528,6 +2672,132 @@ defmodule TradingDesk.ScenarioLive do
                 style={"padding:12px;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:1px;color:#fff;background:linear-gradient(135deg,#{if @review_mode == :monte_carlo, do: "#7c3aed,#8b5cf6", else: "#0891b2,#06b6d4"})"}>
                 CONFIRM <%= if @review_mode == :monte_carlo, do: "MONTE CARLO", else: "SOLVE" %>
               </button>
+            </div>
+          </div>
+        </div>
+      <% end %>
+
+      <%!-- === ANALYST EXPLANATION POPUP === --%>
+      <%!-- Full analysis in large popup with save button --%>
+      <%= if @show_explanation_popup do %>
+        <div style="position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:2000;display:flex;align-items:center;justify-content:center;padding:24px"
+             phx-click="close_explanation_popup">
+          <div style="background:#0d1117;border:1px solid #2d3748;border-radius:14px;width:min(860px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 30px 60px rgba(0,0,0,0.7)"
+               phx-click.stop>
+            <%!-- Header --%>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid #1e293b">
+              <div>
+                <span style="font-size:15px;font-weight:700;color:#e2e8f0;letter-spacing:0.5px">ANALYST NOTE</span>
+                <%= if @result do %>
+                  <span style="font-size:12px;color:#10b981;margin-left:12px;font-family:monospace">$<%= format_number(@result.profit) %> · <%= format_number(@result.tons) %> MT · <%= Float.round(@result.roi, 1) %>% ROI</span>
+                <% end %>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <button phx-click="save_explanation"
+                  style="padding:8px 18px;border:none;border-radius:6px;background:linear-gradient(135deg,#4c1d95,#7c3aed);color:#e9d5ff;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:0.5px">
+                  💾 Save Analysis
+                </button>
+                <button phx-click="close_explanation_popup"
+                  style="background:none;border:1px solid #374151;color:#9ca3af;cursor:pointer;font-size:20px;border-radius:6px;width:36px;height:36px;display:flex;align-items:center;justify-content:center">
+                  ×
+                </button>
+              </div>
+            </div>
+            <%!-- Scrollable body --%>
+            <div style="flex:1;overflow-y:auto;padding:24px">
+              <%!-- Explanation text --%>
+              <div style="background:#060c16;border:1px solid #1e293b;border-radius:10px;padding:20px;margin-bottom:20px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                  <span style="font-size:11px;color:#8b5cf6;font-weight:700;letter-spacing:1px">MARKET ANALYSIS</span>
+                  <%= if @explaining do %>
+                    <span style="font-size:10px;color:#475569;font-style:italic">generating analysis...</span>
+                  <% end %>
+                </div>
+                <%= case @explanation do %>
+                  <% {:error, err_text} -> %>
+                    <div style="font-size:13px;color:#f87171;line-height:1.7"><%= err_text %></div>
+                  <% text when is_binary(text) -> %>
+                    <div style="font-size:14px;color:#e2e8f0;line-height:1.8;white-space:pre-wrap"><%= text %></div>
+                  <% _ -> %>
+                    <div style="font-size:13px;color:#475569;font-style:italic">Analysis not yet available — run SOLVE first</div>
+                <% end %>
+              </div>
+
+              <%!-- Result summary grid --%>
+              <%= if @result && @result.status == :optimal do %>
+                <div style="background:#0a0f18;border:1px solid #1e293b;border-radius:10px;padding:16px;margin-bottom:20px">
+                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:12px">SOLVER RESULT DETAIL</div>
+                  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
+                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
+                      <div style="font-size:9px;color:#64748b">Profit</div>
+                      <div style="font-size:16px;font-weight:800;color:#10b981;font-family:monospace">$<%= format_number(@result.profit) %></div>
+                    </div>
+                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
+                      <div style="font-size:9px;color:#64748b">Tons</div>
+                      <div style="font-size:16px;font-weight:700;font-family:monospace"><%= format_number(@result.tons) %></div>
+                    </div>
+                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
+                      <div style="font-size:9px;color:#64748b">Barges</div>
+                      <div style="font-size:16px;font-weight:700;font-family:monospace"><%= Float.round(@result.barges, 1) %></div>
+                    </div>
+                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
+                      <div style="font-size:9px;color:#64748b">ROI</div>
+                      <div style="font-size:16px;font-weight:700;font-family:monospace"><%= Float.round(@result.roi, 1) %>%</div>
+                    </div>
+                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
+                      <div style="font-size:9px;color:#64748b">Capital</div>
+                      <div style="font-size:14px;font-weight:700;font-family:monospace;color:#94a3b8">$<%= format_number(@result.cost) %></div>
+                    </div>
+                  </div>
+                  <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead><tr style="border-bottom:1px solid #1e293b">
+                      <th style="text-align:left;padding:6px;color:#475569;font-size:10px">Route</th>
+                      <th style="text-align:right;padding:6px;color:#475569;font-size:10px">Tons</th>
+                      <th style="text-align:right;padding:6px;color:#475569;font-size:10px">Margin</th>
+                      <th style="text-align:right;padding:6px;color:#475569;font-size:10px">Profit</th>
+                    </tr></thead>
+                    <tbody>
+                      <%= for {name, idx} <- Enum.with_index(@route_names) do %>
+                        <% tons = Enum.at(@result.route_tons, idx, 0) %>
+                        <%= if tons > 0.5 do %>
+                          <tr style="border-bottom:1px solid #1e293b11">
+                            <td style="padding:6px;font-weight:600;color:#c8d6e5"><%= name %></td>
+                            <td style="text-align:right;padding:6px;font-family:monospace"><%= format_number(tons) %></td>
+                            <td style="text-align:right;padding:6px;font-family:monospace;color:#38bdf8">$<%= Float.round(Enum.at(@result.margins, idx, 0), 1) %>/t</td>
+                            <td style="text-align:right;padding:6px;font-family:monospace;color:#10b981;font-weight:700">$<%= format_number(Enum.at(@result.route_profits, idx, 0)) %></td>
+                          </tr>
+                        <% end %>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+              <% end %>
+
+              <%!-- Position impact --%>
+              <%= if @post_solve_impact do %>
+                <div style="background:#0d1a0d;border:1px solid #166534;border-radius:10px;padding:16px">
+                  <div style="font-size:10px;color:#4ade80;letter-spacing:1px;margin-bottom:6px">POSITION IMPACT</div>
+                  <div style="font-size:12px;color:#86efac;margin-bottom:10px"><%= @post_solve_impact.summary %></div>
+                  <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead><tr style="border-bottom:1px solid #166534">
+                      <th style="text-align:left;padding:4px;color:#4ade80;font-size:10px">Counterparty</th>
+                      <th style="text-align:center;padding:4px;color:#4ade80;font-size:10px">Dir</th>
+                      <th style="text-align:right;padding:4px;color:#4ade80;font-size:10px">Open MT</th>
+                      <th style="text-align:left;padding:4px;color:#4ade80;font-size:10px">Impact</th>
+                    </tr></thead>
+                    <tbody>
+                      <%= for c <- @post_solve_impact.by_contract do %>
+                        <tr style="border-bottom:1px solid #14532d22">
+                          <td style="padding:4px;color:#d1fae5;font-weight:600"><%= c.counterparty %></td>
+                          <td style={"text-align:center;padding:4px;color:#{if c.direction == "purchase", do: "#60a5fa", else: "#f59e0b"};font-weight:600;font-size:10px"}><%= if c.direction == "purchase", do: "BUY", else: "SELL" %></td>
+                          <td style="text-align:right;padding:4px;font-family:monospace;color:#94a3b8"><%= format_number(c.open_qty) %></td>
+                          <td style="padding:4px;color:#6ee7b7;font-size:10px"><%= c.impact %></td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+              <% end %>
             </div>
           </div>
         </div>
@@ -2782,12 +3052,23 @@ defmodule TradingDesk.ScenarioLive do
 
   # ── Solve history helpers ─────────────────────────────────
 
-  defp load_solve_history(product_group) do
-    # Merge audit store records and auto-runner history into a unified list
-    audits = safe_call(fn -> TradingDesk.Solver.SolveAuditStore.list_recent(50) end, [])
+  # Load solve history filtered by trader_id and product_group.
+  # Trader solves are keyed to the trader; auto-runner solves are shown for all traders
+  # (they represent the live market signal relevant to everyone).
+  defp load_solve_history(product_group, trader_id \\ nil) do
+    # Fetch trader-specific audits if trader_id provided, else fetch all recent
+    audits =
+      if trader_id && trader_id != "" do
+        safe_call(fn -> TradingDesk.Solver.SolveAuditStore.find_by_trader(to_string(trader_id), limit: 50) end, []) ++
+        safe_call(fn -> TradingDesk.Solver.SolveAuditStore.list_recent(20) end, [])
+        |> Enum.uniq_by(& &1.id)
+      else
+        safe_call(fn -> TradingDesk.Solver.SolveAuditStore.list_recent(50) end, [])
+      end
+
     auto_history = safe_call(fn -> TradingDesk.Scenarios.AutoRunner.history() end, [])
 
-    # Build auto-runner entries from history (has trigger details)
+    # Build auto-runner entries (shared across all traders — these are market signals)
     auto_entries =
       auto_history
       |> Enum.map(fn h ->
@@ -2805,10 +3086,14 @@ defmodule TradingDesk.ScenarioLive do
         }
       end)
 
-    # Build manual trader entries from audit store
+    # Build manual trader entries — filter to this trader's solves
     trader_entries =
       audits
-      |> Enum.filter(fn a -> a.trigger in [:dashboard, :api] end)
+      |> Enum.filter(fn a ->
+        is_trader_solve = a.trigger in [:dashboard, :api]
+        is_this_trader  = trader_id == nil or to_string(a.trader_id) == to_string(trader_id)
+        is_trader_solve and is_this_trader
+      end)
       |> Enum.map(fn a ->
         profit = extract_audit_profit(a)
         adjustments = extract_variable_adjustments(a)
@@ -2928,13 +3213,23 @@ defmodule TradingDesk.ScenarioLive do
   end
 
   defp maybe_parse_intent(socket) do
-    action = socket.assigns.trader_action
-    if action != nil and String.trim(action || "") != "" do
+    # Use model_summary if non-empty (structured input), else fall back to trader_action
+    model_summary = socket.assigns.model_summary || ""
+    action = socket.assigns.trader_action || ""
+
+    input_text =
+      cond do
+        String.trim(model_summary) != "" -> model_summary
+        String.trim(action) != "" -> action
+        true -> nil
+      end
+
+    if input_text do
       lv_pid = self()
       vars = socket.assigns.current_vars
       pg = socket.assigns.product_group
       spawn(fn ->
-        case TradingDesk.IntentMapper.parse_intent(action, vars, pg) do
+        case TradingDesk.IntentMapper.parse_intent(input_text, vars, pg) do
           {:ok, intent} -> send(lv_pid, {:intent_result, intent})
           {:error, _} -> send(lv_pid, {:intent_result, nil})
         end
@@ -3251,6 +3546,190 @@ defmodule TradingDesk.ScenarioLive do
   defp delivery_impact_note(:future_window),  do: "future window"
   defp delivery_impact_note(:open_unaffected), do: "on schedule"
   defp delivery_impact_note(_),              do: "on schedule"
+
+  # ── Model Summary Builder ───────────────────────────────────
+  # Generates the structured text shown in the SCENARIO MODEL textarea.
+  # Traders can edit this text and submit it as the scenario input.
+
+  defp build_model_summary_text(assigns) do
+    frame      = assigns[:frame] || %{}
+    vars       = assigns[:current_vars] || %{}
+    overrides  = assigns[:overrides] || MapSet.new()
+    objective  = assigns[:objective_mode] || :max_profit
+    vessel_data = assigns[:vessel_data]
+    date       = Date.utc_today() |> Date.to_string()
+    pg_name    = (frame[:name] || "Trading Desk") |> String.upcase()
+
+    # Forecast data (may not be available)
+    forecast = safe_call(fn -> LiveState.get_supplementary(:forecast) end, nil)
+
+    # SAP positions (may not be available)
+    book = safe_call(fn -> TradingDesk.Contracts.SapPositions.book_summary() end, nil)
+
+    # Fleet vessels
+    fleet = safe_call(fn -> TrackedVessel.list_active() end, [])
+
+    """
+    === #{pg_name} — #{date} ===
+    Objective: #{objective_label(objective)}
+
+    # Describe your scenario below — what do you want to test?
+    # Examples: "One barge is in for repair" | "Assess D+3 weather impact on schedules"
+    #           "Reallocate ENTITY_01 cargo to ENTITY_02 if river drops below 12ft"
+
+    #{build_variable_summary_text(frame[:variables] || [], vars, overrides)}
+    #{build_forecast_summary_text(forecast)}
+    #{build_routes_summary_text(frame[:routes] || [])}
+    #{build_constraints_summary_text(frame[:constraints] || [], vars)}
+    #{build_positions_summary_text(book)}
+    #{build_fleet_summary_text(fleet, vessel_data)}
+    """
+    |> String.trim()
+  end
+
+  defp build_variable_summary_text(variable_defs, vars, overrides) do
+    variable_defs
+    |> Enum.group_by(& &1[:group])
+    |> Enum.map_join("\n", fn {group, defs} ->
+      header = "--- #{group |> to_string() |> String.upcase()} ---"
+      lines  = Enum.map_join(defs, "\n", fn v ->
+        val    = Map.get(vars, v[:key])
+        status = if MapSet.member?(overrides, v[:key]), do: "[OVERRIDE]", else: "[LIVE]"
+        formatted_val = case {v[:type], val} do
+          {:boolean, true}  -> "OUTAGE"
+          {:boolean, false} -> "ONLINE"
+          {:boolean, 1.0}   -> "OUTAGE"
+          {:boolean, 0.0}   -> "ONLINE"
+          {_, fval} when is_float(fval) and abs(fval) >= 1000 ->
+            format_number(fval)
+          {_, fval} when is_float(fval) ->
+            :erlang.float_to_binary(fval, [{:decimals, 1}])
+          _ -> to_string(val)
+        end
+        unit = if v[:unit] && v[:unit] != "", do: " #{v[:unit]}", else: ""
+        key_padded  = v[:key] |> to_string() |> String.pad_trailing(16)
+        val_padded  = "#{formatted_val}#{unit}" |> String.pad_trailing(20)
+        "#{key_padded}  #{val_padded} #{status}"
+      end)
+      "#{header}\n#{lines}"
+    end)
+  end
+
+  defp build_forecast_summary_text(nil), do: ""
+  defp build_forecast_summary_text(forecast) when is_map(forecast) do
+    d3 = Map.get(forecast, :solver_d3) || %{}
+    if map_size(d3) == 0 do
+      ""
+    else
+      lines = Enum.map_join(d3, "\n", fn {k, v} ->
+        label = k |> to_string() |> String.replace("forecast_", "") |> String.pad_trailing(20)
+        formatted = if is_float(v), do: :erlang.float_to_binary(v, decimals: 1), else: to_string(v)
+        "#{label}  #{formatted}"
+      end)
+      "--- FORECAST D+3 ---\n#{lines}"
+    end
+  end
+  defp build_forecast_summary_text(_), do: ""
+
+  defp build_routes_summary_text([]), do: ""
+  defp build_routes_summary_text(routes) do
+    lines = Enum.map_join(routes, "\n", fn r ->
+      key  = (r[:key] || "route") |> to_string() |> String.pad_trailing(12)
+      name = (r[:name] || "") |> String.pad_trailing(28)
+      dist = "#{r[:distance_mi] || "?"}mi"
+      days = "#{r[:typical_transit_days] || "?"}d"
+      cap  = "#{round(r[:unit_capacity] || 0)}t/barge"
+      "#{key}  #{name}  #{dist}  #{days}  #{cap}"
+    end)
+    "--- ROUTES ---\n#{lines}"
+  end
+
+  defp build_constraints_summary_text([], _vars), do: ""
+  defp build_constraints_summary_text(constraints, vars) do
+    lines = Enum.map_join(constraints, "\n", fn c ->
+      bound_val = if c[:bound_variable], do: Map.get(vars, c[:bound_variable]), else: nil
+      outage    = if c[:outage_variable], do: Map.get(vars, c[:outage_variable]), else: nil
+      case c[:type] do
+        :supply ->
+          bound_str = if bound_val, do: " max #{round(bound_val)}t", else: ""
+          routes_str = (c[:routes] || []) |> Enum.map_join(", ", &to_string/1)
+          "#{c[:key]}  Supply#{bound_str} → [#{routes_str}]"
+        :demand_cap ->
+          bound_str = if bound_val, do: " max #{round(bound_val)}t", else: ""
+          outage_str = case outage do
+            true -> " (outage: YES)"
+            1.0  -> " (outage: YES)"
+            _    -> " (outage: NONE)"
+          end
+          dest = c[:destination] || ""
+          "#{c[:key]}  Demand#{bound_str} → #{dest}#{outage_str}"
+        :fleet_constraint ->
+          bound_str = if bound_val, do: " max #{round(bound_val)} barges", else: ""
+          "#{c[:key]}  Fleet#{bound_str} across all routes"
+        :capital_constraint ->
+          bound_str = if bound_val, do: " max $#{round(bound_val)}", else: ""
+          "#{c[:key]}  Capital#{bound_str} across all routes"
+        _ ->
+          "#{c[:key]}  #{c[:name] || to_string(c[:type] || "custom")}"
+      end
+    end)
+    "--- CONSTRAINTS ---\n#{lines}"
+  end
+
+  defp build_positions_summary_text(nil), do: ""
+  defp build_positions_summary_text(book) do
+    header = "--- OPEN POSITIONS (SAP) ---\n" <>
+      "Purchase open: #{format_number(book.total_purchase_open)} MT | " <>
+      "Sale open: #{format_number(book.total_sale_open)} MT | " <>
+      "Net: #{if book.net_position >= 0, do: "+", else: ""}#{format_number(book.net_position)} MT"
+    rows = book.positions
+      |> Enum.sort_by(fn {_k, v} -> v.open_qty_mt end, :desc)
+      |> Enum.map_join("\n", fn {name, pos} ->
+        dir  = if pos.direction == :purchase, do: "BUY ", else: "SELL"
+        inc  = pos.incoterm |> to_string() |> String.upcase() |> String.pad_trailing(4)
+        ctr  = format_number(pos.total_qty_mt) |> String.pad_leading(9)
+        del  = format_number(pos.delivered_qty_mt) |> String.pad_leading(9)
+        open = format_number(pos.open_qty_mt) |> String.pad_leading(9)
+        num  = pos.contract_number || ""
+        "#{name}  #{dir} #{inc}  contract=#{ctr} MT  delivered=#{del} MT  open=#{open} MT  [#{num}]"
+      end)
+    if rows == "", do: header, else: "#{header}\n#{rows}"
+  end
+
+  defp build_fleet_summary_text([], nil), do: ""
+  defp build_fleet_summary_text(fleet, vessel_data) do
+    vessel_lines = if is_list(fleet) and fleet != [] do
+      Enum.map_join(fleet, "\n", fn v ->
+        mmsi = v.mmsi || "?"
+        name = v.vessel_name || "Unknown"
+        pg   = v.product_group || "?"
+        status = v.status || "active"
+        "#{name}  MMSI:#{mmsi}  #{pg}  #{status}"
+      end)
+    else
+      ""
+    end
+
+    ais_summary = case vessel_data do
+      %{vessels: vessels} when is_list(vessels) and length(vessels) > 0 ->
+        Enum.map_join(Enum.take(vessels, 5), "\n", fn v ->
+          name  = v[:name] || "Unknown"
+          mile  = v[:river_mile] && "mi #{v[:river_mile]}" || ""
+          spd   = v[:speed_kn] && "#{v[:speed_kn]}kn" || ""
+          "  AIS> #{name}  #{mile}  #{spd}"
+        end)
+      _ -> "  (no AIS position data)"
+    end
+
+    if vessel_lines == "" and ais_summary == "  (no AIS position data)" do
+      ""
+    else
+      content = [vessel_lines, ais_summary]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join("\n")
+      "--- FLEET (AIS TRACKING) ---\n#{content}"
+    end
+  end
 
   # Safe GenServer call — returns fallback if the service isn't running yet
   defp safe_call(fun, fallback) do

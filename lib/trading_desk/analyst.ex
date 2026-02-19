@@ -2,11 +2,15 @@ defmodule TradingDesk.Analyst do
   @moduledoc """
   Claude-powered analyst that explains trading scenarios, Monte Carlo results,
   and agent decisions in plain English. Works with any product group.
+
+  Counterparty names and vessel names are anonymized before being sent to
+  the Claude API. The response is de-anonymized before returning to the caller.
   """
 
   require Logger
 
   alias TradingDesk.ProductGroup
+  alias TradingDesk.Anonymizer
 
   @model "claude-sonnet-4-5-20250929"
 
@@ -53,19 +57,86 @@ defmodule TradingDesk.Analyst do
   end
 
   @doc """
-  Explain a solve result WITH position impact analysis.
+  Explain a solve result WITH position impact analysis and detailed market commentary.
 
-  If the trader specified an action, this also produces per-contract impact.
+  Produces a comprehensive explanation covering:
+  - What the solver optimized and why
+  - Which routes/constraints were binding
+  - Position and contract impact
+  - Weather and operational conditions
+  - Risk flags and recommended actions
+
+  Counterparty names are anonymized before sending to Claude API and
+  de-anonymized in the returned text.
+
   Returns {:ok, explanation_text, impact_map} or {:ok, text} or {:error, reason}.
   """
   def explain_solve_with_impact(variables, result, intent, trader_action) do
-    # First, get the standard explanation
-    case explain_solve(variables, result) do
-      {:ok, text} ->
-        # Build position impact
-        book = TradingDesk.Contracts.SapPositions.book_summary()
-        impact = build_position_impact(result, book, intent, trader_action)
-        {:ok, text, impact}
+    pg = Map.get(result, :product_group) || :ammonia_domestic
+    vars = to_var_map(variables)
+    frame = ProductGroup.frame(pg)
+    book = TradingDesk.Contracts.SapPositions.book_summary()
+    impact = build_position_impact(result, book, intent, trader_action)
+
+    # Collect sensitive names for anonymization
+    counterparty_names = Anonymizer.counterparty_names(book)
+    positions_text = format_positions_for_explanation(book)
+    {anon_positions, anon_map} = Anonymizer.anonymize(positions_text, counterparty_names)
+
+    # Anonymize trader action if it contains counterparty names
+    {anon_action, _} = Anonymizer.anonymize(trader_action || "", counterparty_names)
+
+    vars_text = format_variables(vars, frame)
+    routes_text = format_routes(result, frame)
+    shadow_text = format_shadow_prices(result, frame)
+    roi = Map.get(result, :roi) || 0.0
+
+    # Include weather forecast context if available
+    forecast = safe_get_forecast()
+    forecast_text = format_forecast_for_prompt(forecast)
+
+    prompt = """
+    You are a senior #{frame[:product]} trading analyst at a global commodities firm.
+    Product: #{frame[:name]} | Geography: #{frame[:geography]} | Transport: #{frame[:transport_mode]}.
+
+    A trader just ran a scenario optimization. Provide a comprehensive analyst note
+    covering: what drove the result, which constraints bound the solution, position
+    impact, operational risks, and recommended follow-up actions.
+
+    #{if anon_action != "", do: "TRADER SCENARIO: \"#{anon_action}\"\n\n", else: ""}SOLVER INPUTS:
+    #{vars_text}
+
+    #{if forecast_text != "", do: "WEATHER FORECAST (D+3):\n#{forecast_text}\n\n", else: ""}SOLVER RESULT:
+    - Status: OPTIMAL
+    - Gross profit: $#{format_number(Map.get(result, :profit))}
+    - Total tons shipped: #{format_number(Map.get(result, :tons))}
+    - #{vessel_label(frame)}: #{format_vessels(result, frame)}
+    - ROI: #{Float.round(roi / 1, 1)}%
+    - Capital deployed: $#{format_number(Map.get(result, :cost))}
+
+    ROUTE ALLOCATION:
+    #{routes_text}
+
+    #{if shadow_text != "", do: "BINDING CONSTRAINTS (shadow prices):\n#{shadow_text}\n\n", else: ""}OPEN BOOK POSITIONS (entity names anonymized):
+    #{anon_positions}
+    Net position: #{book.net_position} MT
+
+    Write a comprehensive analyst note (5-8 sentences) covering:
+    1. What drove this result — key margin, constraint, or market driver
+    2. Which constraints bound the solution (use the shadow prices)
+    3. How this scenario affects open positions and delivery obligations
+    4. Any weather or operational risks that could erode this result
+    5. Recommended follow-up actions for the trader
+
+    Be analytical and tactical. Use the anonymized entity codes as-is (e.g., ENTITY_01)
+    — do NOT attempt to guess real names. Plain prose, no bullet lists.
+    """
+
+    case call_claude(prompt, max_tokens: 800) do
+      {:ok, raw_text} ->
+        # De-anonymize counterparty codes that Claude may have echoed
+        final_text = Anonymizer.deanonymize(raw_text, anon_map)
+        {:ok, final_text, impact}
 
       {:error, reason} ->
         {:error, reason}
@@ -280,9 +351,65 @@ defmodule TradingDesk.Analyst do
   defp to_var_map(%TradingDesk.Variables{} = v), do: Map.from_struct(v)
   defp to_var_map(map) when is_map(map), do: Map.drop(map, [:__struct__])
 
+  # ── Position/forecast formatters ───────────────────────────
+
+  defp format_positions_for_explanation(book) do
+    book.positions
+    |> Enum.sort_by(fn {_k, v} -> v.open_qty_mt end, :desc)
+    |> Enum.map_join("\n", fn {name, pos} ->
+      dir = if pos.direction == :purchase, do: "BUY", else: "SELL"
+      "#{name}: #{dir} #{pos.incoterm |> to_string() |> String.upcase()} | open=#{pos.open_qty_mt} MT"
+    end)
+  end
+
+  defp format_shadow_prices(result, frame) do
+    shadow = Map.get(result, :shadow_prices) || []
+    constraints = frame[:constraints] || []
+    if shadow == [] or constraints == [] do
+      ""
+    else
+      constraints
+      |> Enum.with_index()
+      |> Enum.map_join("\n", fn {c, i} ->
+        price = Enum.at(shadow, i, 0.0)
+        if abs(price) > 0.01 do
+          "- #{c[:name] || c[:key]}: $#{Float.round(price / 1, 2)}/MT shadow price (binding)"
+        else
+          "- #{c[:name] || c[:key]}: not binding"
+        end
+      end)
+    end
+  end
+
+  defp safe_get_forecast do
+    try do
+      TradingDesk.Data.LiveState.get_supplementary(:forecast)
+    rescue
+      _ -> nil
+    catch
+      :exit, _ -> nil
+    end
+  end
+
+  defp format_forecast_for_prompt(nil), do: ""
+  defp format_forecast_for_prompt(forecast) when is_map(forecast) do
+    d3 = Map.get(forecast, :solver_d3) || Map.get(forecast, "solver_d3") || %{}
+    if map_size(d3) == 0 do
+      ""
+    else
+      lines = Enum.map_join(d3, "\n", fn {k, v} ->
+        label = k |> to_string() |> String.replace("forecast_", "") |> String.replace("_", " ")
+        "- D+3 #{label}: #{if is_float(v), do: Float.round(v, 1), else: v}"
+      end)
+      lines
+    end
+  end
+  defp format_forecast_for_prompt(_), do: ""
+
   # ── Claude API ──────────────────────────────────────────────
 
-  defp call_claude(prompt) do
+  defp call_claude(prompt, opts \\ []) do
+    max_tokens = Keyword.get(opts, :max_tokens, 300)
     api_key = System.get_env("ANTHROPIC_API_KEY")
 
     if is_nil(api_key) or api_key == "" do
@@ -292,7 +419,7 @@ defmodule TradingDesk.Analyst do
       case Req.post("https://api.anthropic.com/v1/messages",
         json: %{
           model: @model,
-          max_tokens: 300,
+          max_tokens: max_tokens,
           messages: [%{role: "user", content: prompt}]
         },
         headers: [
@@ -300,7 +427,7 @@ defmodule TradingDesk.Analyst do
           {"anthropic-version", "2023-06-01"},
           {"content-type", "application/json"}
         ],
-        receive_timeout: 15_000
+        receive_timeout: 20_000
       ) do
         {:ok, %{status: 200, body: %{"content" => [%{"text" => text} | _]}}} ->
           {:ok, String.trim(text)}

@@ -1,17 +1,17 @@
 defmodule TradingDesk.IntentMapper do
   @moduledoc """
-  Maps a trader's plain-text action description into solver variable adjustments
-  and contract impact context.
+  Maps a trader's edited model summary (or plain-text action description) into
+  solver variable adjustments and contract impact context.
 
-  The trader types something like:
-    "What if I redirect the March Yuzhnyy cargo to India instead of Morocco?"
-    "I want to test selling 5000 more tons to Koch at Memphis"
-    "Simulate a river drop to 15 feet with both plants running"
+  The trader edits a structured model summary that shows all current variable
+  values, routes, constraints, open positions, and fleet data. They can:
+    - Change variable values directly in the text
+    - Add a scenario description (barge repair, weather impact, cargo redirect)
+    - Leave the model unchanged (uses current variables as-is)
 
-  Claude interprets this in the context of:
-    - Current solver variables
-    - Open positions per counterparty (from SAP)
-    - Contract penalties and obligations
+  All counterparty names, vessel names, and contract references are anonymized
+  before being sent to the Claude API. The response is de-anonymized before
+  being returned to the caller.
 
   Returns a structured intent that the pre-solve review popup displays,
   and variable adjustments that get applied before solving.
@@ -23,6 +23,7 @@ defmodule TradingDesk.IntentMapper do
   alias TradingDesk.Contracts.SapPositions
   alias TradingDesk.Contracts.Store, as: ContractStore
   alias TradingDesk.Trader.DeliverySchedule
+  alias TradingDesk.Anonymizer
 
   @model "claude-sonnet-4-5-20250929"
 
@@ -43,8 +44,18 @@ defmodule TradingDesk.IntentMapper do
   def parse_intent(action_text, current_vars, product_group \\ :ammonia_domestic) do
     frame = ProductGroup.frame(product_group)
     book = SapPositions.book_summary()
+
+    # Collect sensitive names for anonymization
+    counterparty_names = Anonymizer.counterparty_names(book)
+
+    # Anonymize the trader's input (model summary text) using same map for all strings
+    {[anon_action, anon_positions], anon_map} =
+      Anonymizer.anonymize_many(
+        [action_text, format_positions(book)],
+        counterparty_names
+      )
+
     vars_text = format_current_vars(current_vars, frame)
-    positions_text = format_positions(book)
 
     # Load active delivery schedules for penalty exposure context
     active_contracts = safe_active_contracts(product_group)
@@ -55,22 +66,45 @@ defmodule TradingDesk.IntentMapper do
         else: "No active delivery schedules loaded."
     total_exposure = DeliverySchedule.total_daily_exposure(schedules)
 
+    # Anonymize delivery text too
+    {anon_delivery, _} = Anonymizer.anonymize(delivery_text, counterparty_names)
+
+    is_model_summary = String.contains?(action_text, "--- ENVIRONMENT ---") or
+                       String.contains?(action_text, "[ENVIRONMENT")
+
+    input_section =
+      if is_model_summary do
+        """
+        The trader has reviewed and edited the full model summary below.
+        They may have: (1) changed specific variable values, (2) added a scenario
+        description in the [TRADER SCENARIO] section, or (3) left it unchanged.
+
+        EDITED MODEL SUMMARY (entity names anonymized):
+        #{anon_action}
+        """
+      else
+        """
+        The trader described this scenario they want to test:
+        "#{anon_action}"
+        """
+      end
+
     prompt = """
-    You are a commodity trading desk system that interprets trader actions.
+    You are a commodity trading desk optimization system. Your job is to interpret
+    the trader's input and produce a structured JSON that maps their intent to
+    solver variable adjustments and contract impacts.
 
-    The trader typed this action they want to test:
-    "#{action_text}"
+    #{input_section}
 
-    CURRENT SOLVER VARIABLES:
+    CANONICAL SOLVER VARIABLES (current live values — detect if trader changed any):
     #{vars_text}
 
-    OPEN BOOK POSITIONS (from SAP):
-    #{positions_text}
+    OPEN BOOK POSITIONS (entity codes are anonymized — use the same codes in your response):
+    #{anon_positions}
+    Net position: #{book.net_position} MT (positive = we are long)
 
-    Net position: #{book.net_position} MT (positive = Trammo is long ammonia)
-
-    DELIVERY SCHEDULES (sorted by daily penalty exposure, highest first):
-    #{delivery_text}
+    DELIVERY SCHEDULES (by daily penalty exposure):
+    #{anon_delivery}
     Total daily exposure if all deliveries slip: $#{round(total_exposure)}/day
 
     AVAILABLE SOLVER OBJECTIVES:
@@ -78,42 +112,42 @@ defmodule TradingDesk.IntentMapper do
     - min_cost: Minimize total cost (best when capital or fleet is constrained)
     - max_roi: Maximize return on working capital
     - cvar_adjusted: CVaR-adjusted optimization (reduces tail risk)
-    - min_risk: Minimize risk exposure (most conservative; avoids penalty exposure)
+    - min_risk: Minimize risk exposure (most conservative)
 
-    INSTRUCTIONS:
-    Interpret the trader's intent and return ONLY a JSON object (no markdown, no explanation) with these fields:
+    INSTRUCTIONS — return ONLY a JSON object (no markdown, no explanation):
 
     {
-      "summary": "One-line summary of the trading action being tested",
-      "variable_adjustments": {"variable_key": new_value},
+      "summary": "One-line summary of what scenario is being tested",
+      "variable_adjustments": {"solver_variable_key": new_numeric_value},
       "affected_contracts": [
-        {"counterparty": "name", "direction": "purchase|sale", "impact": "description of impact", "open_qty_change": 0}
+        {"counterparty": "ENTITY_XX (use anonymized code)", "direction": "purchase|sale", "impact": "description", "open_qty_change": 0}
       ],
-      "risk_notes": ["any penalties or contract risks triggered by this action"],
+      "risk_notes": ["any penalties or contract risks this scenario triggers"],
       "confidence": "high|medium|low",
       "objective": "max_profit|min_cost|max_roi|cvar_adjusted|min_risk",
-      "event_type": "barge_failure|port_outage|market_move|volume_change|other",
-      "priority_deliveries": ["counterparty names that must be served first given capacity constraints"],
-      "deferred_deliveries": ["counterparty names whose delivery can be deferred if capacity is short"],
+      "event_type": "barge_failure|port_outage|market_move|volume_change|weather_impact|cargo_redirect|other",
+      "priority_deliveries": ["ENTITY_XX codes of counterparties to serve first"],
+      "deferred_deliveries": ["ENTITY_XX codes of counterparties whose delivery can defer"],
       "penalty_exposure": 0.0
     }
 
     Rules:
-    - variable_adjustments keys MUST be valid solver variable keys from the list above
-    - Only include variables that the trader's action would change
-    - If the trader describes a market scenario (river drop, outage, price change), adjust those variables
-    - If the trader describes a fleet event (barge failure, repair), reduce barge_count accordingly
-    - If the trader describes a trading action (redirect cargo, increase volume), note the affected contracts
-    - risk_notes should mention specific penalty clauses if volume shortfall or late delivery is possible
-    - objective should be the solver objective best suited to the scenario (e.g. min_cost for fleet constraints)
-    - priority_deliveries and deferred_deliveries should reflect penalty exposure — serve highest-penalty customers first
-    - penalty_exposure should estimate total $ penalty if deferred deliveries are delayed past grace period
+    - variable_adjustments keys MUST match the canonical solver variable keys shown above
+    - If the input is a model summary, detect changes by comparing values to the canonical list
+    - Only include variables that differ from the canonical values
+    - For fleet events (barge failure/repair): reduce barge_count by the affected number
+    - For weather impacts: adjust river_stage, wind_mph, vis_mi, precip_in, temp_f as described
+    - For cargo redirect / volume change: note affected_contracts with the anonymized entity codes
+    - penalty_exposure = estimated $ if deferred deliveries slip past their grace period
+    - Use the anonymized entity codes (ENTITY_01, etc.) throughout — do NOT use real names
     - Return ONLY the JSON, nothing else
     """
 
     case call_claude(prompt) do
       {:ok, json_text} ->
-        parse_json_response(json_text, book)
+        result = parse_json_response(json_text, book)
+        # De-anonymize counterparty codes in the response
+        deanonymize_result(result, anon_map)
 
       {:error, reason} ->
         {:error, reason}
@@ -211,6 +245,24 @@ defmodule TradingDesk.IntentMapper do
     end)
   end
   defp parse_affected(_), do: []
+
+  # De-anonymize entity codes in the returned intent struct
+  defp deanonymize_result({:error, _} = err, _anon_map), do: err
+  defp deanonymize_result({:ok, intent}, anon_map) when map_size(anon_map) == 0, do: {:ok, intent}
+  defp deanonymize_result({:ok, intent}, anon_map) do
+    updated = intent
+      |> Map.update(:affected_contracts, [], fn contracts ->
+        Enum.map(contracts, fn c ->
+          Map.update(c, :counterparty, nil, &Anonymizer.deanonymize(&1, anon_map))
+          |> Map.update(:impact, nil, &Anonymizer.deanonymize(&1, anon_map))
+        end)
+      end)
+      |> Map.update(:priority_deliveries, [], &Anonymizer.deanonymize_list(&1, anon_map))
+      |> Map.update(:deferred_deliveries, [], &Anonymizer.deanonymize_list(&1, anon_map))
+      |> Map.update(:risk_notes, [], &Anonymizer.deanonymize_list(&1, anon_map))
+      |> Map.update(:summary, "", &Anonymizer.deanonymize(&1, anon_map))
+    {:ok, updated}
+  end
 
   defp parse_number(v) when is_binary(v) do
     case Float.parse(v) do
