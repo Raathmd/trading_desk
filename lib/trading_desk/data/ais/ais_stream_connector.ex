@@ -54,12 +54,19 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
       :ignore
     else
       ensure_ets_table()
-      Logger.info("AISStreamConnector: connecting to #{@url}")
 
       extra_bbox = parse_extra_bbox()
       bboxes = [@bbox_mississippi | extra_bbox]
 
-      state = %{api_key: api_key, bboxes: bboxes, connected: false}
+      # TRACKED_VESSELS narrows subscription to specific MMSIs only
+      tracked = parse_tracked_vessels()
+
+      Logger.info(
+        "AISStreamConnector: connecting — #{length(bboxes)} bbox(es), " <>
+          if(tracked == [], do: "all vessels", else: "#{length(tracked)} tracked MMSI(s)")
+      )
+
+      state = %{api_key: api_key, bboxes: bboxes, tracked: tracked, connected: false}
 
       WebSockex.start_link(@url, __MODULE__, state, name: __MODULE__)
     end
@@ -90,23 +97,37 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
 
   @impl true
   def handle_connect(_conn, state) do
-    Logger.info("AISStreamConnector: connected, subscribing to #{length(state.bboxes)} bounding box(es)")
+    Logger.info("AISStreamConnector: connected, sending subscription")
 
+    sub_base = %{
+      "ApiKey"             => state.api_key,
+      "BoundingBoxes"      => state.bboxes,
+      "FilterMessageTypes" => ["PositionReport", "StandardClassBPositionReport",
+                               "ExtendedClassBPositionReport"]
+    }
+
+    # If specific MMSIs configured, tell AISstream to filter server-side.
+    # This reduces data volume and ensures we only cache the vessels we care about.
     sub =
-      Jason.encode!(%{
-        "ApiKey"       => state.api_key,
-        "BoundingBoxes" => state.bboxes,
-        "FilterMessageTypes" => ["PositionReport", "StandardClassBPositionReport",
-                                 "ExtendedClassBPositionReport"]
-      })
+      if state.tracked != [] do
+        mmsis = Enum.map(state.tracked, fn m ->
+          case Integer.parse(m) do
+            {n, _} -> n
+            :error -> m
+          end
+        end)
+        Map.put(sub_base, "MMSIs", mmsis)
+      else
+        sub_base
+      end
 
-    {:reply, {:text, sub}, %{state | connected: true}}
+    {:reply, {:text, Jason.encode!(sub)}, %{state | connected: true}}
   end
 
   @impl true
   def handle_frame({:text, raw}, state) do
     case Jason.decode(raw) do
-      {:ok, msg} -> handle_ais_message(msg)
+      {:ok, msg} -> handle_ais_message(msg, state.tracked)
       {:error, _} -> :ok
     end
 
@@ -131,53 +152,47 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
   # Message parsing
   # ──────────────────────────────────────────────
 
-  defp handle_ais_message(%{"MessageType" => type, "MetaData" => meta, "Message" => msg})
+  defp handle_ais_message(%{"MessageType" => type, "MetaData" => meta, "Message" => msg}, tracked)
        when type in ["PositionReport", "StandardClassBPositionReport",
                      "ExtendedClassBPositionReport"] do
     mmsi = to_string(meta["MMSI"] || "")
-    name = String.trim(meta["ShipName"] || "Unknown")
 
-    position =
-      case type do
-        "PositionReport" ->
-          pr = msg["PositionReport"] || %{}
-          %{
-            cog:     pr["Cog"],
-            sog:     pr["Sog"],
-            heading: pr["TrueHeading"],
-            status:  pr["NavigationalStatus"]
-          }
+    # Client-side MMSI guard — belt-and-suspenders on top of server-side subscription filter.
+    if tracked == [] or mmsi in tracked do
+      name = String.trim(meta["ShipName"] || "Unknown")
 
-        _ ->
-          cb = msg["StandardClassBPositionReport"] || msg["ExtendedClassBPositionReport"] || %{}
-          %{
-            cog:     cb["Cog"],
-            sog:     cb["Sog"],
-            heading: cb["TrueHeading"],
-            status:  nil
-          }
+      position =
+        case type do
+          "PositionReport" ->
+            pr = msg["PositionReport"] || %{}
+            %{cog: pr["Cog"], sog: pr["Sog"], heading: pr["TrueHeading"], status: pr["NavigationalStatus"]}
+
+          _ ->
+            cb = msg["StandardClassBPositionReport"] || msg["ExtendedClassBPositionReport"] || %{}
+            %{cog: cb["Cog"], sog: cb["Sog"], heading: cb["TrueHeading"], status: nil}
+        end
+
+      vessel = %{
+        mmsi:      mmsi,
+        name:      name,
+        lat:       meta["latitude"],
+        lon:       meta["longitude"],
+        course:    position.cog,
+        speed:     position.sog,
+        heading:   position.heading,
+        status:    nav_status(position.status),
+        timestamp: meta["time_utc"],
+        source:    :aisstream
+      }
+
+      if vessel.lat != nil and vessel.lon != nil do
+        ensure_ets_table()
+        :ets.insert(@ets_table, {mmsi, vessel})
       end
-
-    vessel = %{
-      mmsi:      mmsi,
-      name:      name,
-      lat:       meta["latitude"],
-      lon:       meta["longitude"],
-      course:    position.cog,
-      speed:     position.sog,
-      heading:   position.heading,
-      status:    nav_status(position.status),
-      timestamp: meta["time_utc"],
-      source:    :aisstream
-    }
-
-    if vessel.lat != nil and vessel.lon != nil do
-      ensure_ets_table()
-      :ets.insert(@ets_table, {mmsi, vessel})
     end
   end
 
-  defp handle_ais_message(_), do: :ok
+  defp handle_ais_message(_, _tracked), do: :ok
 
   # ──────────────────────────────────────────────
   # Helpers
@@ -196,6 +211,14 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
   defp nav_status(5), do: :moored
   defp nav_status(8), do: :underway_sailing
   defp nav_status(_), do: :unknown
+
+  defp parse_tracked_vessels do
+    case System.get_env("TRACKED_VESSELS") do
+      nil -> []
+      ""  -> []
+      csv -> String.split(csv, ",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+    end
+  end
 
   defp parse_extra_bbox do
     case System.get_env("AISSTREAM_EXTRA_BBOX") do
