@@ -91,6 +91,8 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:review_mode, nil)
       |> assign(:sap_positions, nil)
       |> assign(:post_solve_impact, nil)
+      |> assign(:delivery_impact, nil)
+      |> assign(:ops_sent, false)
       |> assign(:ammonia_prices, TradingDesk.Data.AmmoniaPrices.price_summary())
       |> assign(:contracts_data, load_contracts_data())
       |> assign(:api_status, load_api_status())
@@ -132,15 +134,14 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_event("confirm_solve", _params, socket) do
-    # Apply intent variable adjustments and recommended objective if any, then solve
+    # Apply intent variable adjustments if any, then solve.
+    # Objective is set by the trader in the popup — not auto-applied from AI suggestion.
     vars = apply_intent_adjustments(socket.assigns.current_vars, socket.assigns.intent)
-    objective = maybe_intent_objective(socket.assigns.intent, socket.assigns.objective_mode)
     mode = socket.assigns.review_mode
 
     socket =
       socket
       |> assign(:current_vars, vars)
-      |> assign(:objective_mode, objective)
       |> assign(:show_review, false)
       |> assign(:solving, true)
       |> assign(:pipeline_phase, :checking_contracts)
@@ -250,6 +251,44 @@ defmodule TradingDesk.ScenarioLive do
         )
         scenarios = Store.list(socket.assigns.trader_id)
         {:noreply, assign(socket, :saved_scenarios, scenarios)}
+    end
+  end
+
+  @impl true
+  @impl true
+  def handle_event("save_and_send_ops", _params, socket) do
+    case socket.assigns.result do
+      nil ->
+        {:noreply, socket}
+
+      result ->
+        trader_id    = socket.assigns.trader_id
+        action       = socket.assigns.trader_action || ""
+        intent       = socket.assigns.intent
+        objective    = socket.assigns.objective_mode
+        delivery_impact = socket.assigns.delivery_impact
+
+        timestamp_str = DateTime.utc_now() |> Calendar.strftime("%Y-%m-%d %H:%M")
+        preview = if action != "", do: " — #{String.slice(action, 0, 42)}", else: ""
+        name = "#{timestamp_str}#{preview}"
+
+        {:ok, _} = Store.save(trader_id, name, socket.assigns.current_vars, result, nil)
+        scenarios = Store.list(trader_id)
+
+        ops_ctx = %{
+          trader_id:       trader_id,
+          trader_action:   action,
+          intent:          intent,
+          objective:       objective,
+          result:          result,
+          delivery_impact: delivery_impact,
+          variables:       socket.assigns.current_vars,
+          timestamp:       timestamp_str,
+          summary:         (intent && intent.summary) || action || "Scenario solve"
+        }
+        Task.start(fn -> TradingDesk.Ops.EmailPipeline.send(ops_ctx) end)
+
+        {:noreply, socket |> assign(:ops_sent, true) |> assign(:saved_scenarios, scenarios)}
     end
   end
 
@@ -383,6 +422,7 @@ defmodule TradingDesk.ScenarioLive do
 
   def handle_info({:pipeline_event, :pipeline_solve_done, %{mode: :solve, result: result, caller_ref: :trader_solve} = payload}, socket) do
     contracts_stale = Map.get(payload, :contracts_stale, false) or socket.assigns.contracts_stale
+    delivery_impact = compute_delivery_impact(socket.assigns.intent, socket.assigns.product_group)
     socket = assign(socket,
       result: result,
       solving: false,
@@ -390,7 +430,9 @@ defmodule TradingDesk.ScenarioLive do
       pipeline_detail: nil,
       contracts_stale: contracts_stale,
       explanation: nil,
-      explaining: true
+      explaining: true,
+      delivery_impact: delivery_impact,
+      ops_sent: false
     )
     vars = socket.assigns.current_vars
     intent = socket.assigns.intent
@@ -955,6 +997,68 @@ defmodule TradingDesk.ScenarioLive do
                 <% end %>
               </div>
             <% end %>
+
+          <%!-- Delivery Impact (populated after solve when delivery schedules are loaded) --%>
+          <%= if @delivery_impact do %>
+            <div style="background:#111827;border-radius:8px;padding:14px;margin-bottom:16px;border:1px solid #1e293b">
+              <div style="font-size:10px;font-weight:700;letter-spacing:1.2px;margin-bottom:10px;color:#a78bfa">DELIVERY SCHEDULE IMPACT</div>
+              <%= for c <- @delivery_impact.by_customer do %>
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e293b33">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <span style={"font-size:14px;width:18px;text-align:center;#{delivery_impact_style(c.status)}"}>
+                      <%= delivery_impact_icon(c.status) %>
+                    </span>
+                    <div>
+                      <div style={"font-size:11px;font-weight:600;#{delivery_impact_style(c.status)}"}>
+                        <%= c.counterparty |> String.split(",") |> List.first() |> String.split(" ") |> Enum.take(2) |> Enum.join(" ") %>
+                      </div>
+                      <div style="font-size:10px;color:#64748b">
+                        <%= format_number(round(c.scheduled_qty_mt)) %> MT
+                        · <%= c.frequency %>
+                        · <%= if c.next_window_days == 0, do: "window open", else: "opens in #{c.next_window_days}d" %>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="text-align:right">
+                    <%= if c.penalty_estimate > 0 do %>
+                      <div style="font-size:11px;font-weight:700;font-family:monospace;color:#fca5a5">
+                        ~$<%= format_number(round(c.penalty_estimate)) %>
+                      </div>
+                      <div style="font-size:9px;color:#64748b">est. penalty</div>
+                    <% else %>
+                      <div style="font-size:10px;color:#475569"><%= delivery_impact_note(c.status) %></div>
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
+              <%= if @delivery_impact.deferred_count > 0 do %>
+                <div style="margin-top:8px;padding-top:8px;border-top:1px solid #a78bfa33;display:flex;justify-content:space-between;font-size:11px">
+                  <span style="color:#94a3b8"><%= @delivery_impact.deferred_count %> <%= if @delivery_impact.deferred_count == 1, do: "delivery", else: "deliveries" %> deferred</span>
+                  <span style="color:#fdba74;font-weight:700;font-family:monospace">~$<%= format_number(round(@delivery_impact.total_penalty_exposure)) %> exposure</span>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+
+          <%!-- Save & Send to Ops --%>
+          <%= if @result do %>
+            <div style="margin-bottom:16px">
+              <%= if @ops_sent do %>
+                <div style="background:#0d1a0d;border:1px solid #166534;border-radius:8px;padding:12px;text-align:center">
+                  <div style="font-size:12px;color:#4ade80;font-weight:700">✓ Saved and sent to ops team</div>
+                  <div style="font-size:10px;color:#64748b;margin-top:2px">Email queued for ops@trammo.com · Scenario saved</div>
+                </div>
+              <% else %>
+                <button phx-click="save_and_send_ops"
+                  style="width:100%;padding:11px;border:1px solid #a78bfa;border-radius:8px;background:#0a0318;color:#c4b5fd;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:0.5px">
+                  📋 SAVE SCENARIO &amp; SEND TO OPS
+                </button>
+                <div style="text-align:center;font-size:10px;color:#475569;margin-top:4px">
+                  Saves to database · Emails instructions to ops team for SAP data entry
+                </div>
+              <% end %>
+            </div>
+          <% end %>
 
           <%!-- === CONTRACTS TAB === --%>
           <%= if @active_tab == :contracts do %>
@@ -1693,76 +1797,102 @@ defmodule TradingDesk.ScenarioLive do
               <button phx-click="cancel_review" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:16px">X</button>
             </div>
 
-            <%!-- Trader Action --%>
-            <%= if @trader_action != "" do %>
-              <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px;border-left:3px solid #a78bfa">
-                <div style="font-size:10px;color:#a78bfa;letter-spacing:1px;margin-bottom:4px">TRADER ACTION</div>
-                <div style="font-size:13px;color:#e2e8f0;font-style:italic">"<%= @trader_action %>"</div>
-              </div>
-            <% end %>
+            <%!-- Trader Scenario — shown prominently at top --%>
+            <div style="background:#0a0318;border-radius:8px;padding:14px;margin-bottom:14px;border-left:3px solid #a78bfa">
+              <div style="font-size:10px;color:#a78bfa;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">TRADER SCENARIO</div>
+              <%= if @trader_action != "" do %>
+                <div style="font-size:13px;color:#e2e8f0;line-height:1.5;font-style:italic">"<%= @trader_action %>"</div>
+              <% else %>
+                <div style="font-size:12px;color:#475569;font-style:italic">No scenario text — manual variable adjustments only</div>
+              <% end %>
+            </div>
 
-            <%!-- Intent Mapping --%>
+            <%!-- AI Interpretation --%>
             <%= if @intent_loading do %>
-              <div style="font-size:12px;color:#64748b;padding:8px 0">Mapping intent to variables...</div>
+              <div style="font-size:12px;color:#64748b;padding:8px 0;text-align:center">⏳ Mapping intent to variables...</div>
             <% end %>
             <%= if @intent do %>
               <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-                <div style="font-size:10px;color:#38bdf8;letter-spacing:1px;margin-bottom:4px">AI INTERPRETATION</div>
-                <div style="font-size:12px;color:#c8d6e5;margin-bottom:8px"><%= @intent.summary %></div>
+                <div style="font-size:10px;color:#38bdf8;letter-spacing:1px;margin-bottom:6px;font-weight:700">AI INTERPRETATION</div>
+                <div style="font-size:12px;color:#c8d6e5;margin-bottom:10px;line-height:1.5"><%= @intent.summary %></div>
 
+                <%!-- Variable changes --%>
                 <%= if map_size(@intent.variable_adjustments) > 0 do %>
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px;margin-top:8px">VARIABLE CHANGES</div>
-                  <%= for {key, val} <- @intent.variable_adjustments do %>
-                    <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">
-                      <span style="color:#94a3b8"><%= key %></span>
-                      <span style="color:#f59e0b;font-family:monospace"><%= Map.get(@current_vars, key) %> -> <%= val %></span>
-                    </div>
-                  <% end %>
+                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px">VARIABLE CHANGES</div>
+                  <div style="background:#080c14;border-radius:4px;padding:8px;margin-bottom:8px">
+                    <%= for {key, val} <- @intent.variable_adjustments do %>
+                      <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;font-family:monospace">
+                        <span style="color:#94a3b8"><%= key %></span>
+                        <span style="color:#94a3b8"><%= Map.get(@current_vars, key) %></span>
+                        <span style="color:#64748b">→</span>
+                        <span style="color:#f59e0b;font-weight:700"><%= val %></span>
+                      </div>
+                    <% end %>
+                  </div>
                 <% end %>
 
+                <%!-- Affected contracts --%>
                 <%= if length(@intent.affected_contracts) > 0 do %>
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px;margin-top:8px">AFFECTED CONTRACTS</div>
+                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px">AFFECTED CONTRACTS</div>
                   <%= for ac <- @intent.affected_contracts do %>
-                    <div style="font-size:11px;padding:3px 0;border-bottom:1px solid #1e293b11">
-                      <span style={"font-weight:600;color:#{if ac.direction == "purchase", do: "#60a5fa", else: "#f59e0b"}"}><%= ac.counterparty %></span>
-                      <span style="color:#64748b;margin-left:4px">— <%= ac.impact %></span>
+                    <div style="font-size:11px;padding:3px 0;border-bottom:1px solid #1e293b22;display:flex;gap:6px">
+                      <span style={"font-weight:600;color:#{if ac.direction == "purchase", do: "#60a5fa", else: "#f59e0b"}"}>
+                        <%= if ac.direction == "purchase", do: "↓", else: "↑" %> <%= ac.counterparty %>
+                      </span>
+                      <span style="color:#64748b;font-size:10px">— <%= ac.impact %></span>
                     </div>
                   <% end %>
                 <% end %>
 
+                <%!-- Risk alerts --%>
                 <%= if length(@intent.risk_notes) > 0 do %>
                   <div style="font-size:10px;color:#ef4444;letter-spacing:1px;margin-bottom:4px;margin-top:8px">RISK ALERTS</div>
                   <%= for note <- @intent.risk_notes do %>
-                    <div style="font-size:11px;color:#fca5a5;padding:2px 0"><%= note %></div>
+                    <div style="font-size:11px;color:#fca5a5;padding:2px 0">⚠ <%= note %></div>
                   <% end %>
                 <% end %>
 
+                <%!-- Delivery penalty exposure + priority routing --%>
                 <%= if Map.get(@intent, :penalty_exposure, 0) > 0 do %>
-                  <div style="font-size:10px;color:#f97316;letter-spacing:1px;margin-bottom:4px;margin-top:8px">DELIVERY PENALTY EXPOSURE</div>
-                  <div style="font-size:13px;font-weight:700;font-family:monospace;color:#fdba74">
-                    $<%= format_number(Map.get(@intent, :penalty_exposure, 0)) %>
-                  </div>
-                  <%= if length(Map.get(@intent, :priority_deliveries, [])) > 0 do %>
-                    <div style="font-size:10px;color:#4ade80;margin-top:4px">
-                      PRIORITY: <%= Enum.join(Map.get(@intent, :priority_deliveries, []), ", ") %>
+                  <div style="background:#1a0a0a;border-radius:6px;padding:10px;margin-top:8px">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline">
+                      <span style="font-size:10px;color:#f97316;font-weight:700;letter-spacing:1px">DELIVERY PENALTY AT RISK</span>
+                      <span style="font-size:14px;font-weight:700;font-family:monospace;color:#fdba74">~$<%= format_number(Map.get(@intent, :penalty_exposure, 0)) %></span>
                     </div>
-                  <% end %>
-                  <%= if length(Map.get(@intent, :deferred_deliveries, [])) > 0 do %>
-                    <div style="font-size:10px;color:#f59e0b;margin-top:2px">
-                      DEFER: <%= Enum.join(Map.get(@intent, :deferred_deliveries, []), ", ") %>
-                    </div>
-                  <% end %>
-                <% end %>
-
-                <%= if Map.get(@intent, :objective) do %>
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:2px;margin-top:8px">AI RECOMMENDED OBJECTIVE</div>
-                  <div style="font-size:12px;font-weight:700;color:#60a5fa">
-                    <%= objective_label(Map.get(@intent, :objective)) %>
+                    <%= if length(Map.get(@intent, :priority_deliveries, [])) > 0 do %>
+                      <div style="font-size:10px;margin-top:6px">
+                        <span style="color:#4ade80;font-weight:700">SERVE FIRST: </span>
+                        <span style="color:#86efac"><%= Enum.join(Map.get(@intent, :priority_deliveries, []), " · ") %></span>
+                      </div>
+                    <% end %>
+                    <%= if length(Map.get(@intent, :deferred_deliveries, [])) > 0 do %>
+                      <div style="font-size:10px;margin-top:3px">
+                        <span style="color:#f59e0b;font-weight:700">CAN DEFER: </span>
+                        <span style="color:#fcd34d"><%= Enum.join(Map.get(@intent, :deferred_deliveries, []), " · ") %></span>
+                      </div>
+                    <% end %>
                   </div>
-                  <div style="font-size:10px;color:#475569">Applied automatically when you confirm</div>
                 <% end %>
               </div>
             <% end %>
+
+            <%!-- OBJECTIVE FOR THIS SOLVE — trader sets this, AI suggestion is advisory --%>
+            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
+              <div style="font-size:10px;color:#64748b;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE FOR THIS SOLVE</div>
+              <select phx-change="switch_objective" name="objective"
+                style="width:100%;background:#111827;border:1px solid #1e293b;color:#e2e8f0;padding:8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">
+                <%= for {val, label} <- [max_profit: "Maximize Profit", min_cost: "Minimize Cost", max_roi: "Maximize ROI", cvar_adjusted: "CVaR-Adjusted", min_risk: "Minimize Risk"] do %>
+                  <option value={val} selected={val == @objective_mode}><%= label %></option>
+                <% end %>
+              </select>
+              <%!-- Show AI recommendation as a clickable suggestion when it differs from current --%>
+              <%= if @intent && Map.get(@intent, :objective) && Map.get(@intent, :objective) != @objective_mode do %>
+                <button phx-click="switch_objective" phx-value-objective={to_string(Map.get(@intent, :objective))}
+                  style="margin-top:6px;width:100%;padding:6px 10px;border:1px solid #3b82f6;border-radius:4px;background:#0a1628;color:#93c5fd;font-size:11px;font-weight:600;cursor:pointer;text-align:left">
+                  💡 AI suggests: <%= objective_label(Map.get(@intent, :objective)) %> — click to apply
+                </button>
+              <% end %>
+            </div>
 
             <%!-- Open Book Positions --%>
             <%= if @sap_positions do %>
@@ -2424,6 +2554,98 @@ defmodule TradingDesk.ScenarioLive do
       end
     end)
   end
+
+  # --- Delivery impact helpers ---
+
+  # Computes a summary of how the intended action affects each delivery schedule.
+  # Returns %{by_customer: [...], deferred_count: int, total_penalty_exposure: float}
+  # where each customer map has: counterparty, status, scheduled_qty_mt, frequency,
+  # next_window_days, penalty_estimate.
+  defp compute_delivery_impact(intent, product_group) do
+    schedules =
+      try do
+        TradingDesk.Contracts.Store.get_active_set(product_group)
+        |> TradingDesk.Trader.DeliverySchedule.from_contracts()
+      catch
+        :exit, _ -> []
+      rescue
+        _ -> []
+      end
+
+    if schedules == [] do
+      nil
+    else
+      deferred   = (intent && intent.deferred_deliveries)  || []
+      prioritised = (intent && intent.priority_deliveries) || []
+
+      by_customer =
+        schedules
+        |> Enum.sort_by(
+          &(&1.scheduled_qty_mt * &1.penalty_per_mt_per_day),
+          :desc
+        )
+        |> Enum.map(fn s ->
+          status =
+            cond do
+              Enum.any?(deferred,    &String.contains?(s.counterparty, &1)) -> :deferred
+              Enum.any?(prioritised, &String.contains?(s.counterparty, &1)) -> :priority
+              s.direction == :purchase                                       -> :supplier
+              s.next_window_days > 0                                         -> :future_window
+              true                                                           -> :open_unaffected
+            end
+
+          # Estimate penalty only for deferred deliveries: assume 3-day slip past grace
+          penalty_estimate =
+            if status == :deferred do
+              TradingDesk.Trader.DeliverySchedule.penalty_for_delay(
+                s,
+                s.grace_period_days + 3
+              )
+            else
+              0.0
+            end
+
+          %{
+            counterparty:     s.counterparty,
+            status:           status,
+            scheduled_qty_mt: s.scheduled_qty_mt,
+            frequency:        to_string(s.frequency),
+            next_window_days: s.next_window_days,
+            direction:        s.direction,
+            penalty_estimate: penalty_estimate
+          }
+        end)
+
+      deferred_count        = Enum.count(by_customer, &(&1.status == :deferred))
+      total_penalty_exposure = Enum.sum(Enum.map(by_customer, & &1.penalty_estimate))
+
+      %{
+        by_customer:            by_customer,
+        deferred_count:         deferred_count,
+        total_penalty_exposure: total_penalty_exposure
+      }
+    end
+  end
+
+  defp delivery_impact_icon(:deferred),       do: "⚠"
+  defp delivery_impact_icon(:priority),       do: "✓"
+  defp delivery_impact_icon(:supplier),       do: "↓"
+  defp delivery_impact_icon(:future_window),  do: "·"
+  defp delivery_impact_icon(:open_unaffected), do: "·"
+  defp delivery_impact_icon(_),               do: "·"
+
+  defp delivery_impact_style(:deferred),       do: "color:#fca5a5"
+  defp delivery_impact_style(:priority),       do: "color:#4ade80"
+  defp delivery_impact_style(:supplier),       do: "color:#60a5fa"
+  defp delivery_impact_style(:future_window),  do: "color:#64748b"
+  defp delivery_impact_style(:open_unaffected), do: "color:#64748b"
+  defp delivery_impact_style(_),               do: "color:#64748b"
+
+  defp delivery_impact_note(:priority),       do: "serve first"
+  defp delivery_impact_note(:supplier),       do: "supplier delivery"
+  defp delivery_impact_note(:future_window),  do: "future window"
+  defp delivery_impact_note(:open_unaffected), do: "on schedule"
+  defp delivery_impact_note(_),              do: "on schedule"
 
   # Safe GenServer call — returns fallback if the service isn't running yet
   defp safe_call(fun, fallback) do
