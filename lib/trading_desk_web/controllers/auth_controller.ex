@@ -28,13 +28,15 @@ defmodule TradingDeskWeb.AuthController do
     end
   end
 
-  # POST /login/request
-  def request_link(conn, %{"email" => email}) do
+  @authorised_email "marcus.raath@trammo.com"
+
+  # POST /login/request — email is hardcoded; no user input accepted
+  def request_link(conn, _params) do
     # Already authenticated — send straight to app, don't issue a new token
     if get_session(conn, :authenticated_email) do
       redirect(conn, to: "/")
     else
-      email = String.downcase(String.trim(email || ""))
+      email = @authorised_email
 
       case MagicLink.generate(email) do
         {:ok, token} ->
@@ -86,16 +88,6 @@ defmodule TradingDeskWeb.AuthController do
           )
       end
     end
-  end
-
-  def request_link(conn, _params) do
-    conn
-    |> put_layout(false)
-    |> render(:login,
-      error: "Please enter your email address.",
-      flash_error: nil,
-      has_session: false
-    )
   end
 
   # GET /auth/:token
