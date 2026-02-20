@@ -34,14 +34,14 @@ defmodule TradingDesk.Emails.MagicLinkEmail do
         <tr><td align="center">
           <table width="480" cellpadding="0" cellspacing="0" style="background:#0d1526;border:1px solid #1e293b;border-radius:12px;overflow:hidden">
 
-            <%-- Header --%>
+            <!-- Header -->
             <tr>
               <td style="background:#080c14;padding:20px 32px;border-bottom:1px solid #1b2838">
                 <span style="font-size:11px;font-weight:700;letter-spacing:2px;color:#38bdf8">TRAMMO · NH3 DESK</span>
               </td>
             </tr>
 
-            <%-- Body --%>
+            <!-- Body -->
             <tr>
               <td style="padding:32px">
                 <h1 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#f8fafc">Your login link</h1>
@@ -70,7 +70,7 @@ defmodule TradingDesk.Emails.MagicLinkEmail do
               </td>
             </tr>
 
-            <%-- Footer --%>
+            <!-- Footer -->
             <tr>
               <td style="padding:16px 32px;border-top:1px solid #1b2838">
                 <p style="margin:0;font-size:11px;color:#475569;line-height:1.6">
