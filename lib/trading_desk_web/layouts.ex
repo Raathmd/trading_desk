@@ -109,13 +109,24 @@ defmodule TradingDesk.Layouts do
                 }
               });
 
-              // --- @ trigger: autocomplete dropdown ---
-              this._ta.addEventListener('input', () => this._onInput());
+              this._syncTimer = null;
+
+              // --- @ trigger: autocomplete dropdown + debounced server sync ---
+              this._ta.addEventListener('input', () => {
+                this._onInput();
+                // Debounced sync so server always has latest value without
+                // firing during a click (which would cause a DOM re-render
+                // that swallows the phx-click event on the Solve button)
+                clearTimeout(this._syncTimer);
+                this._syncTimer = setTimeout(() => {
+                  this.pushEvent('update_scenario_description', {description: this._ta.value});
+                }, 300);
+              });
               this._ta.addEventListener('keydown', (e) => this._onKeydown(e));
               this._ta.addEventListener('blur', () => {
-                // Sync description to server immediately on blur
-                this.pushEvent('update_scenario_description', {description: this._ta.value});
-                // Small delay before hiding dropdown so mousedown on a chip fires first
+                // Only hide dropdown on blur — no pushEvent here because it
+                // fires on mousedown of whatever the user clicks next and
+                // the resulting re-render races with the phx-click event
                 setTimeout(() => this._hideDropdown(), 160);
               });
             },
@@ -127,6 +138,7 @@ defmodule TradingDesk.Layouts do
             _insertText(text) {
               const ta = this._ta;
               if (!ta) return;
+              clearTimeout(this._syncTimer);
               const start = ta.selectionStart;
               const end   = ta.selectionEnd;
               const before = ta.value.substring(0, start);
@@ -232,6 +244,7 @@ defmodule TradingDesk.Layouts do
             _selectItem(idx) {
               const item = this._ddItems[idx];
               if (!item) return;
+              clearTimeout(this._syncTimer);
               const ta     = this._ta;
               const before = ta.value.substring(0, this._atPos);
               const after  = ta.value.substring(ta.selectionStart);
