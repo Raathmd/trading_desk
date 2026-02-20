@@ -1781,7 +1781,7 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
                 <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
                   <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">AT RISK</div>
-                  <div style="font-size:20px;font-weight:800;font-family:monospace;color:#{if length(risk_lines) > 0, do: "#f59e0b", else: "#10b981"}">
+                  <div style={"font-size:20px;font-weight:800;font-family:monospace;color:#{if length(risk_lines) > 0, do: "#f59e0b", else: "#10b981"}"}>
                     <%= length(risk_lines) %>
                   </div>
                 </div>
@@ -1810,6 +1810,41 @@ defmodule TradingDesk.ScenarioLive do
                 <div style="background:#060c16;border:1px solid #831843;border-radius:8px;padding:14px;margin-bottom:14px">
                   <div style="font-size:11px;color:#f472b6;font-weight:700;letter-spacing:1px;margin-bottom:8px">🧠 SCHEDULE ANALYST SUMMARY</div>
                   <div style="font-size:13px;color:#e2e8f0;line-height:1.75;white-space:pre-wrap"><%= @schedule_summary %></div>
+                </div>
+              <% end %>
+
+              <%!-- Slipping deliveries alert banner --%>
+              <%= if length(risk_lines) > 0 && total_lines > 0 do %>
+                <%
+                  slipping_mt       = risk_lines |> Enum.map(& &1.quantity_mt) |> Enum.sum()
+                  delayed_count     = length(delayed_lines)
+                  at_risk_count     = length(risk_lines) - delayed_count
+                  slipping_cparties = risk_lines |> Enum.map(& &1.counterparty) |> Enum.uniq() |> Enum.join(", ")
+                %>
+                <div style="background:#1a0f00;border:1px solid #92400e;border-left:4px solid #f59e0b;border-radius:6px;padding:12px 14px;margin-bottom:12px">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                    <div>
+                      <div style="font-size:11px;font-weight:700;color:#f59e0b;letter-spacing:0.8px;margin-bottom:5px">
+                        ⚠ SLIPPING DELIVERIES — <%= length(risk_lines) %> line(s) outside required date
+                      </div>
+                      <div style="font-size:11px;color:#d97706;line-height:1.6">
+                        <%= if delayed_count > 0 do %>
+                          <span style="color:#ef4444;font-weight:700"><%= delayed_count %> DELAYED</span> ·
+                        <% end %>
+                        <%= if at_risk_count > 0 do %>
+                          <span style="color:#f59e0b;font-weight:700"><%= at_risk_count %> AT RISK</span> ·
+                        <% end %>
+                        <span style="font-family:monospace"><%= format_number(slipping_mt) %> MT</span> affected
+                      </div>
+                      <div style="font-size:10px;color:#a16207;margin-top:4px">
+                        Counterparties: <%= slipping_cparties %>
+                      </div>
+                    </div>
+                    <button phx-click="schedule_filter" phx-value-filter="at_risk"
+                      style="font-size:10px;font-weight:700;padding:5px 10px;border:1px solid #92400e;border-radius:4px;background:#2d1a00;color:#f59e0b;cursor:pointer;white-space:nowrap;margin-left:12px">
+                      View All →
+                    </button>
+                  </div>
                 </div>
               <% end %>
 
@@ -1871,8 +1906,14 @@ defmodule TradingDesk.ScenarioLive do
                             :delayed  -> "DELAYED"
                           end
                           dates_match = line.required_date == line.estimated_date
+                          slip_row_style = case line.status do
+                            :delayed -> "border-left:4px solid #ef4444;background:#2d0a0a;"
+                            :at_risk  -> "border-left:4px solid #f59e0b;background:#2a1500;"
+                            _         -> ""
+                          end
+                          effective_bg = if line.status in [:at_risk, :delayed], do: "", else: row_bg
                         %>
-                        <tr style={"border-bottom:1px solid #0f172a;#{row_bg}"}>
+                        <tr style={"border-bottom:1px solid #0f172a;#{effective_bg}#{slip_row_style}"}>
                           <%!-- Row index --%>
                           <td style="padding:6px 8px;color:#475569;font-family:monospace"><%= row_idx %></td>
                           <%!-- Counterparty --%>
