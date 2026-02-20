@@ -63,7 +63,7 @@ defmodule TradingDesk.Auth.MagicLink do
     {:error, :not_allowed}  — email not on allowlist
     {:error, :db_error}     — unexpected DB failure
   """
-  @spec generate(String.t()) :: {:ok, String.t()} | {:error, atom()}
+  @spec generate(String.t()) :: {:ok, String.t()} | {:error, :rate_limited, String.t()} | {:error, atom()}
   def generate(email) do
     email = String.downcase(String.trim(email))
 
@@ -82,7 +82,7 @@ defmodule TradingDesk.Auth.MagicLink do
 
       if existing do
         Logger.info("Magic link rate-limited for #{email} — existing token still valid")
-        {:error, :rate_limited}
+        {:error, :rate_limited, existing.token}
       else
         # Purge all previous tokens for this email
         Repo.delete_all(from t in __MODULE__, where: t.email == ^email)

@@ -41,7 +41,7 @@ defmodule TradingDeskWeb.AuthController do
         |> MagicLinkEmail.build(link)
         |> Mailer.deliver()
         |> case do
-          {:ok, _}        -> Logger.info("Magic link email sent to #{email}")
+          {:ok, _}         -> Logger.info("Magic link email sent to #{email}")
           {:error, reason} -> Logger.error("Failed to send magic link email: #{inspect(reason)}")
         end
 
@@ -49,7 +49,14 @@ defmodule TradingDeskWeb.AuthController do
         |> put_layout(false)
         |> render(:sent)
 
-      {:error, :rate_limited} ->
+      {:error, :rate_limited, token} ->
+        base_url = TradingDesk.Endpoint.url()
+        link = "#{base_url}/auth/#{token}"
+
+        Logger.info("\n\n========================================\n" <>
+                    "MAGIC LINK (rate-limited, existing token) for #{email}\n#{link}\n" <>
+                    "========================================\n")
+
         conn
         |> put_layout(false)
         |> render(:sent)
