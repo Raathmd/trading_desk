@@ -3804,7 +3804,7 @@ defmodule TradingDesk.ScenarioLive do
                 <pre style="font-size:12px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:400px;overflow-y:auto"><%= anon_text %></pre>
                 <div style="font-size:11px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
               <% else %>
-                <%-- Show the trader's narrative description prominently --%>
+                <%!-- Show the trader narrative description prominently --%>
                 <%= if (@scenario_description || "") != "" do %>
                   <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;padding:8px 10px;background:#0d0a20;border-radius:5px;border:1px solid #2d1b69"><%= @scenario_description %></div>
                 <% else %>

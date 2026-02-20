@@ -1,10 +1,5 @@
-# Exclude all of _build EXCEPT the prod release
+# Build artifacts — the build stage compiles from source
 _build/
-!_build/prod/
-!_build/prod/rel/
-!_build/prod/rel/**
-
-# Deps are embedded in the release — don't need to send them
 deps/
 
 # Zig build artifacts — only the solver binary is needed
@@ -15,13 +10,17 @@ native/lp_data/
 native/util/
 native/build/
 native/*.o
+native/*.zig
+native/solver.zig:Zone.Identifier
 # NOTE: native/solver is intentionally NOT excluded — it's copied into the image
 
 # Dev/test
 cover/
 doc/
 tmp/
+test/
 .elixir_ls/
+.formatter.exs
 
 # Secrets — never send to Docker daemon
 .env
@@ -44,3 +43,8 @@ erl_crash.dump
 
 # Node
 node_modules/
+
+# Fly / Docker
+fly.toml
+Dockerfile
+.dockerignore
