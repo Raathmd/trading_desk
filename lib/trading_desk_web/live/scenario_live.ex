@@ -28,6 +28,7 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.Data.History.{Ingester, Stats}
   alias TradingDesk.Fleet.TrackedVessel
   alias TradingDesk.Schedule.DeliveryScheduler
+  alias TradingDesk.Workflow.PendingDeliveryChange
 
   @impl true
   def mount(_params, _session, socket) do
@@ -132,6 +133,11 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:schedule_summary, nil)
       |> assign(:schedule_loading, false)
       |> assign(:schedule_direction_filter, :all)
+      |> assign(:schedule_delivery_status_filter, :all)
+      # Workflow tab
+      |> assign(:workflow_changes, [])
+      |> assign(:workflow_status_filter, "pending")
+      |> assign(:scenario_saved_flash, nil)
       # Model summary (always computed) + scenario description (trader narrative)
       |> assign(:model_summary, "")
       |> assign(:scenario_description, "")
@@ -330,16 +336,22 @@ defmodule TradingDesk.ScenarioLive do
     case socket.assigns.result do
       nil -> {:noreply, socket}
       result ->
-        {:ok, _} = Store.save(
-          socket.assigns.trader_id,
-          name,
-          socket.assigns.current_vars,
-          result,
-          nil,
-          to_string(socket.assigns.product_group)
-        )
-        scenarios = Store.list(socket.assigns.trader_id)
-        {:noreply, assign(socket, :saved_scenarios, scenarios)}
+        pg = to_string(socket.assigns.product_group)
+        trader_id = socket.assigns.trader_id
+        {:ok, saved} = Store.save(trader_id, name, socket.assigns.current_vars, result, nil, pg)
+        scenarios = Store.list(trader_id)
+
+        # Create pending delivery changes for the workflow tab
+        schedule_lines = socket.assigns.schedule_lines || []
+        if schedule_lines != [] do
+          Task.start(fn ->
+            PendingDeliveryChange.create_from_scenario(
+              name, saved.id, result, schedule_lines, pg, trader_id
+            )
+          end)
+        end
+
+        {:noreply, assign(socket, saved_scenarios: scenarios, scenario_saved_flash: name)}
     end
   end
 
@@ -503,6 +515,10 @@ defmodule TradingDesk.ScenarioLive do
           assign_fleet(socket, socket.assigns.fleet_pg_filter)
         :schedule ->
           assign(socket, schedule_lines: DeliveryScheduler.build_schedule())
+        :workflow ->
+          pg = to_string(socket.assigns.product_group)
+          changes = safe_call(fn -> PendingDeliveryChange.list_for_product_group(pg, socket.assigns.workflow_status_filter) end, [])
+          assign(socket, workflow_changes: changes)
         _ ->
           socket
       end
@@ -685,6 +701,67 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, assign_fleet(socket, socket.assigns.fleet_pg_filter)}
   end
 
+  # ── Workflow tab events ──
+
+  @impl true
+  def handle_event("workflow_filter_status", %{"status" => status}, socket) do
+    pg = to_string(socket.assigns.product_group)
+    changes = safe_call(fn -> PendingDeliveryChange.list_for_product_group(pg, status) end, [])
+    {:noreply, assign(socket, workflow_status_filter: status, workflow_changes: changes)}
+  end
+
+  @impl true
+  def handle_event("workflow_apply_change", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    trader_id = socket.assigns.trader_id
+    case TradingDesk.Repo.get(PendingDeliveryChange, id) do
+      nil -> {:noreply, socket}
+      change ->
+        case PendingDeliveryChange.apply_change(change, trader_id) do
+          {:ok, _applied} ->
+            # Update the live delivery schedule line to reflect applied change
+            schedule_lines =
+              Enum.map(socket.assigns.schedule_lines, fn line ->
+                if line[:contract_number] == change.contract_number &&
+                   line[:counterparty] == change.counterparty &&
+                   line[:required_date] == change.original_date do
+                  now = DateTime.utc_now() |> DateTime.truncate(:second)
+                  line
+                  |> Map.put(:quantity_mt, change.revised_quantity_mt || line[:quantity_mt])
+                  |> Map.put(:estimated_date, change.revised_date || line[:estimated_date])
+                  |> Map.put(:delivery_status, :closed)
+                  |> Map.put(:sap_updated_at, now)
+                else
+                  line
+                end
+              end)
+            pg = to_string(socket.assigns.product_group)
+            changes = safe_call(fn -> PendingDeliveryChange.list_for_product_group(pg, socket.assigns.workflow_status_filter) end, [])
+            {:noreply, assign(socket, schedule_lines: schedule_lines, workflow_changes: changes)}
+          {:error, _} ->
+            {:noreply, socket}
+        end
+    end
+  end
+
+  @impl true
+  def handle_event("workflow_reject_change", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    case TradingDesk.Repo.get(PendingDeliveryChange, id) do
+      nil -> {:noreply, socket}
+      change ->
+        PendingDeliveryChange.reject_change(change)
+        pg = to_string(socket.assigns.product_group)
+        changes = safe_call(fn -> PendingDeliveryChange.list_for_product_group(pg, socket.assigns.workflow_status_filter) end, [])
+        {:noreply, assign(socket, workflow_changes: changes)}
+    end
+  end
+
+  @impl true
+  def handle_event("schedule_delivery_status_filter", %{"status" => status}, socket) do
+    {:noreply, assign(socket, schedule_delivery_status_filter: String.to_existing_atom(status))}
+  end
+
   # ── History tab events ──
 
   @impl true
@@ -834,6 +911,10 @@ defmodule TradingDesk.ScenarioLive do
             Logger.warning("Analyst explain_solve failed: #{inspect(reason)}")
             send(lv_pid, {:explanation_result, {:error, reason}})
         end
+      rescue
+        e ->
+          Logger.error("Analyst explain_solve raised: #{Exception.message(e)}")
+          send(lv_pid, {:explanation_result, {:error, Exception.message(e)}})
       catch
         kind, reason ->
           Logger.error("Analyst explain_solve crashed: #{kind} #{inspect(reason)}")
@@ -880,6 +961,10 @@ defmodule TradingDesk.ScenarioLive do
             Logger.warning("Analyst explain_distribution failed: #{inspect(reason)}")
             send(lv_pid, {:explanation_result, {:error, reason}})
         end
+      rescue
+        e ->
+          Logger.error("Analyst explain_distribution raised: #{Exception.message(e)}")
+          send(lv_pid, {:explanation_result, {:error, Exception.message(e)}})
       catch
         kind, reason ->
           Logger.error("Analyst explain_distribution crashed: #{kind} #{inspect(reason)}")
@@ -1193,7 +1278,7 @@ defmodule TradingDesk.ScenarioLive do
         <div style="overflow-y:auto;padding:16px">
           <%!-- Tab buttons --%>
           <div style="display:flex;gap:2px;margin-bottom:16px">
-            <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:schedule, "Schedule", "#f472b6"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:fleet, "Fleet", "#22d3ee"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}, {:history, "History", "#06b6d4"}] do %>
+            <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:schedule, "Schedule", "#f472b6"}, {:workflow, "Workflow", "#fb923c"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:fleet, "Fleet", "#22d3ee"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}, {:history, "History", "#06b6d4"}] do %>
               <button phx-click="switch_tab" phx-value-tab={tab}
                 style={"padding:8px 16px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @active_tab == tab, do: "#111827", else: "transparent"};color:#{if @active_tab == tab, do: "#e2e8f0", else: "#7b8fa4"};border-bottom:2px solid #{if @active_tab == tab, do: color, else: "transparent"}"}>
                 <%= label %>
@@ -1726,11 +1811,18 @@ defmodule TradingDesk.ScenarioLive do
             <%
               # Filtered lines
               all_lines = @schedule_lines
+              # Apply delivery_status filter first
+              status_filtered = case @schedule_delivery_status_filter do
+                :open      -> Enum.filter(all_lines, &(Map.get(&1, :delivery_status, :open) == :open))
+                :closed    -> Enum.filter(all_lines, &(Map.get(&1, :delivery_status, :open) == :closed))
+                :cancelled -> Enum.filter(all_lines, &(Map.get(&1, :delivery_status, :open) == :cancelled))
+                _          -> all_lines
+              end
               filtered_lines = case @schedule_direction_filter do
-                :sale     -> Enum.filter(all_lines, &(&1.direction == :sale))
-                :purchase -> Enum.filter(all_lines, &(&1.direction == :purchase))
-                :at_risk  -> Enum.filter(all_lines, &(&1.status in [:at_risk, :delayed]))
-                _         -> all_lines
+                :sale     -> Enum.filter(status_filtered, &(&1.direction == :sale))
+                :purchase -> Enum.filter(status_filtered, &(&1.direction == :purchase))
+                :at_risk  -> Enum.filter(status_filtered, &(&1.status in [:at_risk, :delayed]))
+                _         -> status_filtered
               end
 
               # Summary stats
@@ -1742,6 +1834,10 @@ defmodule TradingDesk.ScenarioLive do
               total_sale_mt = sale_lines  |> Enum.map(& &1.quantity_mt) |> Enum.sum()
               total_purch_mt= purch_lines |> Enum.map(& &1.quantity_mt) |> Enum.sum()
               next_delivery = all_lines |> Enum.min_by(& &1.required_date, fn -> nil end)
+              # Delivery status counts
+              open_lines      = Enum.filter(all_lines, &(Map.get(&1, :delivery_status, :open) == :open))
+              closed_lines    = Enum.filter(all_lines, &(Map.get(&1, :delivery_status, :open) == :closed))
+              cancelled_lines = Enum.filter(all_lines, &(Map.get(&1, :delivery_status, :open) == :cancelled))
             %>
             <div style="background:#111827;border-radius:10px;padding:16px">
 
@@ -1865,6 +1961,22 @@ defmodule TradingDesk.ScenarioLive do
                   <% end %>
                 </div>
 
+                <%!-- Delivery status filter --%>
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+                  <span style="font-size:11px;color:#7b8fa4;font-weight:600">STATUS:</span>
+                  <%= for {status_atom, label, cnt, active_color} <- [
+                    {:all,       "All",        total_lines,           "#94a3b8"},
+                    {:open,      "Open",        length(open_lines),      "#4ade80"},
+                    {:closed,    "Closed",      length(closed_lines),    "#7b8fa4"},
+                    {:cancelled, "Cancelled",   length(cancelled_lines), "#f87171"}
+                  ] do %>
+                    <button phx-click="schedule_delivery_status_filter" phx-value-status={status_atom}
+                      style={"font-size:11px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @schedule_delivery_status_filter == status_atom, do: "background:#{active_color};color:#0a0f18;", else: "background:#1e293b;color:#94a3b8;"}"}>
+                      <%= label %> (<%= cnt %>)
+                    </button>
+                  <% end %>
+                </div>
+
                 <%!-- Delivery table --%>
                 <div style="overflow-x:auto">
                   <table style="width:100%;border-collapse:collapse;font-size:11px;white-space:nowrap">
@@ -1880,6 +1992,9 @@ defmodule TradingDesk.ScenarioLive do
                         <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">EST. DATE</th>
                         <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">DELAY</th>
                         <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">STATUS</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">DEL. STATUS</th>
+                        <th style="text-align:center;padding:6px 8px;color:#4ade80;font-weight:600;font-size:10px;white-space:nowrap">SAP CREATED</th>
+                        <th style="text-align:center;padding:6px 8px;color:#4ade80;font-weight:600;font-size:10px;white-space:nowrap">SAP UPDATED</th>
                         <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;white-space:normal;min-width:160px">NOTES</th>
                       </tr>
                     </thead>
@@ -1956,11 +2071,43 @@ defmodule TradingDesk.ScenarioLive do
                           <td style={"padding:6px 8px;text-align:center;font-family:monospace;font-weight:700;color:#{delay_color}"}>
                             <%= if line.delay_days == 0, do: "—", else: "+#{line.delay_days}d" %>
                           </td>
-                          <%!-- Status badge --%>
+                          <%!-- Status badge (solver status) --%>
                           <td style="padding:6px 8px;text-align:center">
                             <span style={"font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:0.5px;#{status_bg}"}>
                               <%= status_label %>
                             </span>
+                          </td>
+                          <%!-- Delivery status (open/closed/cancelled) --%>
+                          <%
+                            del_status = Map.get(line, :delivery_status, :open)
+                            del_status_style = case del_status do
+                              :open      -> "background:#0f2a1f;color:#4ade80;"
+                              :closed    -> "background:#1e293b;color:#7b8fa4;"
+                              :cancelled -> "background:#2d0f0f;color:#f87171;"
+                              _          -> "background:#0f2a1f;color:#4ade80;"
+                            end
+                            del_status_label = del_status |> to_string() |> String.upcase()
+                          %>
+                          <td style="padding:6px 8px;text-align:center">
+                            <span style={"font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:0.5px;#{del_status_style}"}>
+                              <%= del_status_label %>
+                            </span>
+                          </td>
+                          <%!-- SAP Created date --%>
+                          <td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:10px;color:#4ade80">
+                            <%= if Map.get(line, :sap_created_at) do %>
+                              <%= Calendar.strftime(line.sap_created_at, "%d %b %Y") %>
+                            <% else %>
+                              <span style="color:#475569">—</span>
+                            <% end %>
+                          </td>
+                          <%!-- SAP Updated date --%>
+                          <td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:10px;color:#4ade80">
+                            <%= if Map.get(line, :sap_updated_at) do %>
+                              <%= Calendar.strftime(line.sap_updated_at, "%d %b %Y") %>
+                            <% else %>
+                              <span style="color:#475569">—</span>
+                            <% end %>
                           </td>
                           <%!-- Notes --%>
                           <td style="padding:6px 8px;color:#7b8fa4;font-size:10px;white-space:normal;line-height:1.4">
@@ -2000,6 +2147,121 @@ defmodule TradingDesk.ScenarioLive do
 
             </div>
           <% end %><%!-- end :schedule tab --%>
+
+          <%!-- ═══════ WORKFLOW TAB ═══════ --%>
+          <%= if @active_tab == :workflow do %>
+            <div style="background:#111827;border-radius:10px;padding:16px">
+              <%!-- Header --%>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:#fb923c;letter-spacing:1px">DELIVERY WORKFLOW</div>
+                  <div style="font-size:11px;color:#7b8fa4;margin-top:2px">
+                    Proposed delivery changes pending SAP capture · save a scenario to generate changes
+                  </div>
+                </div>
+                <div style="font-size:12px;color:#7b8fa4"><%= length(@workflow_changes) %> record<%= if length(@workflow_changes) != 1, do: "s" %></div>
+              </div>
+
+              <%!-- Status filter --%>
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+                <span style="font-size:11px;color:#94a3b8;font-weight:600">STATUS</span>
+                <%= for {status, label, color} <- [{"all", "All", "#94a3b8"}, {"pending", "Pending", "#fb923c"}, {"applied", "Applied", "#4ade80"}, {"rejected", "Rejected", "#f87171"}, {"cancelled", "Cancelled", "#7b8fa4"}] do %>
+                  <button phx-click="workflow_filter_status" phx-value-status={status}
+                    style={"font-size:11px;font-weight:600;padding:3px 10px;border:none;border-radius:4px;cursor:pointer;#{if @workflow_status_filter == status, do: "background:#{color};color:#0a0f18;", else: "background:#1e293b;color:#94a3b8;"}"}>
+                    <%= label %>
+                  </button>
+                <% end %>
+              </div>
+
+              <%!-- Changes table --%>
+              <%= if @workflow_changes == [] do %>
+                <div style="padding:32px;text-align:center;color:#7b8fa4;font-size:13px">
+                  <%= if @workflow_status_filter == "pending" do %>
+                    No pending delivery changes. Save a solved scenario to generate workflow items.
+                  <% else %>
+                    No changes found for this filter.
+                  <% end %>
+                </div>
+              <% else %>
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                  <thead>
+                    <tr style="border-bottom:1px solid #1e293b">
+                      <th style="text-align:left;padding:5px 6px;color:#94a3b8;font-weight:600">Scenario</th>
+                      <th style="text-align:left;padding:5px 6px;color:#94a3b8;font-weight:600">Counterparty</th>
+                      <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600">Dir</th>
+                      <th style="text-align:right;padding:5px 6px;color:#94a3b8;font-weight:600">Orig MT</th>
+                      <th style="text-align:right;padding:5px 6px;color:#94a3b8;font-weight:600">New MT</th>
+                      <th style="text-align:right;padding:5px 6px;color:#94a3b8;font-weight:600">Orig Date</th>
+                      <th style="text-align:right;padding:5px 6px;color:#94a3b8;font-weight:600">New Date</th>
+                      <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600">Status</th>
+                      <th style="text-align:left;padding:5px 6px;color:#94a3b8;font-weight:600">SAP Doc</th>
+                      <th style="text-align:center;padding:5px 6px;color:#4ade80;font-weight:600;white-space:nowrap">SAP Created</th>
+                      <th style="text-align:center;padding:5px 6px;color:#4ade80;font-weight:600;white-space:nowrap">SAP Updated</th>
+                      <th style="padding:5px 6px;width:160px"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for c <- @workflow_changes do %>
+                      <%
+                        {status_color, status_label} = case c.status do
+                          "pending"   -> {"#fb923c", "PENDING"}
+                          "applied"   -> {"#4ade80", "APPLIED"}
+                          "rejected"  -> {"#f87171", "REJECTED"}
+                          "cancelled" -> {"#7b8fa4", "CANCELLED"}
+                          _           -> {"#94a3b8", String.upcase(c.status || "?")}
+                        end
+                        dir_color = if c.direction == "sale", do: "#f59e0b", else: "#60a5fa"
+                      %>
+                      <tr style="border-bottom:1px solid #0f172a">
+                        <td style="padding:6px;color:#94a3b8;font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= c.scenario_name %></td>
+                        <td style="padding:6px;color:#e2e8f0;font-weight:500"><%= c.counterparty %></td>
+                        <td style="padding:6px;text-align:center">
+                          <span style={"font-size:10px;font-weight:700;color:#{dir_color}"}><%= String.upcase(c.direction || "") %></span>
+                        </td>
+                        <td style="padding:6px;text-align:right;color:#94a3b8;font-family:monospace">
+                          <%= if c.original_quantity_mt, do: Float.round(c.original_quantity_mt * 1.0, 0) |> trunc(), else: "—" %>
+                        </td>
+                        <td style="padding:6px;text-align:right;font-family:monospace;color:#fb923c;font-weight:600">
+                          <%= if c.revised_quantity_mt, do: Float.round(c.revised_quantity_mt * 1.0, 0) |> trunc(), else: "—" %>
+                        </td>
+                        <td style="padding:6px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px"><%= c.original_date %></td>
+                        <td style="padding:6px;text-align:right;font-family:monospace;font-size:10px;color:#{if c.revised_date != c.original_date, do: "#fb923c", else: "#94a3b8"}"><%= c.revised_date || "—" %></td>
+                        <td style="padding:6px;text-align:center">
+                          <span style={"font-size:10px;font-weight:700;color:#{status_color}"}><%= status_label %></span>
+                        </td>
+                        <td style="padding:6px;color:#7b8fa4;font-family:monospace;font-size:10px"><%= c.sap_document || "—" %></td>
+                        <td style="padding:6px;text-align:center;font-family:monospace;font-size:10px;color:#4ade80">
+                          <%= if c.sap_created_at, do: Calendar.strftime(c.sap_created_at, "%d %b %Y"), else: "—" %>
+                        </td>
+                        <td style="padding:6px;text-align:center;font-family:monospace;font-size:10px;color:#4ade80">
+                          <%= if c.sap_updated_at, do: Calendar.strftime(c.sap_updated_at, "%d %b %Y"), else: "—" %>
+                        </td>
+                        <td style="padding:6px;text-align:right">
+                          <%= if c.status == "pending" do %>
+                            <div style="display:flex;gap:4px;justify-content:flex-end">
+                              <button phx-click="workflow_apply_change" phx-value-id={c.id}
+                                data-confirm="Simulate SAP update for this delivery change?"
+                                style="font-size:10px;font-weight:700;padding:3px 8px;border:none;border-radius:4px;background:#166534;color:#4ade80;cursor:pointer;letter-spacing:0.5px">
+                                APPLY TO SAP
+                              </button>
+                              <button phx-click="workflow_reject_change" phx-value-id={c.id}
+                                style="font-size:10px;padding:3px 8px;border:none;border-radius:4px;background:#1f0a0a;color:#f87171;cursor:pointer">
+                                REJECT
+                              </button>
+                            </div>
+                          <% else %>
+                            <span style="font-size:10px;color:#7b8fa4">
+                              <%= if c.applied_at, do: Calendar.strftime(c.applied_at, "%d %b %H:%M"), else: "" %>
+                            </span>
+                          <% end %>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              <% end %>
+            </div>
+          <% end %><%!-- end :workflow tab --%>
 
           <%!-- === CONTRACTS TAB === --%>
           <%= if @active_tab == :contracts do %>
@@ -2832,7 +3094,11 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- Header --%>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                 <div style="font-size:12px;font-weight:700;color:#22d3ee;letter-spacing:1px">FLEET MANAGEMENT</div>
-                <div style="font-size:12px;color:#7b8fa4"><%= length(@fleet_vessels) %> vessel<%= if length(@fleet_vessels) != 1, do: "s" %></div>
+                <div style="font-size:12px;color:#7b8fa4">
+                  <span style="color:#22d3ee;font-weight:700"><%= Enum.count(@fleet_vessels, &(&1.vessel_type in ["barge", "towboat"])) %></span> barges
+                  <span style="color:#475569;margin:0 4px">|</span>
+                  <span style="color:#38bdf8;font-weight:700"><%= Enum.count(@fleet_vessels, &(&1.vessel_type in ["gas_carrier", "bulk_carrier", "chemical_tanker"])) %></span> vessels
+                </div>
               </div>
 
               <%!-- Product group filter — defaults to user's product group --%>
@@ -2857,80 +3123,160 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
               <% end %>
 
-              <%!-- Vessel table --%>
-              <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
-                <thead>
-                  <tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:center;padding:5px 6px;color:#22d3ee;font-weight:600;width:56px" title="Count toward Trammo operational fleet for capacity planning">Trammo Fleet</th>
-                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Vessel</th>
-                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Type</th>
-                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">MMSI</th>
-                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Operator</th>
-                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Route</th>
-                    <th style="text-align:center;padding:5px 8px;color:#94a3b8;font-weight:600">Status</th>
-                    <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">ETA</th>
-                    <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600;width:40px"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <%= if length(@fleet_vessels) == 0 do %>
-                    <tr>
-                      <td colspan="9" style="padding:24px;text-align:center;color:#7b8fa4;font-size:12px">
-                        No vessels registered for this product group yet. Add one below.
-                      </td>
+              <%
+                fleet_barges  = Enum.filter(@fleet_vessels, &(&1.vessel_type in ["barge", "towboat"]))
+                fleet_vessels_ocean = Enum.filter(@fleet_vessels, &(&1.vessel_type in ["gas_carrier", "bulk_carrier", "chemical_tanker"]))
+                barge_count   = Enum.count(fleet_barges,  &Map.get(&1, :track_in_fleet, true))
+                vessel_count  = Enum.count(fleet_vessels_ocean, &Map.get(&1, :track_in_fleet, true))
+              %>
+
+              <%!-- Fleet count split --%>
+              <div style="display:flex;gap:12px;margin-bottom:14px">
+                <div style="background:#0a0f18;border-radius:6px;padding:8px 14px;flex:1;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;letter-spacing:1px">BARGES / TOWBOATS</div>
+                  <div style="font-size:22px;font-weight:800;color:#22d3ee;font-family:monospace"><%= barge_count %></div>
+                  <div style="font-size:11px;color:#7b8fa4">in Trammo fleet</div>
+                </div>
+                <div style="background:#0a0f18;border-radius:6px;padding:8px 14px;flex:1;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;letter-spacing:1px">OCEAN VESSELS</div>
+                  <div style="font-size:22px;font-weight:800;color:#38bdf8;font-family:monospace"><%= vessel_count %></div>
+                  <div style="font-size:11px;color:#7b8fa4">in Trammo fleet</div>
+                </div>
+              </div>
+
+              <%!-- ── BARGES & TOWBOATS section ── --%>
+              <div style="margin-bottom:18px">
+                <div style="font-size:11px;color:#22d3ee;font-weight:700;letter-spacing:1.2px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+                  RIVER BARGES &amp; TOWBOATS
+                  <span style="font-size:11px;color:#7b8fa4;font-weight:400">(<%= length(fleet_barges) %> total)</span>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                  <thead>
+                    <tr style="border-bottom:1px solid #1e293b">
+                      <th style="text-align:center;padding:5px 6px;color:#22d3ee;font-weight:600;width:56px" title="Count toward Trammo fleet">Fleet</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Name</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Type</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Operator</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Route</th>
+                      <th style="text-align:center;padding:5px 8px;color:#94a3b8;font-weight:600">Status</th>
+                      <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">ETA</th>
+                      <th style="text-align:center;padding:5px 6px;width:30px"></th>
                     </tr>
-                  <% end %>
-                  <%= for v <- @fleet_vessels do %>
-                    <%
-                      tracked = Map.get(v, :track_in_fleet, true)
-                      discharged = v.status in ["discharged", "cancelled"]
-                    %>
-                    <tr style={"border-bottom:1px solid #0f172a;#{if discharged, do: "opacity:0.4;", else: ""}"}>
-                      <td style="padding:5px 6px;text-align:center">
-                        <%!-- Toggle: controls whether vessel counts toward Trammo operational fleet --%>
-                        <button phx-click="fleet_toggle_tracking" phx-value-id={v.id}
-                          title={if tracked, do: "In Trammo fleet — click to exclude", else: "Not in Trammo fleet — click to include"}
-                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if tracked, do: "background:#22d3ee;", else: "background:#475569;"}"}>
-                          <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left 0.15s;#{if tracked, do: "left:14px;", else: "left:2px;"}"}></span>
-                        </button>
-                      </td>
-                      <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.vessel_name %></td>
-                      <td style="padding:5px 8px;color:#94a3b8;font-size:10px;font-weight:600;letter-spacing:0.5px">
-                        <%= if v.vessel_type, do: String.upcase(String.replace(v.vessel_type, "_", " ")), else: "—" %>
-                      </td>
-                      <td style="padding:5px 8px;color:#94a3b8;font-family:monospace;font-size:12px"><%= v.mmsi || "—" %></td>
-                      <td style="padding:5px 8px;color:#94a3b8;font-size:12px"><%= v.operator || v.sap_shipping_number || "—" %></td>
-                      <td style="padding:5px 8px;color:#94a3b8;font-size:12px">
-                        <%= if v.loading_port || v.discharge_port do %>
-                          <%= v.loading_port || "?" %> → <%= v.discharge_port || "?" %>
-                        <% else %>
-                          —
-                        <% end %>
-                      </td>
-                      <td style="padding:5px 8px;text-align:center">
-                        <%
-                          {status_color, status_label} = case v.status do
-                            "in_transit"  -> {"#22d3ee", "IN TRANSIT"}
-                            "active"      -> {"#4ade80", "ACTIVE"}
-                            "discharged"  -> {"#94a3b8", "DISCHARGED"}
-                            "cancelled"   -> {"#f87171", "CANCELLED"}
-                            _             -> {"#7b8fa4", String.upcase(v.status || "?")}
-                          end
-                        %>
-                        <span style={"font-size:10px;font-weight:700;color:#{status_color};letter-spacing:0.5px"}><%= status_label %></span>
-                      </td>
-                      <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px"><%= if v.eta, do: v.eta, else: "—" %></td>
-                      <td style="padding:5px 6px;text-align:center">
-                        <button phx-click="fleet_delete_vessel" phx-value-id={v.id}
-                          data-confirm="Remove this vessel from tracking?"
-                          style="background:none;border:none;color:#7b8fa4;cursor:pointer;font-size:12px;padding:2px 4px">
-                          &times;
-                        </button>
-                      </td>
+                  </thead>
+                  <tbody>
+                    <%= if fleet_barges == [] do %>
+                      <tr><td colspan="8" style="padding:16px;text-align:center;color:#7b8fa4;font-size:12px">No barges or towboats for this product group.</td></tr>
+                    <% end %>
+                    <%= for v <- fleet_barges do %>
+                      <%
+                        tracked = Map.get(v, :track_in_fleet, true)
+                        discharged = v.status in ["discharged", "cancelled"]
+                        {status_color, status_label} = case v.status do
+                          "in_transit" -> {"#22d3ee", "IN TRANSIT"}
+                          "active"     -> {"#4ade80", "ACTIVE"}
+                          "discharged" -> {"#94a3b8", "DISCHARGED"}
+                          "cancelled"  -> {"#f87171", "CANCELLED"}
+                          _            -> {"#7b8fa4", String.upcase(v.status || "?")}
+                        end
+                      %>
+                      <tr style={"border-bottom:1px solid #0f172a;#{if discharged, do: "opacity:0.4;"}"}>
+                        <td style="padding:5px 6px;text-align:center">
+                          <button phx-click="fleet_toggle_tracking" phx-value-id={v.id}
+                            title={if tracked, do: "In fleet — click to exclude", else: "Not in fleet — click to include"}
+                            style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if tracked, do: "background:#22d3ee;", else: "background:#475569;"}"}>
+                            <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;#{if tracked, do: "left:14px;", else: "left:2px;"}"}></span>
+                          </button>
+                        </td>
+                        <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.vessel_name %></td>
+                        <td style="padding:5px 8px;color:#94a3b8;font-size:10px;font-weight:600;letter-spacing:0.5px">
+                          <%= if v.vessel_type, do: String.upcase(String.replace(v.vessel_type, "_", " ")), else: "—" %>
+                        </td>
+                        <td style="padding:5px 8px;color:#94a3b8;font-size:12px"><%= v.operator || "—" %></td>
+                        <td style="padding:5px 8px;color:#94a3b8;font-size:12px">
+                          <%= if v.loading_port || v.discharge_port, do: "#{v.loading_port || "?"} → #{v.discharge_port || "?"}", else: "—" %>
+                        </td>
+                        <td style="padding:5px 8px;text-align:center">
+                          <span style={"font-size:10px;font-weight:700;color:#{status_color};letter-spacing:0.5px"}><%= status_label %></span>
+                        </td>
+                        <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px"><%= if v.eta, do: v.eta, else: "—" %></td>
+                        <td style="padding:5px 6px;text-align:center">
+                          <button phx-click="fleet_delete_vessel" phx-value-id={v.id}
+                            data-confirm="Remove from fleet?"
+                            style="background:none;border:none;color:#7b8fa4;cursor:pointer;font-size:12px;padding:2px 4px">&times;</button>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+
+              <%!-- ── OCEAN VESSELS section ── --%>
+              <div style="margin-bottom:16px">
+                <div style="font-size:11px;color:#38bdf8;font-weight:700;letter-spacing:1.2px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+                  OCEAN VESSELS
+                  <span style="font-size:11px;color:#7b8fa4;font-weight:400">(<%= length(fleet_vessels_ocean) %> total)</span>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                  <thead>
+                    <tr style="border-bottom:1px solid #1e293b">
+                      <th style="text-align:center;padding:5px 6px;color:#38bdf8;font-weight:600;width:56px" title="Count toward Trammo fleet">Fleet</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Name</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Type</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">MMSI</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Operator</th>
+                      <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Route</th>
+                      <th style="text-align:center;padding:5px 8px;color:#94a3b8;font-weight:600">Status</th>
+                      <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">ETA</th>
+                      <th style="text-align:center;padding:5px 6px;width:30px"></th>
                     </tr>
-                  <% end %>
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    <%= if fleet_vessels_ocean == [] do %>
+                      <tr><td colspan="9" style="padding:16px;text-align:center;color:#7b8fa4;font-size:12px">No ocean vessels for this product group.</td></tr>
+                    <% end %>
+                    <%= for v <- fleet_vessels_ocean do %>
+                      <%
+                        tracked = Map.get(v, :track_in_fleet, true)
+                        discharged = v.status in ["discharged", "cancelled"]
+                        {status_color, status_label} = case v.status do
+                          "in_transit" -> {"#22d3ee", "IN TRANSIT"}
+                          "active"     -> {"#4ade80", "ACTIVE"}
+                          "discharged" -> {"#94a3b8", "DISCHARGED"}
+                          "cancelled"  -> {"#f87171", "CANCELLED"}
+                          _            -> {"#7b8fa4", String.upcase(v.status || "?")}
+                        end
+                      %>
+                      <tr style={"border-bottom:1px solid #0f172a;#{if discharged, do: "opacity:0.4;"}"}>
+                        <td style="padding:5px 6px;text-align:center">
+                          <button phx-click="fleet_toggle_tracking" phx-value-id={v.id}
+                            title={if tracked, do: "In fleet — click to exclude", else: "Not in fleet — click to include"}
+                            style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if tracked, do: "background:#38bdf8;", else: "background:#475569;"}"}>
+                            <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;#{if tracked, do: "left:14px;", else: "left:2px;"}"}></span>
+                          </button>
+                        </td>
+                        <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.vessel_name %></td>
+                        <td style="padding:5px 8px;color:#94a3b8;font-size:10px;font-weight:600;letter-spacing:0.5px">
+                          <%= if v.vessel_type, do: String.upcase(String.replace(v.vessel_type, "_", " ")), else: "—" %>
+                        </td>
+                        <td style="padding:5px 8px;color:#94a3b8;font-family:monospace;font-size:12px"><%= v.mmsi || "—" %></td>
+                        <td style="padding:5px 8px;color:#94a3b8;font-size:12px"><%= v.operator || "—" %></td>
+                        <td style="padding:5px 8px;color:#94a3b8;font-size:12px">
+                          <%= if v.loading_port || v.discharge_port, do: "#{v.loading_port || "?"} → #{v.discharge_port || "?"}", else: "—" %>
+                        </td>
+                        <td style="padding:5px 8px;text-align:center">
+                          <span style={"font-size:10px;font-weight:700;color:#{status_color};letter-spacing:0.5px"}><%= status_label %></span>
+                        </td>
+                        <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px"><%= if v.eta, do: v.eta, else: "—" %></td>
+                        <td style="padding:5px 6px;text-align:center">
+                          <button phx-click="fleet_delete_vessel" phx-value-id={v.id}
+                            data-confirm="Remove from fleet?"
+                            style="background:none;border:none;color:#7b8fa4;cursor:pointer;font-size:12px;padding:2px 4px">&times;</button>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
 
               <%!-- Add vessel form --%>
               <div style="border-top:1px solid #1e293b;padding-top:12px">

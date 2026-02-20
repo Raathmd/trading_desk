@@ -442,6 +442,248 @@ vessels = [
   },
 
   # ─────────────────────────────────────────────────────────────
+  # AMMONIA DOMESTIC — NH3 pressure barges (non-powered, pushed by above towboats)
+  # These are the actual cargo-carrying vessels — river NH3 tank barges.
+  # No MMSI — AIS tracking is via the pushing towboat.
+  # ─────────────────────────────────────────────────────────────
+
+  %{
+    vessel_name: "TRAMMO NH3-101",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "St. Louis",
+    eta: Date.add(Date.utc_today(), 6),
+    sap_shipping_number: "80012345",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "NH3 pressure barge — towed by MV Miss Kae D"
+  },
+  %{
+    vessel_name: "TRAMMO NH3-102",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "St. Louis",
+    eta: Date.add(Date.utc_today(), 6),
+    sap_shipping_number: "80012345",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "NH3 pressure barge — towed by MV Miss Kae D"
+  },
+  %{
+    vessel_name: "TRAMMO NH3-103",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Memphis",
+    eta: Date.add(Date.utc_today(), 5),
+    sap_shipping_number: "80012350",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "NH3 pressure barge — towed by MV Carey Brennan"
+  },
+  %{
+    vessel_name: "ARTCO NH3-201",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Memphis",
+    eta: Date.add(Date.utc_today(), 4),
+    sap_shipping_number: "80012346",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "ARTCO",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "CF Industries ARTCO barge — towed by MV Barbara E"
+  },
+  %{
+    vessel_name: "ARTCO NH3-202",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "St. Louis",
+    eta: Date.add(Date.utc_today(), 7),
+    sap_shipping_number: "80012352",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "ARTCO",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "CF Industries ARTCO barge — towed by MV Dorothy Ann"
+  },
+  %{
+    vessel_name: "ARTCO NH3-203",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "St. Louis",
+    eta: Date.add(Date.utc_today(), 7),
+    sap_shipping_number: "80012352",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "ARTCO",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "CF Industries ARTCO barge — towed by MV Dorothy Ann"
+  },
+  %{
+    vessel_name: "MQT NH3-301",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Cairo",
+    eta: Date.add(Date.utc_today(), 10),
+    sap_shipping_number: "80012347",
+    status: "active",
+    vessel_type: "barge",
+    operator: "Marquette Transportation",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Marquette barge — towed by MV Crystal Allen"
+  },
+  %{
+    vessel_name: "MQT NH3-302",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Vicksburg",
+    eta: Date.add(Date.utc_today(), 3),
+    sap_shipping_number: "80012353",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "Marquette Transportation",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Marquette barge — towed by MV Houma"
+  },
+  %{
+    vessel_name: "SCF NH3-401",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "St. Louis",
+    eta: Date.add(Date.utc_today(), 9),
+    sap_shipping_number: "80012354",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "SCF Marine",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "SCF/Savage barge — towed by MV Savage Voyager"
+  },
+  %{
+    vessel_name: "SCF NH3-402",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Minneapolis",
+    eta: Date.add(Date.utc_today(), 18),
+    status: "active",
+    vessel_type: "barge",
+    operator: "SCF Marine",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "upper_mississippi",
+    track_in_fleet: true,
+    notes: "SCF/Savage barge — towed by MV Savage Enterprise"
+  },
+  %{
+    vessel_name: "IB NH3-501",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Greenville",
+    eta: Date.add(Date.utc_today(), 5),
+    sap_shipping_number: "80012355",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "Ingram Barge Company",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Ingram barge — towed by MV James R. Petroff"
+  },
+  %{
+    vessel_name: "TRAMMO NH3-104",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Minneapolis",
+    eta: Date.add(Date.utc_today(), 14),
+    sap_shipping_number: "80012351",
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "upper_mississippi",
+    track_in_fleet: true,
+    notes: "NH3 pressure barge — towed by MV Kay Lynn M"
+  },
+  %{
+    vessel_name: "TRAMMO NH3-105",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Cairo",
+    eta: Date.add(Date.utc_today(), 8),
+    status: "active",
+    vessel_type: "barge",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "NH3 pressure barge — towed by MV Carl D. Glover, staging"
+  },
+  %{
+    vessel_name: "CBC NH3-601",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "New Orleans",
+    eta: Date.add(Date.utc_today(), 2),
+    status: "in_transit",
+    vessel_type: "barge",
+    operator: "Canal Barge Company",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Canal Barge — towed by MV Jim Burns"
+  },
+
+  # ─────────────────────────────────────────────────────────────
   # SULPHUR INTERNATIONAL
   # ─────────────────────────────────────────────────────────────
 
@@ -491,7 +733,13 @@ skipped  = 0
 
 {upserted, skipped} = Enum.reduce(vessels, {0, 0}, fn attrs, {u, s} ->
   mmsi = attrs[:mmsi]
-  existing = if mmsi, do: TrackedVessel.get_by_mmsi(mmsi), else: nil
+  existing = cond do
+    mmsi != nil -> TrackedVessel.get_by_mmsi(mmsi)
+    attrs[:sap_shipping_number] != nil ->
+      TradingDesk.Repo.get_by(TrackedVessel, sap_shipping_number: attrs[:sap_shipping_number])
+    true ->
+      TradingDesk.Repo.get_by(TrackedVessel, vessel_name: attrs[:vessel_name])
+  end
   case existing do
     nil ->
       case TrackedVessel.create(attrs) do
@@ -511,5 +759,7 @@ skipped  = 0
 end)
 
 IO.puts("Seeded tracked vessels: #{upserted} upserted, #{skipped} skipped")
-IO.puts("Mississippi River fleet: #{Enum.count(vessels, &(&1[:river_segment] in ["upper_mississippi", "lower_mississippi"]))} towboats")
+IO.puts("River barges: #{Enum.count(vessels, &(&1[:vessel_type] == "barge"))}")
+IO.puts("Towboats: #{Enum.count(vessels, &(&1[:vessel_type] == "towboat"))}")
+IO.puts("Ocean vessels: #{Enum.count(vessels, &(&1[:vessel_type] in ["gas_carrier", "bulk_carrier", "chemical_tanker"]))}")
 IO.puts("Trammo fleet (track_in_fleet=true): #{Enum.count(vessels, &(Map.get(&1, :track_in_fleet, true) == true))}")

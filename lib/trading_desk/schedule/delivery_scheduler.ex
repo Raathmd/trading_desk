@@ -152,6 +152,11 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
 
   defp build_line(counterparty, position, qty_mt, required_date, idx, total) do
     dest = Map.get(@counterparty_destinations, counterparty, :unknown)
+    # Simulate SAP record dates: created when contract was set up (a few weeks back),
+    # updated recently. In a real integration these come from the SAP API.
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    sap_created = DateTime.add(now, -(:rand.uniform(30) * 86400), :second)
+    sap_updated = DateTime.add(now, -(:rand.uniform(7) * 86400), :second)
 
     %{
       id:               "#{position.contract_number}-#{String.pad_leading("#{idx}", 2, "0")}",
@@ -166,10 +171,13 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
       estimated_date:   required_date,
       delay_days:       0,
       status:           :on_track,
+      delivery_status:  :open,
       delivery_index:   idx,
       total_deliveries: total,
       destination:      dest,
-      notes:            nil
+      notes:            nil,
+      sap_created_at:   sap_created,
+      sap_updated_at:   sap_updated
     }
   end
 
