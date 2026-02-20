@@ -184,7 +184,7 @@ defmodule TradingDesk.Data.API.Tides do
     url = "#{@base_url}?#{URI.encode_query(params)}"
 
     case http_get(url) do
-      {:ok, body} -> parse_water_level(body)
+      {:ok, body} -> parse_water_level_response(body)
       {:error, _} = err -> err
     end
   end
@@ -212,7 +212,7 @@ defmodule TradingDesk.Data.API.Tides do
     url = "#{@base_url}?#{URI.encode_query(params)}"
 
     case http_get(url) do
-      {:ok, body} -> parse_tidal_predictions(body)
+      {:ok, body} -> parse_tidal_predictions_response(body)
       {:error, _} = err -> err
     end
   end
@@ -233,7 +233,7 @@ defmodule TradingDesk.Data.API.Tides do
     url = "#{@base_url}?#{URI.encode_query(params)}"
 
     case http_get(url) do
-      {:ok, body} -> parse_current(body)
+      {:ok, body} -> parse_current_response(body)
       {:error, _} = err -> err
     end
   end
@@ -264,10 +264,11 @@ defmodule TradingDesk.Data.API.Tides do
   def current_stations, do: @current_stations
 
   # ──────────────────────────────────────────────────────────
-  # PARSING
+  # PARSING  (public with @doc false so unit tests can exercise them)
   # ──────────────────────────────────────────────────────────
 
-  defp parse_water_level(body) do
+  @doc false
+  def parse_water_level_response(body) do
     case Jason.decode(body) do
       {:ok, %{"data" => [latest | _]}} ->
         {:ok, %{
@@ -286,7 +287,8 @@ defmodule TradingDesk.Data.API.Tides do
     end
   end
 
-  defp parse_tidal_predictions(body) do
+  @doc false
+  def parse_tidal_predictions_response(body) do
     case Jason.decode(body) do
       {:ok, %{"predictions" => predictions}} when is_list(predictions) ->
         parsed =
@@ -332,7 +334,8 @@ defmodule TradingDesk.Data.API.Tides do
     end
   end
 
-  defp parse_current(body) do
+  @doc false
+  def parse_current_response(body) do
     case Jason.decode(body) do
       {:ok, %{"data" => [latest | _]}} ->
         {:ok, %{
@@ -354,10 +357,14 @@ defmodule TradingDesk.Data.API.Tides do
   # HELPERS
   # ──────────────────────────────────────────────────────────
 
-  defp parse_float(nil), do: nil
-  defp parse_float("") , do: nil
-  defp parse_float(v) when is_number(v), do: v / 1.0
-  defp parse_float(v) when is_binary(v) do
+  @doc false
+  def parse_float(nil), do: nil
+  @doc false
+  def parse_float("") , do: nil
+  @doc false
+  def parse_float(v) when is_number(v), do: v / 1.0
+  @doc false
+  def parse_float(v) when is_binary(v) do
     case Float.parse(v) do
       {f, _} -> f
       :error -> nil

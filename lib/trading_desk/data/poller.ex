@@ -265,13 +265,16 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:tides) do
     case API.Tides.fetch() do
       {:ok, data} ->
-        # Store full tidal data as supplementary
+        # Store full tidal data as supplementary (water_level_ft, tidal_range_ft,
+        # current_speed_kn, per-station levels, tidal predictions).
+        # Tidal water level is measured at coastal NOAA stations against MLLW datum
+        # and is separate from USGS river_stage — they are NOT bridged into the solver.
         TradingDesk.Data.LiveState.update_supplementary(:tides, data)
 
-        # Water level can supplement river stage near NOLA
         {:ok, %{}}
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.warning("Poller: NOAA tides fetch failed: #{inspect(reason)}")
         {:ok, %{}}
     end
   end
