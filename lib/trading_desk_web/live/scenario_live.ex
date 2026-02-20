@@ -128,7 +128,7 @@ defmodule TradingDesk.ScenarioLive do
       # Model summary (always computed) + scenario description (trader narrative)
       |> assign(:model_summary, "")
       |> assign(:scenario_description, "")
-      |> assign(:show_explanation_popup, false)
+      |> assign(:trader_sub_tab, :scenario)
 
     # Build the initial model summary from the fully-assigned socket
     socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
@@ -148,8 +148,6 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:sap_positions, book)
       |> assign(:anon_model_preview, anon_preview)
       |> assign(:show_anon_preview, false)
-    # If trader has typed an action, parse intent in background
-    socket = maybe_parse_intent(socket)
     {:noreply, socket}
   end
 
@@ -164,7 +162,6 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:sap_positions, book)
       |> assign(:anon_model_preview, anon_preview)
       |> assign(:show_anon_preview, false)
-    socket = maybe_parse_intent(socket)
     {:noreply, socket}
   end
 
@@ -213,6 +210,11 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, socket}
   end
 
+  @impl true
+  def handle_event("switch_trader_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :trader_sub_tab, String.to_existing_atom(tab))}
+  end
+
   # Stops click propagation from the modal body reaching the backdrop dismiss handler.
   @impl true
   def handle_event("noop", _params, socket), do: {:noreply, socket}
@@ -222,16 +224,6 @@ defmodule TradingDesk.ScenarioLive do
     socket = assign(socket, :scenario_description, text)
     summary = build_model_summary_text(socket.assigns)
     {:noreply, assign(socket, :model_summary, summary)}
-  end
-
-  @impl true
-  def handle_event("show_explanation_popup", _params, socket) do
-    {:noreply, assign(socket, :show_explanation_popup, true)}
-  end
-
-  @impl true
-  def handle_event("close_explanation_popup", _params, socket) do
-    {:noreply, assign(socket, :show_explanation_popup, false)}
   end
 
   @impl true
@@ -250,9 +242,9 @@ defmodule TradingDesk.ScenarioLive do
         _ -> :ok
       end
       saved = safe_call(fn -> Store.list(socket.assigns.trader_id) end, [])
-      {:noreply, assign(socket, show_explanation_popup: false, saved_scenarios: saved)}
+      {:noreply, assign(socket, :saved_scenarios, saved)}
     else
-      {:noreply, assign(socket, :show_explanation_popup, false)}
+      {:noreply, socket}
     end
   end
 
@@ -671,7 +663,8 @@ defmodule TradingDesk.ScenarioLive do
       explanation: nil,
       explaining: true,
       delivery_impact: delivery_impact,
-      ops_sent: false
+      ops_sent: false,
+      trader_sub_tab: :response
     )
     vars = socket.assigns.current_vars
     intent = socket.assigns.intent
@@ -713,7 +706,8 @@ defmodule TradingDesk.ScenarioLive do
       pipeline_detail: nil,
       contracts_stale: contracts_stale,
       explanation: nil,
-      explaining: true
+      explaining: true,
+      trader_sub_tab: :response
     )
     vars = socket.assigns.current_vars
     lv_pid = self()
@@ -1055,6 +1049,20 @@ defmodule TradingDesk.ScenarioLive do
 
           <%!-- === TRADER TAB === --%>
           <%= if @active_tab == :trader do %>
+            <%!-- Sub-tab nav --%>
+            <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid #1e293b">
+              <button phx-click="switch_trader_tab" phx-value-tab="scenario"
+                style={"padding:8px 20px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @trader_sub_tab == :scenario, do: "#0a0318", else: "transparent"};color:#{if @trader_sub_tab == :scenario, do: "#a78bfa", else: "#7b8fa4"};border-bottom:2px solid #{if @trader_sub_tab == :scenario, do: "#a78bfa", else: "transparent"}"}>
+                SCENARIO INPUT
+              </button>
+              <button phx-click="switch_trader_tab" phx-value-tab="response"
+                style={"padding:8px 20px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @trader_sub_tab == :response, do: "#060e1a", else: "transparent"};color:#{if @trader_sub_tab == :response, do: "#38bdf8", else: "#7b8fa4"};border-bottom:2px solid #{if @trader_sub_tab == :response, do: "#38bdf8", else: "transparent"}"}>
+                RESPONSE<%= cond do @explaining -> " ⏳"; is_binary(@explanation) -> " ●"; true -> "" end %>
+              </button>
+            </div>
+
+            <%!-- === SCENARIO INPUT SUB-TAB === --%>
+            <%= if @trader_sub_tab == :scenario do %>
             <%!-- === SCENARIO MODEL FORM === --%>
             <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:10px;padding:16px;margin-bottom:16px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -1228,8 +1236,12 @@ defmodule TradingDesk.ScenarioLive do
                 <pre style="font-size:11px;color:#7b8fa4;line-height:1.5;white-space:pre-wrap;margin:6px 0 0;background:#060a11;border:1px solid #1e293b;border-radius:4px;padding:8px;max-height:240px;overflow-y:auto"><%= @model_summary %></pre>
               </details>
             </div>
+            <% end %><%!-- end :scenario sub-tab --%>
 
-            <%!-- Solve result --%>
+            <%!-- === RESPONSE SUB-TAB === --%>
+            <%= if @trader_sub_tab == :response do %>
+
+            <%!-- Solve result: optimal --%>
             <%= if @result && @result.status == :optimal do %>
               <div style="background:#111827;border-radius:10px;padding:20px;margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -1290,10 +1302,6 @@ defmodule TradingDesk.ScenarioLive do
                     <input type="text" name="name" placeholder="Scenario name..." style="flex:1;background:#0a0f18;border:1px solid #1e293b;color:#c8d6e5;padding:8px;border-radius:6px;font-size:12px" />
                     <button type="submit" style="background:#1e293b;border:none;color:#94a3b8;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
                   </form>
-                  <button phx-click="show_explanation_popup" disabled={is_nil(@explanation) or @explaining}
-                    style={"padding:8px 14px;border:1px solid #4c1d95;border-radius:6px;background:#1e1030;color:#{if is_nil(@explanation) or @explaining, do: "#7b8fa4", else: "#a78bfa"};cursor:#{if is_nil(@explanation) or @explaining, do: "default", else: "pointer"};font-size:12px;font-weight:600;white-space:nowrap"}>
-                    🧠 Full Analysis
-                  </button>
                 </div>
               </div>
             <% end %>
@@ -1319,21 +1327,27 @@ defmodule TradingDesk.ScenarioLive do
               </div>
             <% end %>
 
-            <%!-- AI Explanation --%>
-            <div style="background:#0f1729;border:1px solid #1e293b;border-radius:8px;padding:12px;margin-bottom:16px">
-              <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-                <span style="font-size:11px;color:#8b5cf6;font-weight:700;letter-spacing:1px">🧠 ANALYST</span>
+            <%!-- AI Explanation (full) --%>
+            <div style="background:#060c16;border:1px solid #1e293b;border-radius:10px;padding:20px;margin-bottom:16px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <span style="font-size:12px;color:#8b5cf6;font-weight:700;letter-spacing:1px">🧠 ANALYST NOTE</span>
                 <%= if @explaining do %>
-                  <span style="font-size:12px;color:#7b8fa4">thinking...</span>
+                  <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating analysis...</span>
+                <% end %>
+                <%= if is_binary(@explanation) do %>
+                  <button phx-click="save_explanation"
+                    style="margin-left:auto;padding:5px 14px;border:none;border-radius:6px;background:linear-gradient(135deg,#4c1d95,#7c3aed);color:#e9d5ff;font-weight:700;font-size:11px;cursor:pointer">
+                    💾 Save Analysis
+                  </button>
                 <% end %>
               </div>
               <%= case @explanation do %>
                 <% {:error, err_text} -> %>
-                  <div style="font-size:12px;color:#f87171;line-height:1.5"><%= err_text %></div>
+                  <div style="font-size:13px;color:#f87171;line-height:1.7"><%= err_text %></div>
                 <% text when is_binary(text) -> %>
-                  <div style="font-size:13px;color:#c8d6e5;line-height:1.5"><%= text %></div>
+                  <div style="font-size:14px;color:#e2e8f0;line-height:1.8;white-space:pre-wrap"><%= text %></div>
                 <% _ -> %>
-                  <div style="font-size:12px;color:#7b8fa4;font-style:italic">Run SOLVE or MONTE CARLO to get analysis</div>
+                  <div style="font-size:13px;color:#7b8fa4;font-style:italic">Analysis will appear here after SOLVE or MONTE CARLO</div>
               <% end %>
             </div>
 
@@ -1365,7 +1379,10 @@ defmodule TradingDesk.ScenarioLive do
                 <% end %>
               </div>
             <% end %>
+            <% end %><%!-- end :response sub-tab --%>
 
+            <%!-- Tides & Saved Scenarios — shown on Scenario sub-tab --%>
+            <%= if @trader_sub_tab == :scenario do %>
             <%!-- === TIDES & CURRENTS (Trader tab) === --%>
             <%= if @tides_data do %>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
@@ -1429,8 +1446,11 @@ defmodule TradingDesk.ScenarioLive do
                 </table>
               </div>
             <% end %>
-          <% end %>
+            <% end %><%!-- end :scenario sub-tab (tides/saved) --%>
+          <% end %><%!-- end :trader tab --%>
 
+          <%!-- Post-solve impact, delivery & ops — rendered in the Response sub-tab of the Trader tab --%>
+          <%= if @active_tab == :trader && @trader_sub_tab == :response do %>
           <%!-- Post-solve impact --%>
             <%= if @post_solve_impact do %>
               <div style="background:#0d1a0d;border:1px solid #166534;border-radius:8px;padding:14px;margin-bottom:16px">
@@ -1529,6 +1549,7 @@ defmodule TradingDesk.ScenarioLive do
               <% end %>
             </div>
           <% end %>
+          <% end %><%!-- end :response active_tab+sub-tab wrapper --%>
 
           <%!-- === CONTRACTS TAB === --%>
           <%= if @active_tab == :contracts do %>
@@ -2845,76 +2866,7 @@ defmodule TradingDesk.ScenarioLive do
               <% end %>
             </div>
 
-            <%!-- AI Interpretation --%>
-            <%= if @intent_loading do %>
-              <div style="font-size:12px;color:#94a3b8;padding:8px 0;text-align:center">⏳ Mapping intent to variables...</div>
-            <% end %>
-            <%= if @intent do %>
-              <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-                <div style="font-size:12px;color:#38bdf8;letter-spacing:1px;margin-bottom:6px;font-weight:700">AI INTERPRETATION</div>
-                <div style="font-size:12px;color:#c8d6e5;margin-bottom:10px;line-height:1.5"><%= @intent.summary %></div>
-
-                <%!-- Variable changes --%>
-                <%= if map_size(@intent.variable_adjustments) > 0 do %>
-                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:4px">VARIABLE CHANGES</div>
-                  <div style="background:#080c14;border-radius:4px;padding:8px;margin-bottom:8px">
-                    <%= for {key, val} <- @intent.variable_adjustments do %>
-                      <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;font-family:monospace">
-                        <span style="color:#94a3b8"><%= key %></span>
-                        <span style="color:#94a3b8"><%= Map.get(@current_vars, key) %></span>
-                        <span style="color:#94a3b8">→</span>
-                        <span style="color:#f59e0b;font-weight:700"><%= val %></span>
-                      </div>
-                    <% end %>
-                  </div>
-                <% end %>
-
-                <%!-- Affected contracts --%>
-                <%= if length(@intent.affected_contracts) > 0 do %>
-                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:4px">AFFECTED CONTRACTS</div>
-                  <%= for ac <- @intent.affected_contracts do %>
-                    <div style="font-size:11px;padding:3px 0;border-bottom:1px solid #1e293b22;display:flex;gap:6px">
-                      <span style={"font-weight:600;color:#{if ac.direction == "purchase", do: "#60a5fa", else: "#f59e0b"}"}>
-                        <%= if ac.direction == "purchase", do: "↓", else: "↑" %> <%= ac.counterparty %>
-                      </span>
-                      <span style="color:#94a3b8;font-size:12px">— <%= ac.impact %></span>
-                    </div>
-                  <% end %>
-                <% end %>
-
-                <%!-- Risk alerts --%>
-                <%= if length(@intent.risk_notes) > 0 do %>
-                  <div style="font-size:12px;color:#ef4444;letter-spacing:1px;margin-bottom:4px;margin-top:8px">RISK ALERTS</div>
-                  <%= for note <- @intent.risk_notes do %>
-                    <div style="font-size:11px;color:#fca5a5;padding:2px 0">⚠ <%= note %></div>
-                  <% end %>
-                <% end %>
-
-                <%!-- Delivery penalty exposure + priority routing --%>
-                <%= if Map.get(@intent, :penalty_exposure, 0) > 0 do %>
-                  <div style="background:#1a0a0a;border-radius:6px;padding:10px;margin-top:8px">
-                    <div style="display:flex;justify-content:space-between;align-items:baseline">
-                      <span style="font-size:12px;color:#f97316;font-weight:700;letter-spacing:1px">DELIVERY PENALTY AT RISK</span>
-                      <span style="font-size:14px;font-weight:700;font-family:monospace;color:#fdba74">~$<%= format_number(Map.get(@intent, :penalty_exposure, 0)) %></span>
-                    </div>
-                    <%= if length(Map.get(@intent, :priority_deliveries, [])) > 0 do %>
-                      <div style="font-size:12px;margin-top:6px">
-                        <span style="color:#4ade80;font-weight:700">SERVE FIRST: </span>
-                        <span style="color:#86efac"><%= Enum.join(Map.get(@intent, :priority_deliveries, []), " · ") %></span>
-                      </div>
-                    <% end %>
-                    <%= if length(Map.get(@intent, :deferred_deliveries, [])) > 0 do %>
-                      <div style="font-size:12px;margin-top:3px">
-                        <span style="color:#f59e0b;font-weight:700">CAN DEFER: </span>
-                        <span style="color:#fcd34d"><%= Enum.join(Map.get(@intent, :deferred_deliveries, []), " · ") %></span>
-                      </div>
-                    <% end %>
-                  </div>
-                <% end %>
-              </div>
-            <% end %>
-
-            <%!-- OBJECTIVE FOR THIS SOLVE — trader sets this, AI suggestion is advisory --%>
+            <%!-- OBJECTIVE FOR THIS SOLVE --%>
             <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
               <div style="font-size:12px;color:#94a3b8;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE FOR THIS SOLVE</div>
               <select phx-change="switch_objective" name="objective"
@@ -3004,132 +2956,6 @@ defmodule TradingDesk.ScenarioLive do
         </div>
       <% end %>
 
-      <%!-- === ANALYST EXPLANATION POPUP === --%>
-      <%= if @show_explanation_popup do %>
-        <div style="position:fixed;inset:0;z-index:2000">
-          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.82)"
-               phx-click="close_explanation_popup"></div>
-          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:none">
-            <div style="background:#0d1117;border:1px solid #2d3748;border-radius:14px;width:min(860px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 30px 60px rgba(0,0,0,0.7);pointer-events:auto">
-            <%!-- Header --%>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid #1e293b">
-              <div>
-                <span style="font-size:15px;font-weight:700;color:#e2e8f0;letter-spacing:0.5px">ANALYST NOTE</span>
-                <%= if @result do %>
-                  <span style="font-size:12px;color:#10b981;margin-left:12px;font-family:monospace">$<%= format_number(@result.profit) %> · <%= format_number(@result.tons) %> MT · <%= Float.round(@result.roi, 1) %>% ROI</span>
-                <% end %>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center">
-                <button phx-click="save_explanation"
-                  style="padding:8px 18px;border:none;border-radius:6px;background:linear-gradient(135deg,#4c1d95,#7c3aed);color:#e9d5ff;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:0.5px">
-                  💾 Save Analysis
-                </button>
-                <button phx-click="close_explanation_popup"
-                  style="background:none;border:1px solid #374151;color:#9ca3af;cursor:pointer;font-size:20px;border-radius:6px;width:36px;height:36px;display:flex;align-items:center;justify-content:center">
-                  ×
-                </button>
-              </div>
-            </div>
-            <%!-- Scrollable body --%>
-            <div style="flex:1;overflow-y:auto;padding:24px">
-              <%!-- Explanation text --%>
-              <div style="background:#060c16;border:1px solid #1e293b;border-radius:10px;padding:20px;margin-bottom:20px">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                  <span style="font-size:11px;color:#8b5cf6;font-weight:700;letter-spacing:1px">MARKET ANALYSIS</span>
-                  <%= if @explaining do %>
-                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating analysis...</span>
-                  <% end %>
-                </div>
-                <%= case @explanation do %>
-                  <% {:error, err_text} -> %>
-                    <div style="font-size:13px;color:#f87171;line-height:1.7"><%= err_text %></div>
-                  <% text when is_binary(text) -> %>
-                    <div style="font-size:14px;color:#e2e8f0;line-height:1.8;white-space:pre-wrap"><%= text %></div>
-                  <% _ -> %>
-                    <div style="font-size:13px;color:#7b8fa4;font-style:italic">Analysis not yet available — run SOLVE first</div>
-                <% end %>
-              </div>
-
-              <%!-- Result summary grid --%>
-              <%= if @result && @result.status == :optimal do %>
-                <div style="background:#0a0f18;border:1px solid #1e293b;border-radius:10px;padding:16px;margin-bottom:20px">
-                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:12px">SOLVER RESULT DETAIL</div>
-                  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
-                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:11px;color:#94a3b8">Profit</div>
-                      <div style="font-size:16px;font-weight:800;color:#10b981;font-family:monospace">$<%= format_number(@result.profit) %></div>
-                    </div>
-                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:11px;color:#94a3b8">Tons</div>
-                      <div style="font-size:16px;font-weight:700;font-family:monospace"><%= format_number(@result.tons) %></div>
-                    </div>
-                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:11px;color:#94a3b8">Barges</div>
-                      <div style="font-size:16px;font-weight:700;font-family:monospace"><%= Float.round(@result.barges, 1) %></div>
-                    </div>
-                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:11px;color:#94a3b8">ROI</div>
-                      <div style="font-size:16px;font-weight:700;font-family:monospace"><%= Float.round(@result.roi, 1) %>%</div>
-                    </div>
-                    <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:11px;color:#94a3b8">Capital</div>
-                      <div style="font-size:14px;font-weight:700;font-family:monospace;color:#94a3b8">$<%= format_number(@result.cost) %></div>
-                    </div>
-                  </div>
-                  <table style="width:100%;border-collapse:collapse;font-size:12px">
-                    <thead><tr style="border-bottom:1px solid #1e293b">
-                      <th style="text-align:left;padding:6px;color:#7b8fa4;font-size:12px">Route</th>
-                      <th style="text-align:right;padding:6px;color:#7b8fa4;font-size:12px">Tons</th>
-                      <th style="text-align:right;padding:6px;color:#7b8fa4;font-size:12px">Margin</th>
-                      <th style="text-align:right;padding:6px;color:#7b8fa4;font-size:12px">Profit</th>
-                    </tr></thead>
-                    <tbody>
-                      <%= for {name, idx} <- Enum.with_index(@route_names) do %>
-                        <% tons = Enum.at(@result.route_tons, idx, 0) %>
-                        <%= if tons > 0.5 do %>
-                          <tr style="border-bottom:1px solid #1e293b11">
-                            <td style="padding:6px;font-weight:600;color:#c8d6e5"><%= name %></td>
-                            <td style="text-align:right;padding:6px;font-family:monospace"><%= format_number(tons) %></td>
-                            <td style="text-align:right;padding:6px;font-family:monospace;color:#38bdf8">$<%= Float.round(Enum.at(@result.margins, idx, 0), 1) %>/t</td>
-                            <td style="text-align:right;padding:6px;font-family:monospace;color:#10b981;font-weight:700">$<%= format_number(Enum.at(@result.route_profits, idx, 0)) %></td>
-                          </tr>
-                        <% end %>
-                      <% end %>
-                    </tbody>
-                  </table>
-                </div>
-              <% end %>
-
-              <%!-- Position impact --%>
-              <%= if @post_solve_impact do %>
-                <div style="background:#0d1a0d;border:1px solid #166534;border-radius:10px;padding:16px">
-                  <div style="font-size:12px;color:#4ade80;letter-spacing:1px;margin-bottom:6px">POSITION IMPACT</div>
-                  <div style="font-size:12px;color:#86efac;margin-bottom:10px"><%= @post_solve_impact.summary %></div>
-                  <table style="width:100%;border-collapse:collapse;font-size:11px">
-                    <thead><tr style="border-bottom:1px solid #166534">
-                      <th style="text-align:left;padding:4px;color:#4ade80;font-size:12px">Counterparty</th>
-                      <th style="text-align:center;padding:4px;color:#4ade80;font-size:12px">Dir</th>
-                      <th style="text-align:right;padding:4px;color:#4ade80;font-size:12px">Open MT</th>
-                      <th style="text-align:left;padding:4px;color:#4ade80;font-size:12px">Impact</th>
-                    </tr></thead>
-                    <tbody>
-                      <%= for c <- @post_solve_impact.by_contract do %>
-                        <tr style="border-bottom:1px solid #14532d22">
-                          <td style="padding:4px;color:#d1fae5;font-weight:600"><%= c.counterparty %></td>
-                          <td style={"text-align:center;padding:4px;color:#{if c.direction == "purchase", do: "#60a5fa", else: "#f59e0b"};font-weight:600;font-size:12px"}><%= if c.direction == "purchase", do: "BUY", else: "SELL" %></td>
-                          <td style="text-align:right;padding:4px;font-family:monospace;color:#94a3b8"><%= format_number(c.open_qty) %></td>
-                          <td style="padding:4px;color:#6ee7b7;font-size:12px"><%= c.impact %></td>
-                        </tr>
-                      <% end %>
-                    </tbody>
-                  </table>
-                </div>
-              <% end %>
-            </div>
-            </div>
-          </div>
-        </div>
-      <% end %>
     </div>
     """
   end
