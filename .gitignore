@@ -30,6 +30,8 @@ trading_desk-*.tar
 /native/zig-cache/
 /native/zig-out/
 /native/solver
+# Allow the cross-compiled Linux binary to be committed for fly deploy from GitHub
+!/native/solver.linux-amd64
 /native/**/*.o
 /native/priv/
 /native/HiGHS/

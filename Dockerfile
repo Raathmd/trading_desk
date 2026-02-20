@@ -1,23 +1,32 @@
 # ============================================================
 # Trammo NH3 Trading Desk — Runtime Dockerfile
 #
-# This packages a pre-built release. Before running fly deploy
-# you must build locally:
+# This packages pre-built artifacts. Before deploying you must:
 #
-#   1. Build HiGHS + solver (once, or when solver.zig changes):
-#      See native/BUILDING_HIGHS.md
-#      Output: native/solver
+#   1. Cross-compile the solver for Linux x86_64 (once, or when
+#      solver.zig changes). From the native/ directory:
+#
+#      zig build-exe solver.zig \
+#        -target x86_64-linux-gnu \
+#        -lhighs -lstdc++ \
+#        -L./HiGHS/build/lib \
+#        -I./HiGHS/src \
+#        -I./HiGHS/build \
+#        -lc \
+#        -femit-bin=solver.linux-amd64
+#
+#      Then commit native/solver.linux-amd64 to git.
 #
 #   2. Build the Elixir release:
 #      MIX_ENV=prod mix deps.get --only prod
 #      MIX_ENV=prod mix release
 #      Output: _build/prod/rel/trading_desk/
 #
-#   3. Deploy:
-#      fly deploy --local-only
+#   3. Deploy (standard — no --local-only needed if solver is committed):
+#      fly deploy
 #
-# The --local-only flag builds the image on your machine and
-# pushes the result to Fly's registry, bypassing the remote builder.
+#   OR skip step 2 and deploy with pre-built release locally:
+#      fly deploy --local-only
 # ============================================================
 
 FROM debian:bookworm-slim
@@ -40,10 +49,10 @@ WORKDIR /app
 # Copy the pre-built Elixir release
 COPY _build/prod/rel/trading_desk ./
 
-# Copy the pre-built Zig solver binary.
+# Copy the cross-compiled Linux Zig solver binary.
 # Solver.Port looks for it at: Path.join([File.cwd!(), "native", "solver"])
 # File.cwd!() in a release = /app, so this resolves to /app/native/solver
-COPY native/solver ./native/solver
+COPY native/solver.linux-amd64 ./native/solver
 RUN chmod +x ./native/solver
 
 EXPOSE 4111
