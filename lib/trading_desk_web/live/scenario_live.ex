@@ -104,7 +104,7 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:intent_loading, false)
       |> assign(:show_review, false)
       |> assign(:review_mode, nil)
-      |> assign(:sap_positions, nil)
+      |> assign(:sap_positions, TradingDesk.Contracts.SapPositions.book_summary())
       |> assign(:post_solve_impact, nil)
       |> assign(:delivery_impact, nil)
       |> assign(:ops_sent, false)
@@ -1062,13 +1062,86 @@ defmodule TradingDesk.ScenarioLive do
                 <span style="font-size:12px;color:#7b8fa4">Objective: <%= objective_label(@objective_mode) %></span>
               </div>
 
-              <%!-- Scenario description --%>
+              <%!-- Scenario description with frame-context autocomplete --%>
               <div style="margin-bottom:14px">
-                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:5px;font-weight:600">WHAT DO YOU WANT TO TEST?</div>
-                <textarea phx-blur="update_scenario_description" name="description"
-                  rows="3"
-                  placeholder="e.g. One barge in for repair — assess impact on D+3 delivery schedule"
-                  style="width:100%;background:#060a11;border:1px solid #2d1b69;color:#c8d6e5;padding:10px;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box"><%= @scenario_description %></textarea>
+                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:5px;font-weight:600">
+                  WHAT DO YOU WANT TO TEST?
+                  <span style="font-weight:400;color:#7b8fa4;font-size:11px;letter-spacing:0"> — type <kbd style="background:#1e293b;border:1px solid #334155;border-radius:3px;padding:1px 5px;font-size:10px;color:#94a3b8">@</kbd> or click a resource below to insert</span>
+                </div>
+                <%
+                  _corpus = scenario_corpus_items(assigns)
+                  _corpus_json = Jason.encode!(Enum.map(_corpus, & Map.take(&1, [:label, :hint, :group, :type, :insert])))
+                  _var_groups = _corpus |> Enum.filter(&(&1.type == "variable")) |> Enum.group_by(& &1.group)
+                  _route_items = _corpus |> Enum.filter(&(&1.type == "route"))
+                  _cp_items = _corpus |> Enum.filter(&(&1.type == "counterparty"))
+                  _vessel_items = _corpus |> Enum.filter(&(&1.type == "vessel"))
+                %>
+                <div id="scenario-context" phx-hook="ScenarioDescription" data-corpus={_corpus_json} data-textarea="scenario-desc">
+                  <textarea id="scenario-desc" phx-blur="update_scenario_description" name="description"
+                    rows="3"
+                    placeholder="e.g. One barge in for repair — assess impact on D+3 delivery schedule"
+                    style="width:100%;background:#060a11;border:1px solid #2d1b69;color:#c8d6e5;padding:10px;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box"><%= @scenario_description %></textarea>
+
+                  <%!-- Frame context reference panel --%>
+                  <div style="margin-top:6px;background:#060a11;border:1px solid #1e293b;border-radius:6px;padding:8px 10px;max-height:160px;overflow-y:auto">
+                    <div style="font-size:11px;color:#7b8fa4;letter-spacing:0.8px;margin-bottom:6px;font-weight:600">FRAME RESOURCES</div>
+
+                    <%!-- Variables by group --%>
+                    <%= for {grp, items} <- Enum.sort_by(_var_groups, fn {g,_} -> to_string(g) end) do %>
+                      <div style="margin-bottom:5px">
+                        <span style="font-size:10px;color:#475569;letter-spacing:1px;font-weight:700;text-transform:uppercase"><%= grp %> </span>
+                        <%= for item <- items do %>
+                          <button class="insert-chip" data-insert={item.insert}
+                            style="display:inline-flex;align-items:center;gap:4px;margin:2px 3px 2px 0;padding:2px 7px;background:#0d1526;border:1px solid #1e3a5f;border-radius:12px;cursor:pointer;font-size:11px;color:#94a3b8;white-space:nowrap">
+                            <span style="color:#c8d6e5;font-weight:600"><%= item.label %></span>
+                            <span style="color:#7b8fa4;font-size:10px"><%= item.hint %></span>
+                          </button>
+                        <% end %>
+                      </div>
+                    <% end %>
+
+                    <%!-- Routes --%>
+                    <%= if _route_items != [] do %>
+                      <div style="margin-bottom:5px">
+                        <span style="font-size:10px;color:#475569;letter-spacing:1px;font-weight:700;text-transform:uppercase">ROUTES </span>
+                        <%= for item <- _route_items do %>
+                          <button class="insert-chip" data-insert={item.insert}
+                            style="display:inline-flex;align-items:center;gap:4px;margin:2px 3px 2px 0;padding:2px 7px;background:#071a12;border:1px solid #134e2e;border-radius:12px;cursor:pointer;font-size:11px;color:#34d399;white-space:nowrap">
+                            <span style="font-weight:600"><%= item.label %></span>
+                          </button>
+                        <% end %>
+                      </div>
+                    <% end %>
+
+                    <%!-- Counterparties --%>
+                    <%= if _cp_items != [] do %>
+                      <div style="margin-bottom:5px">
+                        <span style="font-size:10px;color:#475569;letter-spacing:1px;font-weight:700;text-transform:uppercase">COUNTERPARTIES </span>
+                        <%= for item <- _cp_items do %>
+                          <button class="insert-chip" data-insert={item.insert}
+                            style="display:inline-flex;align-items:center;gap:4px;margin:2px 3px 2px 0;padding:2px 7px;background:#130d27;border:1px solid #3b2569;border-radius:12px;cursor:pointer;font-size:11px;white-space:nowrap">
+                            <span style="color:#c4b5fd;font-weight:600"><%= item.label %></span>
+                            <span style="color:#7b6fa4;font-size:10px"><%= item.hint %></span>
+                          </button>
+                        <% end %>
+                      </div>
+                    <% end %>
+
+                    <%!-- Vessels/Barges --%>
+                    <%= if _vessel_items != [] do %>
+                      <div style="margin-bottom:2px">
+                        <span style="font-size:10px;color:#475569;letter-spacing:1px;font-weight:700;text-transform:uppercase">VESSELS / BARGES </span>
+                        <%= for item <- _vessel_items do %>
+                          <button class="insert-chip" data-insert={item.insert}
+                            style="display:inline-flex;align-items:center;gap:4px;margin:2px 3px 2px 0;padding:2px 7px;background:#1a1408;border:1px solid #4a3808;border-radius:12px;cursor:pointer;font-size:11px;white-space:nowrap">
+                            <span style="color:#fcd34d;font-weight:600"><%= item.label %></span>
+                            <span style="color:#7b6f40;font-size:10px"><%= item.hint %></span>
+                          </button>
+                        <% end %>
+                      </div>
+                    <% end %>
+                  </div>
+                </div>
               </div>
 
               <%!-- Variable groups (editable) --%>
@@ -1221,6 +1294,27 @@ defmodule TradingDesk.ScenarioLive do
                     style={"padding:8px 14px;border:1px solid #4c1d95;border-radius:6px;background:#1e1030;color:#{if is_nil(@explanation) or @explaining, do: "#7b8fa4", else: "#a78bfa"};cursor:#{if is_nil(@explanation) or @explaining, do: "default", else: "pointer"};font-size:12px;font-weight:600;white-space:nowrap"}>
                     🧠 Full Analysis
                   </button>
+                </div>
+              </div>
+            <% end %>
+
+            <%!-- Solve result: infeasible / error --%>
+            <%= if @result && @result.status in [:infeasible, :error] && not @solving do %>
+              <div style="background:#1a0a0a;border:1px solid #7f1d1d;border-radius:10px;padding:16px;margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <div>
+                    <div style="font-size:11px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase">Solve Result</div>
+                    <div style="font-size:22px;font-weight:800;color:#f87171;font-family:monospace;margin-top:4px">
+                      <%= if @result.status == :infeasible, do: "INFEASIBLE", else: "SOLVER ERROR" %>
+                    </div>
+                  </div>
+                  <div style="background:#2d0f0f;padding:6px 14px;border-radius:6px;text-align:center">
+                    <div style="font-size:12px;color:#94a3b8">STATUS</div>
+                    <div style="font-size:13px;font-weight:700;color:#f87171"><%= String.upcase(to_string(@result.status)) %></div>
+                  </div>
+                </div>
+                <div style="margin-top:10px;font-size:12px;color:#7b8fa4">
+                  The current variable combination does not produce a feasible solution. Try adjusting supply, demand, or constraint variables.
                 </div>
               </div>
             <% end %>
@@ -2733,13 +2827,12 @@ defmodule TradingDesk.ScenarioLive do
               </div>
               <%= if @show_anon_preview do %>
                 <%
-                  anon_lines = (@anon_model_preview || "")
+                  anon_text = (@anon_model_preview || "")
                     |> String.split("\n")
                     |> Enum.reject(&(String.starts_with?(String.trim(&1), "#") or String.trim(&1) == ""))
-                    |> Enum.take(20)
-                  anon_text = Enum.join(anon_lines, "\n")
+                    |> Enum.join("\n")
                 %>
-                <pre style="font-size:12px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:200px;overflow-y:auto"><%= anon_text %></pre>
+                <pre style="font-size:12px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:400px;overflow-y:auto"><%= anon_text %></pre>
                 <div style="font-size:11px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
               <% else %>
                 <%-- Show the trader's narrative description prominently --%>
@@ -3804,6 +3897,68 @@ defmodule TradingDesk.ScenarioLive do
     anon_text
   end
   defp build_anon_model_preview(_, _), do: ""
+
+  # Builds the autocomplete corpus for the scenario description input.
+  # Returns a list of maps with :label, :hint, :group, :type, :insert keys.
+  defp scenario_corpus_items(assigns) do
+    frame   = assigns[:frame] || %{}
+    vars    = assigns[:current_vars] || %{}
+    sap     = assigns[:sap_positions]
+    vessels = case assigns[:vessel_data] do
+      %{vessels: v} when is_list(v) -> v
+      _ -> []
+    end
+
+    variable_items =
+      (frame[:variables] || [])
+      |> Enum.map(fn v ->
+        val = Map.get(vars, v[:key])
+        hint = case {v[:type], val} do
+          {:boolean, true}  -> "OUTAGE"
+          {:boolean, false} -> "ONLINE"
+          {:boolean, 1.0}   -> "OUTAGE"
+          {:boolean, 0.0}   -> "ONLINE"
+          {_, f} when is_float(f) and abs(f) >= 1000 ->
+            "#{format_number(f)} #{v[:unit] || ""}" |> String.trim()
+          {_, f} when is_float(f) ->
+            "#{:erlang.float_to_binary(f, [{:decimals, 1}])} #{v[:unit] || ""}" |> String.trim()
+          _ -> to_string(val)
+        end
+        %{label: v[:label], hint: hint, group: to_string(v[:group] || "general"), type: "variable", insert: v[:label]}
+      end)
+
+    route_items =
+      (frame[:routes] || [])
+      |> Enum.map(fn r ->
+        origin = r[:origin] || ""
+        dest   = r[:destination] || ""
+        hint   = if origin != "" and dest != "", do: "#{origin} → #{dest}", else: ""
+        %{label: r[:name], hint: hint, group: "routes", type: "route", insert: r[:name]}
+      end)
+
+    counterparty_items =
+      case sap do
+        %{positions: positions} ->
+          Enum.map(positions, fn {name, data} ->
+            dir  = if data.direction == :purchase, do: "BUY", else: "SELL"
+            open = data[:open_qty_mt] || 0
+            hint = "#{dir} #{if open >= 1000, do: "#{round(open / 1000)}k", else: round(open)}t open"
+            %{label: name, hint: hint, group: "counterparties", type: "counterparty", insert: name}
+          end)
+        _ -> []
+      end
+
+    vessel_items =
+      vessels
+      |> Enum.filter(&(&1[:name] not in [nil, ""]))
+      |> Enum.map(fn v ->
+        status = v[:status] || "unknown"
+        hint   = String.upcase(to_string(status))
+        %{label: v[:name], hint: hint, group: "vessels", type: "vessel", insert: v[:name]}
+      end)
+
+    variable_items ++ route_items ++ counterparty_items ++ vessel_items
+  end
 
   defp build_model_summary_text(assigns) do
     frame         = assigns[:frame] || %{}
