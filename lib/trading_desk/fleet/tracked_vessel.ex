@@ -36,6 +36,8 @@ defmodule TradingDesk.Fleet.TrackedVessel do
     field :notes,               :string
     # Trader-controlled flag: true = count this vessel as part of Trammo's operational fleet
     field :track_in_fleet,      :boolean, default: true
+    # Trader-controlled flag: true = vessel is currently loaded with Trammo-owned product (stock)
+    field :carrying_stock,      :boolean, default: false
     field :vessel_type,         :string   # towboat | barge | gas_carrier | bulk_carrier | chemical_tanker
     field :operator,            :string   # e.g. "Kirby", "ARTCO", "Marquette", "Navigator Gas"
     field :flag_state,          :string   # ISO 3166-1 alpha-2 e.g. "US", "LR"
@@ -50,7 +52,7 @@ defmodule TradingDesk.Fleet.TrackedVessel do
     |> cast(attrs, [
       :mmsi, :imo, :vessel_name, :sap_shipping_number, :sap_contract_id,
       :product_group, :cargo, :quantity_mt, :loading_port, :discharge_port,
-      :eta, :status, :notes, :track_in_fleet, :vessel_type, :operator,
+      :eta, :status, :notes, :track_in_fleet, :carrying_stock, :vessel_type, :operator,
       :flag_state, :capacity_mt, :river_segment
     ])
     |> validate_required([:vessel_name, :product_group])
@@ -136,6 +138,43 @@ defmodule TradingDesk.Fleet.TrackedVessel do
     |> Repo.all()
   end
 
+  @doc "All active vessels with Trammo stock on board."
+  def list_carrying_stock do
+    from(v in __MODULE__,
+      where: v.status in ["active", "in_transit"] and v.carrying_stock == true,
+      order_by: [asc: v.product_group, asc: v.vessel_name]
+    )
+    |> Repo.all()
+  end
+
+  @doc "Active vessels carrying Trammo stock for a specific product group."
+  def list_carrying_stock(product_group) when is_atom(product_group),
+    do: list_carrying_stock(to_string(product_group))
+
+  def list_carrying_stock(product_group) when is_binary(product_group) do
+    from(v in __MODULE__,
+      where: v.status in ["active", "in_transit"]
+        and v.carrying_stock == true
+        and v.product_group == ^product_group,
+      order_by: [asc: v.vessel_name]
+    )
+    |> Repo.all()
+  end
+
+  @doc "Count of vessels carrying stock by product group."
+  def carrying_stock_count(product_group) when is_atom(product_group),
+    do: carrying_stock_count(to_string(product_group))
+
+  def carrying_stock_count(product_group) when is_binary(product_group) do
+    from(v in __MODULE__,
+      where: v.status in ["active", "in_transit"]
+        and v.carrying_stock == true
+        and v.product_group == ^product_group,
+      select: count()
+    )
+    |> Repo.one()
+  end
+
   @doc "Count of Trammo-tracked vessels by product group."
   def trammo_fleet_count(product_group) when is_atom(product_group),
     do: trammo_fleet_count(to_string(product_group))
@@ -183,6 +222,11 @@ defmodule TradingDesk.Fleet.TrackedVessel do
   @doc "Toggle the trader's fleet tracking flag for this vessel."
   def toggle_fleet_tracking(%__MODULE__{} = vessel) do
     __MODULE__.update(vessel, %{track_in_fleet: !vessel.track_in_fleet})
+  end
+
+  @doc "Toggle whether this vessel is currently carrying Trammo stock."
+  def toggle_stock_carrying(%__MODULE__{} = vessel) do
+    __MODULE__.update(vessel, %{carrying_stock: !vessel.carrying_stock})
   end
 
   def delete(%__MODULE__{} = vessel) do

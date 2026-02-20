@@ -14,6 +14,9 @@
 #   - SCF Marine Inc (Savage Companies)
 #   - Ingram Barge Company
 #
+# carrying_stock = true means the vessel is currently loaded with Trammo-owned product.
+# track_in_fleet = true means the vessel counts toward Trammo's operational fleet.
+#
 # Run: mix run priv/repo/seeds/tracked_vessels.exs
 
 alias TradingDesk.Fleet.TrackedVessel
@@ -40,6 +43,7 @@ vessels = [
     capacity_mt: 8500.0,
     river_segment: "international",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "MGC — March Trinidad cargo"
   },
   %{
@@ -59,6 +63,7 @@ vessels = [
     capacity_mt: 22000.0,
     river_segment: "international",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "LPG carrier — Black Sea to India"
   },
   %{
@@ -77,6 +82,7 @@ vessels = [
     capacity_mt: 15000.0,
     river_segment: "international",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Norwegian flag — Middle East to India"
   },
   %{
@@ -95,6 +101,7 @@ vessels = [
     capacity_mt: 45000.0,
     river_segment: "international",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "VLGC — Black Sea to Baltic"
   },
   %{
@@ -113,7 +120,8 @@ vessels = [
     capacity_mt: 22000.0,
     river_segment: "international",
     track_in_fleet: true,
-    notes: "Trinidad import to NOLA region"
+    carrying_stock: false,
+    notes: "Trinidad import to NOLA region — awaiting berth"
   },
   %{
     vessel_name: "BW Odin",
@@ -131,6 +139,7 @@ vessels = [
     capacity_mt: 45000.0,
     river_segment: "international",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "VLGC — Saudi to Gulf Coast"
   },
 
@@ -164,6 +173,7 @@ vessels = [
     capacity_mt: 4500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "3x refrigerated NH3 barges — Lower MS"
   },
   %{
@@ -182,6 +192,7 @@ vessels = [
     capacity_mt: 3000.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "2x NH3 barges — Memphis delivery"
   },
   %{
@@ -199,6 +210,7 @@ vessels = [
     capacity_mt: 4500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: false,
     notes: "3x barges southbound staging — waiting spot"
   },
   %{
@@ -216,8 +228,8 @@ vessels = [
     flag_state: "US",
     capacity_mt: 3000.0,
     river_segment: "upper_mississippi",
-    track_in_flight: true,
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "2x barges — Upper Mississippi, seasonal route"
   },
 
@@ -238,6 +250,7 @@ vessels = [
     capacity_mt: 3000.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "ARTCO — 2x barges, Donaldsonville to Memphis"
   },
   %{
@@ -256,6 +269,7 @@ vessels = [
     capacity_mt: 4500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "ARTCO — 3x barges, Lower MS to Gateway"
   },
   %{
@@ -273,6 +287,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: false,
+    carrying_stock: false,
     notes: "ARTCO — spot charter, 1x barge only — NOT counted toward Trammo fleet"
   },
 
@@ -293,6 +308,7 @@ vessels = [
     capacity_mt: 4500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: false,
     notes: "Marquette — 3x barges, Cairo staging"
   },
   %{
@@ -311,6 +327,7 @@ vessels = [
     capacity_mt: 3000.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Marquette — 2x barges, Lower MS"
   },
   %{
@@ -328,6 +345,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Short-haul Donaldsonville–Baton Rouge staging barge"
   },
 
@@ -347,6 +365,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Canal Barge — river terminal shuttle"
   },
   %{
@@ -364,6 +383,7 @@ vessels = [
     capacity_mt: 3000.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: false,
     notes: "Canal Barge — 2x NH3 barges staging Memphis"
   },
 
@@ -384,6 +404,7 @@ vessels = [
     capacity_mt: 4500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "SCF/Savage — 3x barges via Lower MS"
   },
   %{
@@ -401,6 +422,7 @@ vessels = [
     capacity_mt: 3000.0,
     river_segment: "upper_mississippi",
     track_in_fleet: true,
+    carrying_stock: false,
     notes: "SCF/Savage — Upper Mississippi seasonal run"
   },
 
@@ -420,6 +442,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: false,
+    carrying_stock: false,
     notes: "Ingram — short-haul spot hire, not in Trammo fleet"
   },
   %{
@@ -438,6 +461,7 @@ vessels = [
     capacity_mt: 3000.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Ingram — 2x barges Lower MS, Greenville delivery"
   },
 
@@ -462,6 +486,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "NH3 pressure barge — towed by MV Miss Kae D"
   },
   %{
@@ -479,6 +504,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "NH3 pressure barge — towed by MV Miss Kae D"
   },
   %{
@@ -496,6 +522,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "NH3 pressure barge — towed by MV Carey Brennan"
   },
   %{
@@ -513,6 +540,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "CF Industries ARTCO barge — towed by MV Barbara E"
   },
   %{
@@ -530,6 +558,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "CF Industries ARTCO barge — towed by MV Dorothy Ann"
   },
   %{
@@ -547,6 +576,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "CF Industries ARTCO barge — towed by MV Dorothy Ann"
   },
   %{
@@ -564,7 +594,8 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
-    notes: "Marquette barge — towed by MV Crystal Allen"
+    carrying_stock: false,
+    notes: "Marquette barge — towed by MV Crystal Allen, staging"
   },
   %{
     vessel_name: "MQT NH3-302",
@@ -581,6 +612,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Marquette barge — towed by MV Houma"
   },
   %{
@@ -598,6 +630,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "SCF/Savage barge — towed by MV Savage Voyager"
   },
   %{
@@ -614,7 +647,8 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "upper_mississippi",
     track_in_fleet: true,
-    notes: "SCF/Savage barge — towed by MV Savage Enterprise"
+    carrying_stock: false,
+    notes: "SCF/Savage barge — towed by MV Savage Enterprise, staging"
   },
   %{
     vessel_name: "IB NH3-501",
@@ -631,6 +665,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Ingram barge — towed by MV James R. Petroff"
   },
   %{
@@ -648,6 +683,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "upper_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "NH3 pressure barge — towed by MV Kay Lynn M"
   },
   %{
@@ -664,6 +700,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: false,
     notes: "NH3 pressure barge — towed by MV Carl D. Glover, staging"
   },
   %{
@@ -680,6 +717,7 @@ vessels = [
     capacity_mt: 1500.0,
     river_segment: "lower_mississippi",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Canal Barge — towed by MV Jim Burns"
   },
 
@@ -702,6 +740,7 @@ vessels = [
     capacity_mt: 40000.0,
     river_segment: "international",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Bulk carrier — Persian Gulf sulphur"
   },
 
@@ -724,6 +763,7 @@ vessels = [
     capacity_mt: 35000.0,
     river_segment: "gulf",
     track_in_fleet: true,
+    carrying_stock: true,
     notes: "Handysize bulk — Gulf petcoke export"
   }
 ]
@@ -763,3 +803,4 @@ IO.puts("River barges: #{Enum.count(vessels, &(&1[:vessel_type] == "barge"))}")
 IO.puts("Towboats: #{Enum.count(vessels, &(&1[:vessel_type] == "towboat"))}")
 IO.puts("Ocean vessels: #{Enum.count(vessels, &(&1[:vessel_type] in ["gas_carrier", "bulk_carrier", "chemical_tanker"]))}")
 IO.puts("Trammo fleet (track_in_fleet=true): #{Enum.count(vessels, &(Map.get(&1, :track_in_fleet, true) == true))}")
+IO.puts("Carrying stock (carrying_stock=true): #{Enum.count(vessels, &(Map.get(&1, :carrying_stock, false) == true))}")

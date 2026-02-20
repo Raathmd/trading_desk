@@ -598,6 +598,16 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, assign_fleet(socket, socket.assigns.fleet_pg_filter)}
   end
 
+  @impl true
+  def handle_event("fleet_toggle_stock", %{"id" => id}, socket) do
+    vessel = TradingDesk.Repo.get(TrackedVessel, id)
+    if vessel do
+      # Toggle whether this vessel is carrying Trammo-owned product (stock).
+      TrackedVessel.toggle_stock_carrying(vessel)
+    end
+    {:noreply, assign_fleet(socket, socket.assigns.fleet_pg_filter)}
+  end
+
   # ── Notification Preference Handlers ────────────────────────────────────────
 
   @impl true
@@ -3344,6 +3354,8 @@ defmodule TradingDesk.ScenarioLive do
                 fleet_vessels_ocean = Enum.filter(@fleet_vessels, &(&1.vessel_type in ["gas_carrier", "bulk_carrier", "chemical_tanker"]))
                 barge_count   = Enum.count(fleet_barges,  &Map.get(&1, :track_in_fleet, true))
                 vessel_count  = Enum.count(fleet_vessels_ocean, &Map.get(&1, :track_in_fleet, true))
+                stock_barges  = Enum.count(fleet_barges, &Map.get(&1, :carrying_stock, false))
+                stock_vessels = Enum.count(fleet_vessels_ocean, &Map.get(&1, :carrying_stock, false))
               %>
 
               <%!-- Fleet count split --%>
@@ -3358,6 +3370,11 @@ defmodule TradingDesk.ScenarioLive do
                   <div style="font-size:22px;font-weight:800;color:#38bdf8;font-family:monospace"><%= vessel_count %></div>
                   <div style="font-size:11px;color:#7b8fa4">in Trammo fleet</div>
                 </div>
+                <div style="background:#0a0f18;border-radius:6px;padding:8px 14px;flex:1;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;letter-spacing:1px">CARRYING STOCK</div>
+                  <div style="font-size:22px;font-weight:800;color:#4ade80;font-family:monospace"><%= stock_barges + stock_vessels %></div>
+                  <div style="font-size:11px;color:#7b8fa4"><%= stock_barges %> river · <%= stock_vessels %> ocean</div>
+                </div>
               </div>
 
               <%!-- ── BARGES & TOWBOATS section ── --%>
@@ -3370,6 +3387,7 @@ defmodule TradingDesk.ScenarioLive do
                   <thead>
                     <tr style="border-bottom:1px solid #1e293b">
                       <th style="text-align:center;padding:5px 6px;color:#22d3ee;font-weight:600;width:56px" title="Count toward Trammo fleet">Fleet</th>
+                      <th style="text-align:center;padding:5px 6px;color:#4ade80;font-weight:600;width:56px" title="Currently carrying Trammo stock">Stock</th>
                       <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Name</th>
                       <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Type</th>
                       <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Operator</th>
@@ -3381,11 +3399,12 @@ defmodule TradingDesk.ScenarioLive do
                   </thead>
                   <tbody>
                     <%= if fleet_barges == [] do %>
-                      <tr><td colspan="8" style="padding:16px;text-align:center;color:#7b8fa4;font-size:12px">No barges or towboats for this product group.</td></tr>
+                      <tr><td colspan="9" style="padding:16px;text-align:center;color:#7b8fa4;font-size:12px">No barges or towboats for this product group.</td></tr>
                     <% end %>
                     <%= for v <- fleet_barges do %>
                       <%
                         tracked = Map.get(v, :track_in_fleet, true)
+                        stocked = Map.get(v, :carrying_stock, false)
                         discharged = v.status in ["discharged", "cancelled"]
                         {status_color, status_label} = case v.status do
                           "in_transit" -> {"#22d3ee", "IN TRANSIT"}
@@ -3401,6 +3420,13 @@ defmodule TradingDesk.ScenarioLive do
                             title={if tracked, do: "In fleet — click to exclude", else: "Not in fleet — click to include"}
                             style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if tracked, do: "background:#22d3ee;", else: "background:#475569;"}"}>
                             <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;#{if tracked, do: "left:14px;", else: "left:2px;"}"}></span>
+                          </button>
+                        </td>
+                        <td style="padding:5px 6px;text-align:center">
+                          <button phx-click="fleet_toggle_stock" phx-value-id={v.id}
+                            title={if stocked, do: "Carrying stock — click to mark empty", else: "Not carrying stock — click to mark loaded"}
+                            style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if stocked, do: "background:#4ade80;", else: "background:#475569;"}"}>
+                            <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;#{if stocked, do: "left:14px;", else: "left:2px;"}"}></span>
                           </button>
                         </td>
                         <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.vessel_name %></td>
@@ -3436,6 +3462,7 @@ defmodule TradingDesk.ScenarioLive do
                   <thead>
                     <tr style="border-bottom:1px solid #1e293b">
                       <th style="text-align:center;padding:5px 6px;color:#38bdf8;font-weight:600;width:56px" title="Count toward Trammo fleet">Fleet</th>
+                      <th style="text-align:center;padding:5px 6px;color:#4ade80;font-weight:600;width:56px" title="Currently carrying Trammo stock">Stock</th>
                       <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Name</th>
                       <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Type</th>
                       <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">MMSI</th>
@@ -3448,11 +3475,12 @@ defmodule TradingDesk.ScenarioLive do
                   </thead>
                   <tbody>
                     <%= if fleet_vessels_ocean == [] do %>
-                      <tr><td colspan="9" style="padding:16px;text-align:center;color:#7b8fa4;font-size:12px">No ocean vessels for this product group.</td></tr>
+                      <tr><td colspan="10" style="padding:16px;text-align:center;color:#7b8fa4;font-size:12px">No ocean vessels for this product group.</td></tr>
                     <% end %>
                     <%= for v <- fleet_vessels_ocean do %>
                       <%
                         tracked = Map.get(v, :track_in_fleet, true)
+                        stocked = Map.get(v, :carrying_stock, false)
                         discharged = v.status in ["discharged", "cancelled"]
                         {status_color, status_label} = case v.status do
                           "in_transit" -> {"#22d3ee", "IN TRANSIT"}
@@ -3468,6 +3496,13 @@ defmodule TradingDesk.ScenarioLive do
                             title={if tracked, do: "In fleet — click to exclude", else: "Not in fleet — click to include"}
                             style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if tracked, do: "background:#38bdf8;", else: "background:#475569;"}"}>
                             <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;#{if tracked, do: "left:14px;", else: "left:2px;"}"}></span>
+                          </button>
+                        </td>
+                        <td style="padding:5px 6px;text-align:center">
+                          <button phx-click="fleet_toggle_stock" phx-value-id={v.id}
+                            title={if stocked, do: "Carrying stock — click to mark empty", else: "Not carrying stock — click to mark loaded"}
+                            style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if stocked, do: "background:#4ade80;", else: "background:#475569;"}"}>
+                            <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;#{if stocked, do: "left:14px;", else: "left:2px;"}"}></span>
                           </button>
                         </td>
                         <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.vessel_name %></td>
