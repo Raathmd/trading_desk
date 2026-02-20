@@ -1,0 +1,44 @@
+# Build artifacts
+_build/
+deps/
+.elixir_ls/
+
+# Zig build artifacts
+native/zig-cache/
+native/zig-out/
+native/HiGHS/
+native/lp_data/
+native/util/
+native/build/
+native/*.o
+native/solver
+
+# Dev/test
+cover/
+doc/
+tmp/
+
+# Secrets — never send to Docker daemon
+.env
+.env.local
+
+# Git
+.git/
+.gitignore
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
+
+# Logs
+*.log
+erl_crash.dump
+
+# Node (if any)
+node_modules/
+
+# Fly
+fly.toml
