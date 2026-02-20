@@ -30,7 +30,7 @@ defmodule TradingDeskWeb.AuthController do
 
     case MagicLink.generate(email) do
       {:ok, token} ->
-        base_url = TradingDeskWeb.Endpoint.url()
+        base_url = TradingDesk.Endpoint.url()
         link = "#{base_url}/auth/#{token}"
 
         Logger.info("\n\n========================================\n" <>

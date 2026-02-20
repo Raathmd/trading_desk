@@ -25,12 +25,12 @@ defmodule TradingDesk.Contracts.Parser do
   require Logger
 
   # --- Number patterns ---
-  @number_pattern ~r/[\$]?\s*([\d,_]+(?:\.\d+)?)/
-  @dollar_pattern ~r/\$\s*([\d,_]+(?:\.\d+)?)/
-  @percentage_pattern ~r/([\d]+(?:\.\d+)?)\s*%/
+  defp number_pattern, do: ~r/[\$]?\s*([\d,_]+(?:\.\d+)?)/
+  defp dollar_pattern, do: ~r/\$\s*([\d,_]+(?:\.\d+)?)/
+  defp percentage_pattern, do: ~r/([\d]+(?:\.\d+)?)\s*%/
 
   # --- Unit patterns ---
-  @unit_patterns %{
+  defp unit_patterns, do: %{
     "tons" => ~r/\b(tons?|mt|metric\s+tons?|tonnes?)\b/i,
     "$/ton" => ~r/\b(\$\s*\/\s*(?:ton|mt|tonne)|(?:dollars?|usd)\s+per\s+(?:ton|mt))\b/i,
     "mt/hr" => ~r/\b(mt\s*\/\s*h(?:ou)?r|metric\s+tons?\s+per\s+hour)\b/i,
@@ -42,7 +42,7 @@ defmodule TradingDesk.Contracts.Parser do
   }
 
   # --- Period patterns ---
-  @period_patterns [
+  defp period_patterns, do: [
     {:monthly, ~r/\b(monthly|per\s+month|each\s+month|calendar\s+month)\b/i},
     {:quarterly, ~r/\b(quarterly|per\s+quarter|each\s+quarter)\b/i},
     {:annual, ~r/\b(annual(?:ly)?|per\s+(?:year|annum)|each\s+year|yearly)\b/i},
@@ -54,7 +54,7 @@ defmodule TradingDesk.Contracts.Parser do
   # Each returns the canonical clause_id on match
   # ──────────────────────────────────────────────────────────
 
-  @clause_matchers [
+  defp clause_matchers, do: [
     # Core terms — most specific first
     {"INCOTERMS",
      [~r/\bINCOTERMS\s+2020\b/i, ~r/\bINCOTERMS\b/i]},
@@ -327,7 +327,7 @@ defmodule TradingDesk.Contracts.Parser do
   # When we detect one, we merge it with the next paragraph(s) until we
   # hit another heading or end of input.
 
-  @heading_pattern ~r/^(?:\d+[\.\)]\s+[A-Z]|(?:Section|Article|Clause)\s+\d)/
+  defp heading_pattern, do: ~r/^(?:\d+[\.\)]\s+[A-Z]|(?:Section|Article|Clause)\s+\d)/
 
   defp merge_heading_with_body([]), do: []
 
@@ -346,7 +346,7 @@ defmodule TradingDesk.Contracts.Parser do
     # A heading: starts with "N. SOMETHING" and is relatively short (under 120 chars),
     # OR starts with Section/Article/Clause + number
     short_enough = String.length(para) < 120
-    numbered = Regex.match?(@heading_pattern, para)
+    numbered = Regex.match?(heading_pattern(), para)
 
     # Also catch standalone uppercase labels like "BETWEEN:" or "PRODUCT AND SPECIFICATIONS"
     mostly_upper =
@@ -387,7 +387,7 @@ defmodule TradingDesk.Contracts.Parser do
 
   defp match_canonical_clause(para, section_ref, product_group) do
     result =
-      Enum.find_value(@clause_matchers, :skip, fn {clause_id, patterns} ->
+      Enum.find_value(clause_matchers(), :skip, fn {clause_id, patterns} ->
         matched_anchors =
           Enum.filter(patterns, fn pattern ->
             Regex.match?(pattern, para)
@@ -1177,7 +1177,7 @@ defmodule TradingDesk.Contracts.Parser do
   # ──────────────────────────────────────────────────────────
 
   defp extract_number(text) do
-    case Regex.run(@number_pattern, text) do
+    case Regex.run(number_pattern(), text) do
       [_, raw] ->
         cleaned = raw |> String.replace(~r/[,_]/, "")
         case Float.parse(cleaned) do
@@ -1189,7 +1189,7 @@ defmodule TradingDesk.Contracts.Parser do
   end
 
   defp extract_dollar_amount(text) do
-    case Regex.run(@dollar_pattern, text) do
+    case Regex.run(dollar_pattern(), text) do
       [_, raw] ->
         cleaned = raw |> String.replace(~r/[,_]/, "")
         case Float.parse(cleaned) do
@@ -1210,7 +1210,7 @@ defmodule TradingDesk.Contracts.Parser do
   end
 
   defp extract_percentage(text) do
-    case Regex.run(@percentage_pattern, text) do
+    case Regex.run(percentage_pattern(), text) do
       [_, raw] ->
         case Float.parse(raw) do
           {val, _} -> {:ok, val}
@@ -1343,13 +1343,13 @@ defmodule TradingDesk.Contracts.Parser do
   end
 
   defp detect_unit(text) do
-    Enum.find_value(@unit_patterns, fn {unit_name, pattern} ->
+    Enum.find_value(unit_patterns(), fn {unit_name, pattern} ->
       if Regex.match?(pattern, text), do: unit_name
     end)
   end
 
   defp detect_period(lower) do
-    Enum.find_value(@period_patterns, fn {period, pattern} ->
+    Enum.find_value(period_patterns(), fn {period, pattern} ->
       if Regex.match?(pattern, lower), do: period
     end)
   end

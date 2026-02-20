@@ -15,10 +15,16 @@ config :logger, level: :info
 
 config :phoenix, :json_library, Jason
 
-config :trading_desk, ecto_repos: [TradingDesk.Repo]
+config :trading_desk, TradingDesk.Repo,
+  username: "trading_desk",
+  password: "trading_desk",
+  hostname: "localhost",
+  database: "trading_desk_dev",
+  pool_size: 10
+
+config :trading_desk, ecto_repos: [TradingDesk.Repo, TradingDesk.TradeRepo]
 
 # Mailer — uses local (log-only) adapter in dev; overridden in runtime.exs for prod
 config :trading_desk, TradingDesk.Mailer, adapter: Swoosh.Adapters.Local
 
-# Swoosh — use Finch as the HTTP client (replaces hackney)
 config :swoosh, :api_client, Swoosh.ApiClient.Finch

@@ -10,14 +10,15 @@ if config_env() == :prod do
       raise "environment variable SECRET_KEY_BASE is missing. " <>
             "Generate with: mix phx.gen.secret"
 
-  host = System.get_env("PHX_HOST") || "localhost"
+  host = System.get_env("PHX_HOST") || "trading-desk.fly.dev"
   port = String.to_integer(System.get_env("PORT") || "4111")
 
   config :trading_desk, TradingDesk.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [port: port, ip: {0, 0, 0, 0}],
     secret_key_base: secret_key_base,
-    check_origin: false
+    check_origin: false,
+    server: true
 
   config :trading_desk, TradingDesk.Repo,
     url: database_url,
