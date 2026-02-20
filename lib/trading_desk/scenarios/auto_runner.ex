@@ -197,6 +197,20 @@ defmodule TradingDesk.Scenarios.AutoRunner do
           {:auto_result, result}
         )
 
+        # Trader notifications — dispatch in a spawn so we don't block the GenServer
+        prev_mean = get_in(state, [:latest_result, :distribution, :mean]) || distribution.mean
+        profit_delta = distribution.mean - prev_mean
+        spawn(fn ->
+          TradingDesk.Notifications.maybe_notify_traders(
+            product_group: product_group,
+            event: (if length(trigger_details) > 0, do: :delta_trigger, else: :auto_solve),
+            profit: distribution.mean,
+            profit_delta: profit_delta,
+            trigger_keys: Enum.map(trigger_details, & to_string(&1.key)),
+            distribution: distribution
+          )
+        end)
+
         # Spawn explanation
         spawn(fn ->
           try do

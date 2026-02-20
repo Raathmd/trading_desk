@@ -1,17 +1,27 @@
-# Seed tracked_vessels with real ammonia gas carriers and domestic towboats.
+# Seed tracked_vessels with real ammonia gas carriers and Mississippi River towboats.
 #
-# International vessels have confirmed MMSIs from MarineTraffic/VesselFinder.
-# Domestic towboats use US-flag MMSI range (366/367/368) — these are realistic
-# placeholders since inland vessel MMSIs aren't in public databases. Replace
-# with actual Kirby/ARTCO towboat MMSIs from your ops team.
+# INTERNATIONAL vessels: confirmed MMSIs from MarineTraffic/VesselFinder.
+# DOMESTIC towboats: US-flag MMSI range (366/367/368).
+#   - MMSIs below are realistic placeholders from the US AIS registry range.
+#   - River barges do NOT carry AIS transponders — tracked via their towboats.
+#   - Replace towboat MMSIs with actual vessel IDs from your ops team / Kirby/ARTCO contacts.
+#
+# Mississippi River NH3 operators (for reference):
+#   - Kirby Inland Marine (largest US inland carrier)
+#   - ARTCO (American River Transportation Co) — CF Industries subsidiary
+#   - Marquette Transportation Company
+#   - Canal Barge Company
+#   - SCF Marine Inc (Savage Companies)
+#   - Ingram Barge Company
 #
 # Run: mix run priv/repo/seeds/tracked_vessels.exs
 
 alias TradingDesk.Fleet.TrackedVessel
 
 vessels = [
-  # ── AMMONIA INTERNATIONAL ──
-  # Real gas carriers confirmed on ammonia/LPG routes
+  # ─────────────────────────────────────────────────────────────
+  # AMMONIA INTERNATIONAL — gas carriers on deep-water routes
+  # ─────────────────────────────────────────────────────────────
 
   %{
     vessel_name: "Gaschem Beluga",
@@ -24,7 +34,13 @@ vessels = [
     eta: Date.add(Date.utc_today(), 12),
     sap_contract_id: "4600000101",
     status: "in_transit",
-    notes: "Hartmann Group MGC — March Trinidad cargo"
+    vessel_type: "gas_carrier",
+    operator: "Hartmann Group",
+    flag_state: "LR",
+    capacity_mt: 8500.0,
+    river_segment: "international",
+    track_in_fleet: true,
+    notes: "MGC — March Trinidad cargo"
   },
   %{
     vessel_name: "Navigator Aurora",
@@ -37,7 +53,13 @@ vessels = [
     eta: Date.add(Date.utc_today(), 21),
     sap_contract_id: "4600000103",
     status: "in_transit",
-    notes: "Navigator Gas LPG carrier — Black Sea to India"
+    vessel_type: "gas_carrier",
+    operator: "Navigator Gas",
+    flag_state: "MH",
+    capacity_mt: 22000.0,
+    river_segment: "international",
+    track_in_fleet: true,
+    notes: "LPG carrier — Black Sea to India"
   },
   %{
     vessel_name: "Clipper Mars",
@@ -49,6 +71,12 @@ vessels = [
     discharge_port: "Mundra",
     eta: Date.add(Date.utc_today(), 8),
     status: "in_transit",
+    vessel_type: "gas_carrier",
+    operator: "Clipper Group",
+    flag_state: "NO",
+    capacity_mt: 15000.0,
+    river_segment: "international",
+    track_in_fleet: true,
     notes: "Norwegian flag — Middle East to India"
   },
   %{
@@ -61,6 +89,12 @@ vessels = [
     discharge_port: "Rostock",
     eta: Date.add(Date.utc_today(), 5),
     status: "in_transit",
+    vessel_type: "gas_carrier",
+    operator: "Phoenix Tankers",
+    flag_state: "PA",
+    capacity_mt: 45000.0,
+    river_segment: "international",
+    track_in_fleet: true,
     notes: "VLGC — Black Sea to Baltic"
   },
   %{
@@ -73,13 +107,47 @@ vessels = [
     discharge_port: "Donaldsonville",
     eta: Date.add(Date.utc_today(), 3),
     status: "active",
-    notes: "Navigator Gas — Trinidad import to NOLA region"
+    vessel_type: "gas_carrier",
+    operator: "Navigator Gas",
+    flag_state: "MH",
+    capacity_mt: 22000.0,
+    river_segment: "international",
+    track_in_fleet: true,
+    notes: "Trinidad import to NOLA region"
+  },
+  %{
+    vessel_name: "BW Odin",
+    mmsi: "477996900",
+    imo: "9398451",
+    product_group: "ammonia_international",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Ras Al Khair",
+    discharge_port: "Freeport",
+    eta: Date.add(Date.utc_today(), 16),
+    status: "in_transit",
+    vessel_type: "gas_carrier",
+    operator: "BW Epic Kosan",
+    flag_state: "HK",
+    capacity_mt: 45000.0,
+    river_segment: "international",
+    track_in_fleet: true,
+    notes: "VLGC — Saudi to Gulf Coast"
   },
 
-  # ── AMMONIA DOMESTIC ──
-  # Mississippi River towboats pushing NH3 barges.
-  # Replace MMSIs with actual Kirby/ARTCO towboat IDs from ops.
+  # ─────────────────────────────────────────────────────────────
+  # AMMONIA DOMESTIC — Mississippi River towboats & NH3 barges
+  #
+  # Route segments:
+  #   Lower Mississippi: Donaldsonville (Mile 54 AHP) → Cairo (Mile 0)
+  #   Upper Mississippi:  Cairo → St. Louis (Mile 180) → Minneapolis (Mile 857)
+  #   Ohio River (via Cairo): Cairo → Cincinnati
+  #
+  # Trammo's typical NH3 supply chain:
+  #   CF Industries Donaldsonville → inland ag distributors
+  #   LSB Industries (Cherokee AL / El Dorado AR) → farmers
+  # ─────────────────────────────────────────────────────────────
 
+  # ── Kirby Inland Marine towboats ──
   %{
     vessel_name: "MV Miss Kae D",
     mmsi: "367500210",
@@ -90,8 +158,70 @@ vessels = [
     eta: Date.add(Date.utc_today(), 6),
     sap_shipping_number: "80012345",
     status: "in_transit",
-    notes: "Kirby Inland Marine — 3x refrigerated barges, 4500 MT total"
+    vessel_type: "towboat",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 4500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "3x refrigerated NH3 barges — Lower MS"
   },
+  %{
+    vessel_name: "MV Carey Brennan",
+    mmsi: "367500215",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Memphis",
+    eta: Date.add(Date.utc_today(), 5),
+    sap_shipping_number: "80012350",
+    status: "in_transit",
+    vessel_type: "towboat",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 3000.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "2x NH3 barges — Memphis delivery"
+  },
+  %{
+    vessel_name: "MV Carl D. Glover",
+    mmsi: "367500220",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Cairo",
+    eta: Date.add(Date.utc_today(), 8),
+    status: "active",
+    vessel_type: "towboat",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 4500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "3x barges southbound staging — waiting spot"
+  },
+  %{
+    vessel_name: "MV Kay Lynn M",
+    mmsi: "367500225",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Minneapolis",
+    eta: Date.add(Date.utc_today(), 14),
+    sap_shipping_number: "80012351",
+    status: "in_transit",
+    vessel_type: "towboat",
+    operator: "Kirby Inland Marine",
+    flag_state: "US",
+    capacity_mt: 3000.0,
+    river_segment: "upper_mississippi",
+    track_in_flight: true,
+    track_in_fleet: true,
+    notes: "2x barges — Upper Mississippi, seasonal route"
+  },
+
+  # ── ARTCO (American River Transportation Co) — CF Industries' own fleet ──
   %{
     vessel_name: "MV Barbara E",
     mmsi: "367469880",
@@ -102,8 +232,51 @@ vessels = [
     eta: Date.add(Date.utc_today(), 4),
     sap_shipping_number: "80012346",
     status: "in_transit",
-    notes: "ARTCO towboat — 2x barges, 3000 MT"
+    vessel_type: "towboat",
+    operator: "ARTCO",
+    flag_state: "US",
+    capacity_mt: 3000.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "ARTCO — 2x barges, Donaldsonville to Memphis"
   },
+  %{
+    vessel_name: "MV Dorothy Ann",
+    mmsi: "367469885",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "St. Louis",
+    eta: Date.add(Date.utc_today(), 7),
+    sap_shipping_number: "80012352",
+    status: "in_transit",
+    vessel_type: "towboat",
+    operator: "ARTCO",
+    flag_state: "US",
+    capacity_mt: 4500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "ARTCO — 3x barges, Lower MS to Gateway"
+  },
+  %{
+    vessel_name: "MV Indiana",
+    mmsi: "367469890",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Cairo",
+    eta: Date.add(Date.utc_today(), 5),
+    status: "active",
+    vessel_type: "towboat",
+    operator: "ARTCO",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: false,
+    notes: "ARTCO — spot charter, 1x barge only — NOT counted toward Trammo fleet"
+  },
+
+  # ── Marquette Transportation ──
   %{
     vessel_name: "MV Crystal Allen",
     mmsi: "367703250",
@@ -114,10 +287,164 @@ vessels = [
     eta: Date.add(Date.utc_today(), 10),
     sap_shipping_number: "80012347",
     status: "active",
-    notes: "Marquette Transportation — 3x barges, 4500 MT"
+    vessel_type: "towboat",
+    operator: "Marquette Transportation",
+    flag_state: "US",
+    capacity_mt: 4500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Marquette — 3x barges, Cairo staging"
+  },
+  %{
+    vessel_name: "MV Houma",
+    mmsi: "367703255",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Vicksburg",
+    eta: Date.add(Date.utc_today(), 3),
+    sap_shipping_number: "80012353",
+    status: "in_transit",
+    vessel_type: "towboat",
+    operator: "Marquette Transportation",
+    flag_state: "US",
+    capacity_mt: 3000.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Marquette — 2x barges, Lower MS"
+  },
+  %{
+    vessel_name: "MV Louisiana",
+    mmsi: "367703260",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Baton Rouge",
+    eta: Date.add(Date.utc_today(), 1),
+    status: "active",
+    vessel_type: "towboat",
+    operator: "Marquette Transportation",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Short-haul Donaldsonville–Baton Rouge staging barge"
   },
 
-  # ── SULPHUR INTERNATIONAL ──
+  # ── Canal Barge Company ──
+  %{
+    vessel_name: "MV Jim Burns",
+    mmsi: "367612100",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "New Orleans",
+    eta: Date.add(Date.utc_today(), 2),
+    status: "in_transit",
+    vessel_type: "towboat",
+    operator: "Canal Barge Company",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Canal Barge — river terminal shuttle"
+  },
+  %{
+    vessel_name: "MV E.N. Bisso",
+    mmsi: "367612105",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Memphis",
+    eta: Date.add(Date.utc_today(), 6),
+    status: "active",
+    vessel_type: "towboat",
+    operator: "Canal Barge Company",
+    flag_state: "US",
+    capacity_mt: 3000.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Canal Barge — 2x NH3 barges staging Memphis"
+  },
+
+  # ── SCF Marine (Savage Companies) ──
+  %{
+    vessel_name: "MV Savage Voyager",
+    mmsi: "367455310",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "St. Louis",
+    eta: Date.add(Date.utc_today(), 9),
+    sap_shipping_number: "80012354",
+    status: "in_transit",
+    vessel_type: "towboat",
+    operator: "SCF Marine",
+    flag_state: "US",
+    capacity_mt: 4500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "SCF/Savage — 3x barges via Lower MS"
+  },
+  %{
+    vessel_name: "MV Savage Enterprise",
+    mmsi: "367455315",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Minneapolis",
+    eta: Date.add(Date.utc_today(), 18),
+    status: "active",
+    vessel_type: "towboat",
+    operator: "SCF Marine",
+    flag_state: "US",
+    capacity_mt: 3000.0,
+    river_segment: "upper_mississippi",
+    track_in_fleet: true,
+    notes: "SCF/Savage — Upper Mississippi seasonal run"
+  },
+
+  # ── Ingram Barge Company ──
+  %{
+    vessel_name: "MV Robert V. Ingram",
+    mmsi: "367380100",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Baton Rouge",
+    eta: Date.add(Date.utc_today(), 1),
+    status: "active",
+    vessel_type: "towboat",
+    operator: "Ingram Barge Company",
+    flag_state: "US",
+    capacity_mt: 1500.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: false,
+    notes: "Ingram — short-haul spot hire, not in Trammo fleet"
+  },
+  %{
+    vessel_name: "MV James R. Petroff",
+    mmsi: "367380105",
+    product_group: "ammonia_domestic",
+    cargo: "Anhydrous Ammonia",
+    loading_port: "Donaldsonville",
+    discharge_port: "Greenville",
+    eta: Date.add(Date.utc_today(), 5),
+    sap_shipping_number: "80012355",
+    status: "in_transit",
+    vessel_type: "towboat",
+    operator: "Ingram Barge Company",
+    flag_state: "US",
+    capacity_mt: 3000.0,
+    river_segment: "lower_mississippi",
+    track_in_fleet: true,
+    notes: "Ingram — 2x barges Lower MS, Greenville delivery"
+  },
+
+  # ─────────────────────────────────────────────────────────────
+  # SULPHUR INTERNATIONAL
+  # ─────────────────────────────────────────────────────────────
+
   %{
     vessel_name: "MV Sulphur Enterprise",
     mmsi: "636092321",
@@ -127,10 +454,19 @@ vessels = [
     discharge_port: "Tampa",
     eta: Date.add(Date.utc_today(), 18),
     status: "in_transit",
+    vessel_type: "bulk_carrier",
+    operator: "Charterer",
+    flag_state: "LR",
+    capacity_mt: 40000.0,
+    river_segment: "international",
+    track_in_fleet: true,
     notes: "Bulk carrier — Persian Gulf sulphur"
   },
 
-  # ── PETCOKE ──
+  # ─────────────────────────────────────────────────────────────
+  # PETCOKE
+  # ─────────────────────────────────────────────────────────────
+
   %{
     vessel_name: "MV Gulf Petcoke",
     mmsi: "367125090",
@@ -140,15 +476,40 @@ vessels = [
     discharge_port: "Cartagena",
     eta: Date.add(Date.utc_today(), 7),
     status: "in_transit",
+    vessel_type: "bulk_carrier",
+    operator: "Charterer",
+    flag_state: "US",
+    capacity_mt: 35000.0,
+    river_segment: "gulf",
+    track_in_fleet: true,
     notes: "Handysize bulk — Gulf petcoke export"
   }
 ]
 
-for attrs <- vessels do
-  case TrackedVessel.get_by_mmsi(attrs.mmsi) do
-    nil -> TrackedVessel.create(attrs)
-    existing -> TrackedVessel.update(existing, attrs)
-  end
-end
+upserted = 0
+skipped  = 0
 
-IO.puts("Seeded #{length(vessels)} tracked vessels")
+{upserted, skipped} = Enum.reduce(vessels, {0, 0}, fn attrs, {u, s} ->
+  mmsi = attrs[:mmsi]
+  existing = if mmsi, do: TrackedVessel.get_by_mmsi(mmsi), else: nil
+  case existing do
+    nil ->
+      case TrackedVessel.create(attrs) do
+        {:ok, _}    -> {u + 1, s}
+        {:error, e} ->
+          IO.puts("  WARN: failed to insert #{attrs.vessel_name}: #{inspect(e)}")
+          {u, s + 1}
+      end
+    vessel ->
+      case TrackedVessel.update(vessel, attrs) do
+        {:ok, _}    -> {u + 1, s}
+        {:error, e} ->
+          IO.puts("  WARN: failed to update #{attrs.vessel_name}: #{inspect(e)}")
+          {u, s + 1}
+      end
+  end
+end)
+
+IO.puts("Seeded tracked vessels: #{upserted} upserted, #{skipped} skipped")
+IO.puts("Mississippi River fleet: #{Enum.count(vessels, &(&1[:river_segment] in ["upper_mississippi", "lower_mississippi"]))} towboats")
+IO.puts("Trammo fleet (track_in_fleet=true): #{Enum.count(vessels, &(Map.get(&1, :track_in_fleet, true) == true))}")

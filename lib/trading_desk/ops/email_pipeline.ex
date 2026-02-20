@@ -47,6 +47,15 @@ defmodule TradingDesk.Ops.EmailPipeline do
     })
   end
 
+  @doc """
+  Send an ad-hoc email to any recipient (used for trader threshold notifications).
+
+  Accepts `%{to: email, subject: string, body: string}`.
+  """
+  def send_raw(%{to: to, subject: subject, body: body}) do
+    dispatch(%{to: to, subject: subject, body: body})
+  end
+
   # ── Private ──────────────────────────────────────────────────────────────
 
   defp dispatch(%{to: to, subject: subject, body: body}) do

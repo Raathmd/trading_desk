@@ -3,6 +3,9 @@ defmodule TradingDesk.Application do
 
   @impl true
   def start(_type, _args) do
+    # Initialise lightweight ETS tables before any supervised process starts
+    TradingDesk.Notifications.init_ets()
+
     children = [
       TradingDesk.Repo,
       TradingDesk.DB.SnapshotLog,

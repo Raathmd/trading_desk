@@ -120,7 +120,7 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:anon_model_preview, nil)
       |> assign(:show_anon_preview, false)
       |> assign(:history_source, :river)
-      |> assign(:history_year_from, Date.utc_today().year - 1)
+      |> assign(:history_year_from, Date.utc_today().year - 10)
       |> assign(:history_year_to, Date.utc_today().year)
       # Fleet tab
       |> assign(:fleet_vessels, [])
@@ -138,7 +138,8 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_event("solve", _params, socket) do
-    # Show pre-solve review popup instead of solving immediately
+    # Show pre-solve review popup instead of solving immediately.
+    # Kick off async Claude model summary (intent_loading -> intent_result).
     book = TradingDesk.Contracts.SapPositions.book_summary()
     anon_preview = build_anon_model_preview(socket.assigns.model_summary, book)
     socket =
@@ -148,6 +149,8 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:sap_positions, book)
       |> assign(:anon_model_preview, anon_preview)
       |> assign(:show_anon_preview, false)
+      |> assign(:intent, nil)
+      |> maybe_parse_intent()
     {:noreply, socket}
   end
 
@@ -162,6 +165,8 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:sap_positions, book)
       |> assign(:anon_model_preview, anon_preview)
       |> assign(:show_anon_preview, false)
+      |> assign(:intent, nil)
+      |> maybe_parse_intent()
     {:noreply, socket}
   end
 
@@ -511,12 +516,96 @@ defmodule TradingDesk.ScenarioLive do
   def handle_event("fleet_toggle_tracking", %{"id" => id}, socket) do
     vessel = TradingDesk.Repo.get(TrackedVessel, id)
     if vessel do
-      new_status = if vessel.status in ["active", "in_transit"], do: "cancelled", else: "active"
-      TrackedVessel.update(vessel, %{status: new_status})
+      # Toggle the track_in_fleet flag — separate from status.
+      # Vessel can be active/in_transit but excluded from Trammo fleet count (e.g. spot charter).
+      TrackedVessel.toggle_fleet_tracking(vessel)
       # Refresh AIS subscription with updated MMSI list
       TradingDesk.Data.AIS.AISStreamConnector.refresh_tracked()
     end
     {:noreply, assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))}
+  end
+
+  # ── Notification Preference Handlers ────────────────────────────────────────
+
+  @impl true
+  def handle_event("toggle_notifications_paused", _params, socket) do
+    socket = update_trader_prefs(socket, fn t ->
+      %{notifications_paused: !Map.get(t, :notifications_paused, false)}
+    end)
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("toggle_notify_channel", %{"channel" => channel}, socket) do
+    field = case channel do
+      "email" -> :notify_email
+      "slack" -> :notify_slack
+      "teams" -> :notify_teams
+      _ -> nil
+    end
+
+    socket =
+      if field do
+        update_trader_prefs(socket, fn t -> %{field => !Map.get(t, field, false)} end)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("save_notify_webhook", %{"channel" => channel, "value" => url}, socket) do
+    field = case channel do
+      "slack" -> :slack_webhook_url
+      "teams" -> :teams_webhook_url
+      _ -> nil
+    end
+
+    socket =
+      if field do
+        update_trader_prefs(socket, fn _t -> %{field => String.trim(url)} end)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("save_notify_threshold", %{"value" => val}, socket) do
+    threshold =
+      case Float.parse(val) do
+        {f, _} when f >= 0 -> f
+        _ -> nil
+      end
+
+    socket =
+      if threshold do
+        update_trader_prefs(socket, fn _t -> %{notify_threshold_profit: threshold} end)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("save_notify_cooldown", %{"value" => val}, socket) do
+    cooldown =
+      case Integer.parse(val) do
+        {i, _} when i >= 1 -> i
+        _ -> nil
+      end
+
+    socket =
+      if cooldown do
+        update_trader_prefs(socket, fn _t -> %{notify_cooldown_minutes: cooldown} end)
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -574,7 +663,8 @@ defmodule TradingDesk.ScenarioLive do
   def handle_event("trigger_backfill", _params, socket) do
     pid = self()
     Task.Supervisor.start_child(TradingDesk.Contracts.TaskSupervisor, fn ->
-      Ingester.run_full_backfill()
+      # Fetch up to 10 years of historical data (river, prices, freight)
+      Ingester.run_full_backfill(years_back: 10)
       send(pid, :history_ingestion_complete)
     end)
     {:noreply, assign(socket, :ingestion_running, true)}
@@ -1256,8 +1346,8 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px">
                   <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">Tons</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= format_number(@result.tons) %></div></div>
-                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">Barges</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= Float.round(@result.barges, 1) %></div></div>
-                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">ROI</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= Float.round(@result.roi, 1) %>%</div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">Barges</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= Float.round((@result.barges || 0) * 1.0, 1) %></div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">ROI</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= Float.round((@result.roi || 0) * 1.0, 1) %>%</div></div>
                   <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">Capital</div><div style="font-size:15px;font-weight:700;font-family:monospace">$<%= format_number(@result.cost) %></div></div>
                 </div>
                 <%!-- Routes --%>
@@ -1274,7 +1364,7 @@ defmodule TradingDesk.ScenarioLive do
                       <%= if tons > 0.5 do %>
                         <tr><td style="padding:6px;font-weight:600"><%= name %></td>
                         <td style="text-align:right;padding:6px;font-family:monospace"><%= format_number(tons) %></td>
-                        <td style="text-align:right;padding:6px;font-family:monospace;color:#38bdf8">$<%= Float.round(Enum.at(@result.margins, idx, 0), 1) %>/t</td>
+                        <td style="text-align:right;padding:6px;font-family:monospace;color:#38bdf8">$<%= Float.round(Enum.at(@result.margins, idx, 0.0) * 1.0, 1) %>/t</td>
                         <td style="text-align:right;padding:6px;font-family:monospace;color:#10b981;font-weight:700">$<%= format_number(Enum.at(@result.route_profits, idx, 0)) %></td></tr>
                       <% end %>
                     <% end %>
@@ -1438,7 +1528,7 @@ defmodule TradingDesk.ScenarioLive do
                       <tr phx-click="load_scenario" phx-value-id={sc.id} style="cursor:pointer;border-bottom:1px solid #1e293b11">
                         <td style="padding:6px 4px;font-weight:600"><%= sc.name %></td>
                         <td style="text-align:right;padding:6px 4px;font-family:monospace;color:#10b981">$<%= format_number(sc.result.profit) %></td>
-                        <td style="text-align:right;padding:6px 4px;font-family:monospace"><%= Float.round(sc.result.roi, 1) %>%</td>
+                        <td style="text-align:right;padding:6px 4px;font-family:monospace"><%= Float.round((sc.result.roi || 0) * 1.0, 1) %>%</td>
                         <td style="text-align:right;padding:6px 4px;font-family:monospace"><%= format_number(sc.result.tons) %></td>
                       </tr>
                     <% end %>
@@ -2067,40 +2157,63 @@ defmodule TradingDesk.ScenarioLive do
                 API DATA SOURCES
               </div>
 
-              <%!-- Data Polling APIs --%>
-              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">LIVE DATA FEEDS</div>
-              <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
-                <thead>
-                  <tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Source</th>
-                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Status</th>
-                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Last Called</th>
-                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Interval</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <%= for api <- @api_status.poller_sources do %>
-                    <tr style="border-bottom:1px solid #0f172a">
-                      <td style="padding:6px 8px;color:#e2e8f0;font-weight:500"><%= api.label %></td>
-                      <td style="padding:6px 8px">
-                        <span style={"display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#{if api.status == :ok, do: "#10b981", else: "#ef4444"}"}>
-                          <span style={"width:6px;height:6px;border-radius:50%;background:#{if api.status == :ok, do: "#10b981", else: "#ef4444"}"}></span>
-                          <%= if api.status == :ok, do: "OK", else: "ERROR" %>
-                        </span>
-                        <%= if api.error do %>
-                          <span style="color:#ef4444;font-size:11px;margin-left:4px">(<%= inspect(api.error) %>)</span>
+              <%!-- Data Polling APIs — card per source with variables and delta info --%>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">
+                LIVE DATA FEEDS
+                <span style="color:#7b8fa4;font-weight:400;font-size:11px;margin-left:8px">
+                  · polled on schedule · delta compared to last stored → triggers auto-solve if material
+                </span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+                <%= for api <- @api_status.poller_sources do %>
+                  <%
+                    status_color = if api.status == :ok, do: "#10b981", else: "#ef4444"
+                    status_label = if api.status == :ok, do: "OK", else: "ERROR"
+                    vars_fed = Map.get(api, :variables_fed, [])
+                    pgs = Map.get(api, :product_groups, [])
+                    desc = Map.get(api, :description, "")
+                    endpoint = Map.get(api, :api_endpoint, "")
+                  %>
+                  <div style={"background:#0a0f18;border:1px solid #{if api.status == :ok, do: "#1e293b", else: "#451212"};border-radius:8px;padding:10px 12px"}>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                      <div style="display:flex;align-items:center;gap:10px">
+                        <span style={"width:7px;height:7px;border-radius:50%;background:#{status_color};flex-shrink:0"}></span>
+                        <span style="font-size:12px;font-weight:700;color:#e2e8f0"><%= api.label %></span>
+                        <span style={"font-size:10px;font-weight:700;color:#{status_color};letter-spacing:0.5px"}><%= status_label %></span>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:14px;font-size:11px;color:#94a3b8">
+                        <span>every <%= format_interval(api.interval_ms) %></span>
+                        <span style="font-family:monospace"><%= format_api_timestamp(api.last_poll_at) %></span>
+                      </div>
+                    </div>
+                    <%= if desc != "" do %>
+                      <div style="font-size:11px;color:#7b8fa4;margin-bottom:5px"><%= desc %></div>
+                    <% end %>
+                    <%= if endpoint != "" do %>
+                      <div style="font-size:10px;color:#475569;font-family:monospace;margin-bottom:5px"><%= endpoint %></div>
+                    <% end %>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px">
+                      <%= if vars_fed != [] do %>
+                        <span style="font-size:10px;color:#475569;letter-spacing:0.5px;font-weight:700;margin-right:2px">FEEDS:</span>
+                        <%= for var <- vars_fed do %>
+                          <span style="font-size:10px;padding:1px 6px;background:#111827;border:1px solid #1e3a5f;border-radius:10px;color:#60a5fa;font-family:monospace"><%= var %></span>
                         <% end %>
-                      </td>
-                      <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">
-                        <%= format_api_timestamp(api.last_poll_at) %>
-                      </td>
-                      <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">
-                        <%= format_interval(api.interval_ms) %>
-                      </td>
-                    </tr>
-                  <% end %>
-                </tbody>
-              </table>
+                      <% end %>
+                      <%= if pgs != [] do %>
+                        <span style="font-size:10px;color:#475569;letter-spacing:0.5px;font-weight:700;margin-left:6px;margin-right:2px">DESK:</span>
+                        <%= for pg <- pgs do %>
+                          <span style="font-size:10px;padding:1px 6px;background:#130d27;border:1px solid #3b2569;border-radius:10px;color:#c4b5fd"><%= String.replace(pg, "_", " ") |> String.upcase() %></span>
+                        <% end %>
+                      <% end %>
+                    </div>
+                    <%= if api.error do %>
+                      <div style="margin-top:6px;font-size:11px;color:#f87171;background:#1a0808;border:1px solid #7f1d1d;border-radius:4px;padding:4px 8px;font-family:monospace">
+                        ERROR: <%= inspect(api.error) %>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
 
               <%!-- SAP Integration --%>
               <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">SAP S/4HANA OData</div>
@@ -2248,7 +2361,7 @@ defmodule TradingDesk.ScenarioLive do
               </div>
 
               <%!-- Summary --%>
-              <div style="display:flex;gap:16px;padding:12px;background:#0a0f18;border-radius:8px;font-size:11px">
+              <div style="display:flex;gap:16px;padding:12px;background:#0a0f18;border-radius:8px;font-size:11px;margin-bottom:16px">
                 <div>
                   <span style="color:#94a3b8">Total sources:</span>
                   <span style="color:#e2e8f0;font-weight:600;margin-left:4px"><%= length(@api_status.poller_sources) + 4 %></span>
@@ -2262,6 +2375,94 @@ defmodule TradingDesk.ScenarioLive do
                   <span style={"color:#{if @api_status.error_count > 0, do: "#ef4444", else: "#10b981"};font-weight:600;margin-left:4px"}><%= @api_status.error_count %></span>
                 </div>
               </div>
+
+              <%!-- ── TRADER NOTIFICATION PREFERENCES ── --%>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">TRADER NOTIFICATION PREFERENCES</div>
+              <%= if @selected_trader do %>
+                <%
+                  t = @selected_trader
+                  notify_email  = Map.get(t, :notify_email, true)
+                  notify_slack  = Map.get(t, :notify_slack, false)
+                  notify_teams  = Map.get(t, :notify_teams, false)
+                  paused        = Map.get(t, :notifications_paused, false)
+                  threshold     = (Map.get(t, :notify_threshold_profit) || 5000.0) |> trunc()
+                  cooldown      = Map.get(t, :notify_cooldown_minutes) || 30
+                  slack_url     = Map.get(t, :slack_webhook_url) || ""
+                  teams_url     = Map.get(t, :teams_webhook_url) || ""
+                %>
+                <div style="background:#0a0f18;border:1px solid #1e293b;border-radius:8px;padding:14px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <div style="font-size:12px;color:#e2e8f0;font-weight:600"><%= t.name %> · <span style="color:#94a3b8;font-weight:400"><%= t.email || "no email set" %></span></div>
+                    <button phx-click="toggle_notifications_paused"
+                      style={"font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:700;border:1px solid #{if paused, do: "#7f1d1d", else: "#065f46"};background:#{if paused, do: "#450a0a", else: "#0a2317"};color:#{if paused, do: "#f87171", else: "#4ade80"}"}>
+                      <%= if paused, do: "🔕 NOTIFICATIONS PAUSED", else: "🔔 NOTIFICATIONS ACTIVE" %>
+                    </button>
+                  </div>
+
+                  <%!-- Channel toggles --%>
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+                    <%!-- Email --%>
+                    <div style={"background:#111827;border:1px solid #{if notify_email, do: "#0891b2", else: "#1e293b"};border-radius:6px;padding:8px"}>
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-size:11px;font-weight:700;color:#94a3b8">EMAIL</span>
+                        <button phx-click="toggle_notify_channel" phx-value-channel="email"
+                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;background:#{if notify_email, do: "#0891b2", else: "#475569"}"}>
+                          <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left 0.15s;left:#{if notify_email, do: "14", else: "2"}px"}></span>
+                        </button>
+                      </div>
+                      <div style="font-size:11px;color:#7b8fa4"><%= t.email || "not set" %></div>
+                    </div>
+                    <%!-- Slack --%>
+                    <div style={"background:#111827;border:1px solid #{if notify_slack, do: "#7c3aed", else: "#1e293b"};border-radius:6px;padding:8px"}>
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-size:11px;font-weight:700;color:#94a3b8">SLACK</span>
+                        <button phx-click="toggle_notify_channel" phx-value-channel="slack"
+                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;background:#{if notify_slack, do: "#7c3aed", else: "#475569"}"}>
+                          <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left 0.15s;left:#{if notify_slack, do: "14", else: "2"}px"}></span>
+                        </button>
+                      </div>
+                      <input phx-blur="save_notify_webhook" phx-value-channel="slack" name="slack_url"
+                        value={slack_url} placeholder="https://hooks.slack.com/…"
+                        style="width:100%;background:#0a0f18;border:1px solid #1e293b;border-radius:3px;color:#c8d6e5;padding:2px 4px;font-size:10px;box-sizing:border-box;font-family:monospace" />
+                    </div>
+                    <%!-- MS Teams --%>
+                    <div style={"background:#111827;border:1px solid #{if notify_teams, do: "#2563eb", else: "#1e293b"};border-radius:6px;padding:8px"}>
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <span style="font-size:11px;font-weight:700;color:#94a3b8">MS TEAMS</span>
+                        <button phx-click="toggle_notify_channel" phx-value-channel="teams"
+                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;background:#{if notify_teams, do: "#2563eb", else: "#475569"}"}>
+                          <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left 0.15s;left:#{if notify_teams, do: "14", else: "2"}px"}></span>
+                        </button>
+                      </div>
+                      <input phx-blur="save_notify_webhook" phx-value-channel="teams" name="teams_url"
+                        value={teams_url} placeholder="https://outlook.office.com/…"
+                        style="width:100%;background:#0a0f18;border:1px solid #1e293b;border-radius:3px;color:#c8d6e5;padding:2px 4px;font-size:10px;box-sizing:border-box;font-family:monospace" />
+                    </div>
+                  </div>
+
+                  <%!-- Threshold + cooldown --%>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <div>
+                      <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px;font-weight:600">MIN PROFIT DELTA TO NOTIFY ($)</label>
+                      <input type="number" phx-blur="save_notify_threshold" name="threshold"
+                        value={threshold} min="0" step="1000"
+                        style="width:100%;background:#0a0f18;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;padding:5px 8px;font-size:12px;box-sizing:border-box;font-family:monospace" />
+                      <div style="font-size:10px;color:#475569;margin-top:2px">Only notify when expected profit changes by ≥ this amount</div>
+                    </div>
+                    <div>
+                      <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px;font-weight:600">COOLDOWN (minutes between alerts)</label>
+                      <input type="number" phx-blur="save_notify_cooldown" name="cooldown"
+                        value={cooldown} min="1" max="1440"
+                        style="width:100%;background:#0a0f18;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;padding:5px 8px;font-size:12px;box-sizing:border-box;font-family:monospace" />
+                      <div style="font-size:10px;color:#475569;margin-top:2px">Rate-limit notifications to protect against alert spam</div>
+                    </div>
+                  </div>
+                </div>
+              <% else %>
+                <div style="font-size:12px;color:#7b8fa4;padding:12px;background:#0a0f18;border-radius:6px">
+                  Select a trader to configure notification preferences.
+                </div>
+              <% end %>
             </div>
           <% end %>
 
@@ -2291,12 +2492,13 @@ defmodule TradingDesk.ScenarioLive do
               <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
                 <thead>
                   <tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600;width:50px">Track</th>
+                    <th style="text-align:center;padding:5px 6px;color:#22d3ee;font-weight:600;width:56px" title="Count toward Trammo operational fleet for capacity planning">Trammo Fleet</th>
                     <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Vessel</th>
+                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Type</th>
                     <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">MMSI</th>
-                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">SAP Ship#</th>
-                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Cargo</th>
+                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Operator</th>
                     <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Route</th>
+                    <th style="text-align:center;padding:5px 8px;color:#94a3b8;font-weight:600">Status</th>
                     <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">ETA</th>
                     <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600;width:40px"></th>
                   </tr>
@@ -2304,29 +2506,49 @@ defmodule TradingDesk.ScenarioLive do
                 <tbody>
                   <%= if length(@fleet_vessels) == 0 do %>
                     <tr>
-                      <td colspan="8" style="padding:24px;text-align:center;color:#7b8fa4;font-size:12px">
+                      <td colspan="9" style="padding:24px;text-align:center;color:#7b8fa4;font-size:12px">
                         No vessels registered for this product group yet. Add one below.
                       </td>
                     </tr>
                   <% end %>
                   <%= for v <- @fleet_vessels do %>
-                    <tr style={"border-bottom:1px solid #0f172a;#{if v.status in ["discharged", "cancelled"], do: "opacity:0.4;", else: ""}"}>
+                    <%
+                      tracked = Map.get(v, :track_in_fleet, true)
+                      discharged = v.status in ["discharged", "cancelled"]
+                    %>
+                    <tr style={"border-bottom:1px solid #0f172a;#{if discharged, do: "opacity:0.4;", else: ""}"}>
                       <td style="padding:5px 6px;text-align:center">
+                        <%!-- Toggle: controls whether vessel counts toward Trammo operational fleet --%>
                         <button phx-click="fleet_toggle_tracking" phx-value-id={v.id}
-                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if v.status in ["active", "in_transit"], do: "background:#22d3ee;", else: "background:#94a3b8;"}"}>
-                          <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left 0.15s;#{if v.status in ["active", "in_transit"], do: "left:14px;", else: "left:2px;"}"}></span>
+                          title={if tracked, do: "In Trammo fleet — click to exclude", else: "Not in Trammo fleet — click to include"}
+                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if tracked, do: "background:#22d3ee;", else: "background:#475569;"}"}>
+                          <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left 0.15s;#{if tracked, do: "left:14px;", else: "left:2px;"}"}></span>
                         </button>
                       </td>
                       <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.vessel_name %></td>
+                      <td style="padding:5px 8px;color:#94a3b8;font-size:10px;font-weight:600;letter-spacing:0.5px">
+                        <%= if v.vessel_type, do: String.upcase(String.replace(v.vessel_type, "_", " ")), else: "—" %>
+                      </td>
                       <td style="padding:5px 8px;color:#94a3b8;font-family:monospace;font-size:12px"><%= v.mmsi || "—" %></td>
-                      <td style="padding:5px 8px;color:#94a3b8;font-size:12px"><%= v.sap_shipping_number || "—" %></td>
-                      <td style="padding:5px 8px;color:#94a3b8"><%= v.cargo || "—" %></td>
+                      <td style="padding:5px 8px;color:#94a3b8;font-size:12px"><%= v.operator || v.sap_shipping_number || "—" %></td>
                       <td style="padding:5px 8px;color:#94a3b8;font-size:12px">
                         <%= if v.loading_port || v.discharge_port do %>
                           <%= v.loading_port || "?" %> → <%= v.discharge_port || "?" %>
                         <% else %>
                           —
                         <% end %>
+                      </td>
+                      <td style="padding:5px 8px;text-align:center">
+                        <%
+                          {status_color, status_label} = case v.status do
+                            "in_transit"  -> {"#22d3ee", "IN TRANSIT"}
+                            "active"      -> {"#4ade80", "ACTIVE"}
+                            "discharged"  -> {"#94a3b8", "DISCHARGED"}
+                            "cancelled"   -> {"#f87171", "CANCELLED"}
+                            _             -> {"#7b8fa4", String.upcase(v.status || "?")}
+                          end
+                        %>
+                        <span style={"font-size:10px;font-weight:700;color:#{status_color};letter-spacing:0.5px"}><%= status_label %></span>
                       </td>
                       <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px"><%= if v.eta, do: v.eta, else: "—" %></td>
                       <td style="padding:5px 6px;text-align:center">
@@ -2434,14 +2656,14 @@ defmodule TradingDesk.ScenarioLive do
                   <span>From</span>
                   <select phx-change="filter_history" name="year_from"
                     style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 6px;border-radius:4px;font-size:12px;cursor:pointer">
-                    <%= for yr <- (Date.utc_today().year - 7)..(Date.utc_today().year) do %>
+                    <%= for yr <- (Date.utc_today().year - 10)..(Date.utc_today().year) do %>
                       <option value={yr} selected={yr == @history_year_from}><%= yr %></option>
                     <% end %>
                   </select>
                   <span>To</span>
                   <select phx-change="filter_history" name="year_to"
                     style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 6px;border-radius:4px;font-size:12px;cursor:pointer">
-                    <%= for yr <- (Date.utc_today().year - 7)..(Date.utc_today().year) do %>
+                    <%= for yr <- (Date.utc_today().year - 10)..(Date.utc_today().year) do %>
                       <option value={yr} selected={yr == @history_year_to}><%= yr %></option>
                     <% end %>
                   </select>
@@ -2462,7 +2684,7 @@ defmodule TradingDesk.ScenarioLive do
               <%= if is_nil(@history_stats) do %>
                 <div style="text-align:center;padding:40px;color:#7b8fa4;font-size:12px">
                   No data loaded yet.
-                  <span style="display:block;margin-top:8px;color:#06b6d4">Click Run Full Backfill to seed river history (5 years) and record today's prices and freight rates.</span>
+                  <span style="display:block;margin-top:8px;color:#06b6d4">Click Run Full Backfill to seed 10 years of river stage, ammonia price, and freight rate history.</span>
                 </div>
               <% else %>
                 <%!-- ── RIVER STAGE ── --%>
@@ -2479,7 +2701,7 @@ defmodule TradingDesk.ScenarioLive do
                   </div>
                   <%= if @history_stats.river.count == 0 do %>
                     <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#7b8fa4">
-                      No river stage data — backfill will fetch up to 5 years of USGS daily readings for Baton Rouge, Vicksburg, Memphis, and Cairo.
+                      No river stage data — backfill will fetch up to 10 years of USGS daily readings for Baton Rouge, Vicksburg, Memphis, and Cairo.
                     </div>
                   <% else %>
                     <table style="width:100%;border-collapse:collapse;font-size:11px">
@@ -2866,6 +3088,27 @@ defmodule TradingDesk.ScenarioLive do
               <% end %>
             </div>
 
+            <%!-- AI MODEL SUMMARY (generated by Claude from model state) --%>
+            <div style="background:#060c16;border:1px solid #1e3a5f;border-radius:8px;padding:12px;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="font-size:12px;color:#38bdf6;letter-spacing:1.2px;font-weight:700">🧠 CLAUDE MODEL SUMMARY</span>
+                <%= if @intent_loading do %>
+                  <span style="font-size:11px;color:#7b8fa4;font-style:italic">analysing model state...</span>
+                <% end %>
+              </div>
+              <%= cond do %>
+                <% @intent_loading -> %>
+                  <div style="display:flex;gap:6px;align-items:center">
+                    <div style="width:6px;height:6px;border-radius:50%;background:#38bdf6;animation:pulse 1s infinite"></div>
+                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">Generating plain-English description of what will be submitted…</span>
+                  </div>
+                <% @intent && @intent.summary && @intent.summary != "" -> %>
+                  <div style="font-size:13px;color:#e2e8f0;line-height:1.65;white-space:pre-wrap"><%= @intent.summary %></div>
+                <% true -> %>
+                  <div style="font-size:12px;color:#7b8fa4;font-style:italic">No scenario description entered — submit to let Claude summarise the model state</div>
+              <% end %>
+            </div>
+
             <%!-- OBJECTIVE FOR THIS SOLVE --%>
             <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
               <div style="font-size:12px;color:#94a3b8;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE FOR THIS SOLVE</div>
@@ -3132,6 +3375,41 @@ defmodule TradingDesk.ScenarioLive do
     }
   end
 
+  # Update notification preferences for the currently selected trader.
+  # `attrs_fn` receives the current trader map and returns a map of field changes.
+  defp update_trader_prefs(socket, attrs_fn) do
+    trader = socket.assigns[:selected_trader]
+
+    if trader do
+      attrs = attrs_fn.(trader)
+
+      case TradingDesk.Repo.get(TradingDesk.DB.TraderRecord, trader.id) do
+        nil ->
+          socket
+
+        record ->
+          case TradingDesk.Repo.update(TradingDesk.DB.TraderRecord.changeset(record, attrs)) do
+            {:ok, updated} ->
+              # Rebuild selected_trader with updated fields (merge so preloads are preserved)
+              updated_trader = Map.merge(trader, Map.from_struct(updated))
+
+              updated_traders =
+                socket.assigns.available_traders
+                |> Enum.map(fn t -> if t.id == updated.id, do: updated_trader, else: t end)
+
+              socket
+              |> assign(:selected_trader, updated_trader)
+              |> assign(:available_traders, updated_traders)
+
+            {:error, _cs} ->
+              socket
+          end
+      end
+    else
+      socket
+    end
+  end
+
   defp load_fleet_vessels(pg_filter) do
     if pg_filter in ["", "all"] do
       TrackedVessel.list_all()
@@ -3169,6 +3447,70 @@ defmodule TradingDesk.ScenarioLive do
     ]
   end
 
+  # Variable/description metadata for each poller source — shown in the API tab.
+  @api_source_metadata %{
+    usgs: %{
+      description: "US Geological Survey — river stage & discharge at 4 Mississippi gauges",
+      api_endpoint: "https://waterservices.usgs.gov/nwis/iv/",
+      variables:    ~w(river_stage river_flow_cfs air_gap_clearance),
+      product_groups: ~w(ammonia_domestic)
+    },
+    noaa: %{
+      description: "NOAA Weather API — temperature, wind, visibility, precipitation",
+      api_endpoint: "https://api.weather.gov/",
+      variables:    ~w(temp_f wind_mph visibility_mi precip_in),
+      product_groups: ~w(ammonia_domestic petcoke)
+    },
+    usace: %{
+      description: "US Army Corps of Engineers — lock status, delays, draft limits",
+      api_endpoint: "https://corpslocks.usace.army.mil/",
+      variables:    ~w(lock_delay_hours draft_limit_ft),
+      product_groups: ~w(ammonia_domestic)
+    },
+    eia: %{
+      description: "EIA — Henry Hub natural gas spot price",
+      api_endpoint: "https://api.eia.gov/v2/",
+      variables:    ~w(nat_gas),
+      product_groups: ~w(ammonia_domestic ammonia_international)
+    },
+    market: %{
+      description: "Internal pricing — NOLA barge, delivered spot, spread vs CF",
+      api_endpoint: "(internal feed / broker reports)",
+      variables:    ~w(nola_barge_price delivered_spot nola_cf_spread),
+      product_groups: ~w(ammonia_domestic ammonia_international sulphur_international petcoke)
+    },
+    broker: %{
+      description: "Broker freight feeds — barge freight rate, tow rate, demurrage",
+      api_endpoint: "(broker network / email feeds)",
+      variables:    ~w(barge_freight_rate tow_rate demurrage_rate),
+      product_groups: ~w(ammonia_domestic)
+    },
+    internal: %{
+      description: "Internal systems — inventory, barge count, plant outages, working capital",
+      api_endpoint: "(SAP / ops systems)",
+      variables:    ~w(inventory_mt barge_count plant_outage working_capital),
+      product_groups: ~w(ammonia_domestic ammonia_international sulphur_international petcoke)
+    },
+    vessel_tracking: %{
+      description: "AIS via AISStream — position, speed, ETA for Trammo tracked fleet",
+      api_endpoint: "wss://stream.aisstream.io/v0/stream",
+      variables:    ~w(vessel_lat vessel_lon vessel_speed vessel_eta),
+      product_groups: ~w(ammonia_domestic ammonia_international)
+    },
+    tides: %{
+      description: "NOAA Tides & Currents — water level, tidal range, current speed",
+      api_endpoint: "https://api.tidesandcurrents.noaa.gov/api/prod/",
+      variables:    ~w(water_level_ft tidal_range_ft current_speed_kn),
+      product_groups: ~w(ammonia_domestic)
+    },
+    forecast: %{
+      description: "NWS Extended Forecast — D+1 to D+5 river stage and weather outlook",
+      api_endpoint: "https://api.weather.gov/",
+      variables:    ~w(forecast_river_stage forecast_precip_in forecast_temp_f),
+      product_groups: ~w(ammonia_domestic)
+    }
+  }
+
   defp load_api_status do
     poller_status = TradingDesk.Data.Poller.status()
     sap_status = TradingDesk.Contracts.SapRefreshScheduler.status()
@@ -3178,10 +3520,23 @@ defmodule TradingDesk.ScenarioLive do
       enabled: false, thresholds: %{}, min_solve_interval_ms: 300_000, n_scenarios: 1000
     })
 
-    error_count = Enum.count(poller_status.sources, & &1.status == :error)
+    # Enrich each poller source with variable metadata and description
+    enriched_sources =
+      poller_status.sources
+      |> Enum.map(fn src ->
+        meta = Map.get(@api_source_metadata, src.source, %{})
+        Map.merge(src, %{
+          description:    meta[:description] || "",
+          api_endpoint:   meta[:api_endpoint] || "",
+          variables_fed:  meta[:variables] || [],
+          product_groups: meta[:product_groups] || []
+        })
+      end)
+
+    error_count = Enum.count(enriched_sources, & &1.status == :error)
 
     %{
-      poller_sources: poller_status.sources,
+      poller_sources: enriched_sources,
       sap: sap_status,
       prices_updated_at: prices_updated,
       claude_configured: claude_key != nil and claude_key != "",
@@ -3730,10 +4085,14 @@ defmodule TradingDesk.ScenarioLive do
     frame   = assigns[:frame] || %{}
     vars    = assigns[:current_vars] || %{}
     sap     = assigns[:sap_positions]
+    pg      = assigns[:product_group] || :ammonia_domestic
     vessels = case assigns[:vessel_data] do
       %{vessels: v} when is_list(v) -> v
       _ -> []
     end
+
+    # Fleet vessels from the DB (Trammo-operated fleet for this product group)
+    fleet_vessels = safe_call(fn -> TrackedVessel.list_active(pg) end, [])
 
     variable_items =
       (frame[:variables] || [])
@@ -3774,7 +4133,8 @@ defmodule TradingDesk.ScenarioLive do
         _ -> []
       end
 
-    vessel_items =
+    # AIS live positions (if vessel_data is populated)
+    ais_vessel_items =
       vessels
       |> Enum.filter(&(&1[:name] not in [nil, ""]))
       |> Enum.map(fn v ->
@@ -3782,6 +4142,24 @@ defmodule TradingDesk.ScenarioLive do
         hint   = String.upcase(to_string(status))
         %{label: v[:name], hint: hint, group: "vessels", type: "vessel", insert: v[:name]}
       end)
+
+    # Fleet vessels from DB (towboats + barges the desk operates)
+    fleet_vessel_items =
+      fleet_vessels
+      |> Enum.filter(&(&1.vessel_name not in [nil, ""]))
+      |> Enum.map(fn v ->
+        status_hint = String.upcase(v.status || "active")
+        route_hint  = if v.loading_port && v.discharge_port,
+          do: "#{v.loading_port}→#{v.discharge_port}",
+          else: status_hint
+        hint = "#{status_hint} · #{route_hint}" |> String.trim(" · ")
+        %{label: v.vessel_name, hint: hint, group: "fleet", type: "vessel", insert: v.vessel_name}
+      end)
+
+    # Merge, deduplicating by name (fleet items take precedence since they have more detail)
+    ais_names = MapSet.new(ais_vessel_items, & &1.label)
+    extra_fleet = Enum.reject(fleet_vessel_items, &MapSet.member?(ais_names, &1.label))
+    vessel_items = ais_vessel_items ++ extra_fleet
 
     variable_items ++ route_items ++ counterparty_items ++ vessel_items
   end

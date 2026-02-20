@@ -17,6 +17,8 @@ defmodule TradingDesk.Fleet.TrackedVessel do
 
   @product_groups ~w(ammonia_domestic ammonia_international sulphur_international petcoke)
   @statuses ~w(active in_transit discharged cancelled)
+  @vessel_types ~w(towboat barge gas_carrier bulk_carrier chemical_tanker other)
+  @river_segments ~w(upper_mississippi lower_mississippi gulf international)
 
   schema "tracked_vessels" do
     field :mmsi,                :string
@@ -32,6 +34,13 @@ defmodule TradingDesk.Fleet.TrackedVessel do
     field :eta,                 :date
     field :status,              :string, default: "active"
     field :notes,               :string
+    # Trader-controlled flag: true = count this vessel as part of Trammo's operational fleet
+    field :track_in_fleet,      :boolean, default: true
+    field :vessel_type,         :string   # towboat | barge | gas_carrier | bulk_carrier | chemical_tanker
+    field :operator,            :string   # e.g. "Kirby", "ARTCO", "Marquette", "Navigator Gas"
+    field :flag_state,          :string   # ISO 3166-1 alpha-2 e.g. "US", "LR"
+    field :capacity_mt,         :float    # max cargo capacity in metric tons
+    field :river_segment,       :string   # upper_mississippi | lower_mississippi | gulf | international
 
     timestamps(type: :utc_datetime)
   end
@@ -41,11 +50,22 @@ defmodule TradingDesk.Fleet.TrackedVessel do
     |> cast(attrs, [
       :mmsi, :imo, :vessel_name, :sap_shipping_number, :sap_contract_id,
       :product_group, :cargo, :quantity_mt, :loading_port, :discharge_port,
-      :eta, :status, :notes
+      :eta, :status, :notes, :track_in_fleet, :vessel_type, :operator,
+      :flag_state, :capacity_mt, :river_segment
     ])
     |> validate_required([:vessel_name, :product_group])
     |> validate_inclusion(:product_group, @product_groups)
     |> validate_inclusion(:status, @statuses)
+    |> then(fn cs ->
+      if Ecto.Changeset.get_field(cs, :vessel_type),
+        do: Ecto.Changeset.validate_inclusion(cs, :vessel_type, @vessel_types),
+        else: cs
+    end)
+    |> then(fn cs ->
+      if Ecto.Changeset.get_field(cs, :river_segment),
+        do: Ecto.Changeset.validate_inclusion(cs, :river_segment, @river_segments),
+        else: cs
+    end)
     |> unique_constraint(:sap_shipping_number)
   end
 
@@ -107,6 +127,29 @@ defmodule TradingDesk.Fleet.TrackedVessel do
     |> Repo.all()
   end
 
+  @doc "Vessels the trader has flagged as Trammo operational fleet (track_in_fleet = true)."
+  def list_trammo_fleet do
+    from(v in __MODULE__,
+      where: v.status in ["active", "in_transit"] and v.track_in_fleet == true,
+      order_by: [asc: v.product_group, asc: v.vessel_name]
+    )
+    |> Repo.all()
+  end
+
+  @doc "Count of Trammo-tracked vessels by product group."
+  def trammo_fleet_count(product_group) when is_atom(product_group),
+    do: trammo_fleet_count(to_string(product_group))
+
+  def trammo_fleet_count(product_group) when is_binary(product_group) do
+    from(v in __MODULE__,
+      where: v.status in ["active", "in_transit"]
+        and v.track_in_fleet == true
+        and v.product_group == ^product_group,
+      select: count()
+    )
+    |> Repo.one()
+  end
+
   @doc "Find by SAP shipping number."
   def get_by_sap(shipping_number) do
     Repo.get_by(__MODULE__, sap_shipping_number: shipping_number)
@@ -135,6 +178,11 @@ defmodule TradingDesk.Fleet.TrackedVessel do
 
   def mark_discharged(%__MODULE__{} = vessel) do
     __MODULE__.update(vessel, %{status: "discharged"})
+  end
+
+  @doc "Toggle the trader's fleet tracking flag for this vessel."
+  def toggle_fleet_tracking(%__MODULE__{} = vessel) do
+    __MODULE__.update(vessel, %{track_in_fleet: !vessel.track_in_fleet})
   end
 
   def delete(%__MODULE__{} = vessel) do
