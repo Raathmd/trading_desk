@@ -1077,7 +1077,7 @@ defmodule TradingDesk.ScenarioLive do
                   _vessel_items = _corpus |> Enum.filter(&(&1.type == "vessel"))
                 %>
                 <div id="scenario-context" phx-hook="ScenarioDescription" data-corpus={_corpus_json} data-textarea="scenario-desc">
-                  <textarea id="scenario-desc" phx-blur="update_scenario_description" name="description"
+                  <textarea id="scenario-desc" name="description"
                     rows="3"
                     placeholder="e.g. One barge in for repair — assess impact on D+3 delivery schedule"
                     style="width:100%;background:#060a11;border:1px solid #2d1b69;color:#c8d6e5;padding:10px;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box"><%= @scenario_description %></textarea>

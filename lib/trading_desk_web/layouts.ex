@@ -113,7 +113,9 @@ defmodule TradingDesk.Layouts do
               this._ta.addEventListener('input', () => this._onInput());
               this._ta.addEventListener('keydown', (e) => this._onKeydown(e));
               this._ta.addEventListener('blur', () => {
-                // Small delay so mousedown on a dropdown item fires first
+                // Sync description to server immediately on blur
+                this.pushEvent('update_scenario_description', {description: this._ta.value});
+                // Small delay before hiding dropdown so mousedown on a chip fires first
                 setTimeout(() => this._hideDropdown(), 160);
               });
             },
