@@ -27,7 +27,7 @@ defmodule TradingDesk.DB.Writer do
 
   require Logger
 
-  @doc "Persist a contract: log to WAL, then async to Postgres."
+  @doc "Persist a contract: log to WAL, then async to Postgres and SQLite."
   def persist_contract(%TradingDesk.Contracts.Contract{} = contract) do
     # Step 1: Snapshot log (synchronous — on disk before we return)
     log_result = SnapshotLog.append(:contract, contract)
@@ -41,6 +41,9 @@ defmodule TradingDesk.DB.Writer do
       TradingDesk.Contracts.TaskSupervisor,
       fn -> do_persist_contract(contract) end
     )
+
+    # Step 3: SQLite trade history (async — full contract + normalized clauses)
+    TradingDesk.TradeDB.Writer.persist_contract(contract)
   end
 
   @doc "Persist a solve audit: log to WAL, then async to Postgres."

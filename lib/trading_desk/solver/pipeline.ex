@@ -42,7 +42,7 @@ defmodule TradingDesk.Solver.Pipeline do
       Pipeline.solve(variables, product_group: :ammonia, trigger: :auto_runner)
   """
 
-  alias TradingDesk.Contracts.{ScanCoordinator, NetworkScanner, Store}
+  alias TradingDesk.Contracts.{ScanCoordinator, NetworkScanner, Store, SapPositions}
   alias TradingDesk.Solver.{Port, SolveAudit, SolveAuditStore}
   alias TradingDesk.Data.LiveState
   alias TradingDesk.ProductGroup
@@ -380,6 +380,9 @@ defmodule TradingDesk.Solver.Pipeline do
 
     # Postgres (durable, multi-node — powers audit trail and management reporting)
     TradingDesk.DB.Writer.persist_solve_audit(audit)
+
+    # SQLite trade history (portable, chain-restorable — full normalized record)
+    TradingDesk.TradeDB.Writer.persist_solve(audit)
   end
 
   defp extract_result_status(result, :solve) do
@@ -408,5 +411,33 @@ defmodule TradingDesk.Solver.Pipeline do
 
   defp broadcast(event, payload) do
     Phoenix.PubSub.broadcast(@pubsub, @topic, {:pipeline_event, event, payload})
+  end
+
+  # ──────────────────────────────────────────────────────────
+  # SAP WRITE-BACK STUBS (req 10.4)
+  # ──────────────────────────────────────────────────────────
+
+  @doc """
+  Create a contract in SAP based on solver outcome.
+
+  This is the pipeline entry point for SAP write-back. The trader
+  reviews a solver result, decides to act, and this pushes the action
+  to SAP as a new contract or delivery.
+
+  Delegates to SapPositions.create_contract/1.
+  Currently a stub — does not call SAP.
+  """
+  def sap_create_contract(params) do
+    SapPositions.create_contract(params)
+  end
+
+  @doc """
+  Create a delivery in SAP under an existing contract.
+
+  Delegates to SapPositions.create_delivery/1.
+  Currently a stub — does not call SAP.
+  """
+  def sap_create_delivery(params) do
+    SapPositions.create_delivery(params)
   end
 end

@@ -88,12 +88,206 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
     end)
   end
 
+  # ──────────────────────────────────────────────────────────
+  # PUBLIC API
+  # ──────────────────────────────────────────────────────────
+
+  @doc """
+  Build the penalty schedule: per-counterparty penalty exposure from
+  all active contracts. The solver uses this to reduce effective margin
+  on routes that risk triggering penalties.
+
+  Returns a list of:
+    %{counterparty, penalty_type, rate_per_ton, open_qty, max_exposure,
+      incoterm, direction}
+  """
+  def penalty_schedule(product_group) do
+    active = Store.get_active_set(product_group)
+
+    Enum.flat_map(active, fn contract ->
+      penalties = extract_penalty_clauses(contract)
+      incoterm = extract_incoterm(contract)
+      open_qty = contract.open_position || 0
+
+      Enum.map(penalties, fn {penalty_type, rate} ->
+        %{
+          counterparty: contract.counterparty,
+          counterparty_type: contract.counterparty_type,
+          penalty_type: penalty_type,
+          rate_per_ton: rate,
+          open_qty: open_qty,
+          max_exposure: rate * open_qty,
+          incoterm: incoterm,
+          direction: contract.template_type,
+          family_id: contract.family_id
+        }
+      end)
+    end)
+  end
+
+  @doc """
+  Compute the aggregate open book for Trammo across all active contracts.
+
+  Returns:
+    %{
+      total_purchase_obligation: float,  # MT still owed to Trammo by suppliers
+      total_sale_obligation: float,      # MT Trammo still owes to customers
+      net_open_position: float,          # purchase - sale (positive = long)
+      by_counterparty: [%{counterparty, direction, incoterm, contract_qty,
+                          open_qty, penalty_exposure}],
+      total_penalty_exposure: float      # worst-case penalty across all contracts
+    }
+  """
+  def aggregate_open_book(product_group) do
+    active = Store.get_active_set(product_group)
+
+    by_counterparty =
+      Enum.map(active, fn contract ->
+        incoterm = extract_incoterm(contract)
+        contract_qty = extract_contract_qty(contract)
+        open_qty = contract.open_position || 0
+        penalties = extract_penalty_clauses(contract)
+        penalty_exposure = Enum.reduce(penalties, 0.0, fn {_type, rate}, acc ->
+          acc + rate * abs(open_qty)
+        end)
+
+        direction = case contract.counterparty_type do
+          :supplier -> :purchase
+          :customer -> :sale
+          _ -> contract.template_type
+        end
+
+        %{
+          counterparty: contract.counterparty,
+          direction: direction,
+          incoterm: incoterm,
+          term_type: contract.term_type,
+          contract_qty: contract_qty,
+          open_qty: open_qty,
+          penalty_exposure: penalty_exposure,
+          family_id: contract.family_id
+        }
+      end)
+
+    purchases = Enum.filter(by_counterparty, &(&1.direction == :purchase))
+    sales = Enum.filter(by_counterparty, &(&1.direction == :sale))
+
+    total_purchase = Enum.reduce(purchases, 0.0, &(&1.open_qty + &2))
+    total_sale = Enum.reduce(sales, 0.0, &(&1.open_qty + &2))
+    total_penalty = Enum.reduce(by_counterparty, 0.0, &(&1.penalty_exposure + &2))
+
+    %{
+      total_purchase_obligation: total_purchase,
+      total_sale_obligation: total_sale,
+      net_open_position: total_purchase - total_sale,
+      by_counterparty: by_counterparty,
+      total_penalty_exposure: total_penalty
+    }
+  end
+
+  # ──────────────────────────────────────────────────────────
+  # PRIVATE: apply all active contracts
+  # ──────────────────────────────────────────────────────────
+
   # --- Private: apply all active contracts ---
 
   defp apply_active_contracts(vars, contracts) do
-    Enum.reduce(contracts, {vars, []}, fn contract, {v, applied} ->
-      apply_contract(v, contract, applied)
-    end)
+    {vars_after_clauses, applied} =
+      Enum.reduce(contracts, {vars, []}, fn contract, {v, acc} ->
+        apply_contract(v, contract, acc)
+      end)
+
+    {vars_after_penalty, penalty_applied} =
+      apply_penalty_margin_adjustment(vars_after_clauses, contracts)
+
+    {vars_after_penalty, applied ++ penalty_applied}
+  end
+
+  # Reduce effective sell prices by the weighted-average penalty exposure per ton.
+  # For each active sale contract with volume-shortfall or late-delivery penalties:
+  #   reduction_$/ton = sum(open_qty * rate) / sum(open_qty)
+  # This bakes contract risk into the LP margin so the solver avoids routes
+  # that would trigger penalties.
+  defp apply_penalty_margin_adjustment(vars, contracts) do
+    {stl_num, stl_den, mem_num, mem_den} =
+      Enum.reduce(contracts, {0.0, 0.0, 0.0, 0.0}, fn contract, acc ->
+        if contract.counterparty_type == :customer do
+          penalties = extract_penalty_clauses(contract)
+          rate = Enum.reduce(penalties, 0.0, fn {_type, r}, a -> a + r end)
+          open = max(contract.open_position || 0, 0) / 1.0
+
+          if rate > 0 and open > 0 do
+            dest = penalty_destination(contract)
+            {sn, sd, mn, md} = acc
+
+            case dest do
+              :stl -> {sn + open * rate, sd + open, mn, md}
+              :mem -> {sn, sd, mn + open * rate, md + open}
+              _ ->
+                # Unknown destination — split equally
+                half = open / 2.0
+                {sn + half * rate, sd + half, mn + half * rate, md + half}
+            end
+          else
+            acc
+          end
+        else
+          acc
+        end
+      end)
+
+    stl_reduction = if stl_den > 0, do: Float.round(stl_num / stl_den, 2), else: 0.0
+    mem_reduction = if mem_den > 0, do: Float.round(mem_num / mem_den, 2), else: 0.0
+
+    # Cap reductions at 10% of current sell price to avoid over-penalising
+    sell_stl = get_variable(vars, :sell_stl)
+    sell_mem = get_variable(vars, :sell_mem)
+    stl_adj = if is_number(sell_stl), do: min(stl_reduction, sell_stl * 0.10), else: 0.0
+    mem_adj = if is_number(sell_mem), do: min(mem_reduction, sell_mem * 0.10), else: 0.0
+
+    {vars_out, applied} =
+      Enum.reduce(
+        [{:sell_stl, stl_adj}, {:sell_mem, mem_adj}],
+        {vars, []},
+        fn {param, adj}, {v, acc} ->
+          current = get_variable(v, param)
+
+          if is_number(current) and adj > 0 do
+            new_val = Float.round(current - adj, 2)
+            {set_variable(v, param, new_val),
+             [%{
+               counterparty: "penalty_adjustment",
+               clause_id: "PENALTY_MARGIN",
+               parameter: param,
+               original: current,
+               applied: new_val
+             } | acc]}
+          else
+            {v, acc}
+          end
+        end
+      )
+
+    Logger.debug(
+      "ConstraintBridge: penalty margin — sell_stl -#{stl_adj}/t, sell_mem -#{mem_adj}/t"
+    )
+
+    {vars_out, applied}
+  end
+
+  # Guess delivery destination for a customer contract from name/family_id
+  defp penalty_destination(%{counterparty: name, family_id: fid}) do
+    n = String.downcase(name || "")
+    f = to_string(fid || "")
+
+    cond do
+      String.contains?(n, "stl") or String.contains?(n, "st. louis") or
+        String.contains?(n, "nutrien") or String.contains?(f, "stl") or
+        String.contains?(f, "st_louis") -> :stl
+      String.contains?(n, "mem") or String.contains?(n, "memphis") or
+        String.contains?(n, "koch") or String.contains?(f, "mem") -> :mem
+      true -> :unknown
+    end
   end
 
   defp apply_contract(vars, %Contract{} = contract, applied) do
@@ -167,6 +361,56 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   defp applicable?(%{parameter: :freight_rate}), do: false
   defp applicable?(%{type: :condition}), do: false
   defp applicable?(_clause), do: true
+
+  # ──────────────────────────────────────────────────────────
+  # HELPERS — extract structured data from contracts
+  # ──────────────────────────────────────────────────────────
+
+  defp extract_incoterm(%Contract{incoterm: incoterm}) when not is_nil(incoterm), do: incoterm
+  defp extract_incoterm(%Contract{clauses: clauses}) when is_list(clauses) do
+    case Enum.find(clauses, &(&1.clause_id == "INCOTERMS")) do
+      %{extracted_fields: %{incoterm_rule: rule}} when not is_nil(rule) ->
+        rule |> String.downcase() |> String.to_atom()
+      _ -> nil
+    end
+  end
+  defp extract_incoterm(_), do: nil
+
+  defp extract_contract_qty(%Contract{clauses: clauses}) when is_list(clauses) do
+    case Enum.find(clauses, &(&1.clause_id == "QUANTITY_TOLERANCE")) do
+      %{value: qty} when is_number(qty) -> qty
+      _ -> 0.0
+    end
+  end
+  defp extract_contract_qty(_), do: 0.0
+
+  defp extract_penalty_clauses(%Contract{clauses: clauses}) when is_list(clauses) do
+    penalties = []
+
+    penalties =
+      case Enum.find(clauses, &(&1.clause_id == "PENALTY_VOLUME_SHORTFALL")) do
+        %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
+          [{:volume_shortfall, rate} | penalties]
+        _ -> penalties
+      end
+
+    penalties =
+      case Enum.find(clauses, &(&1.clause_id == "PENALTY_LATE_DELIVERY")) do
+        %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
+          [{:late_delivery, rate} | penalties]
+        _ -> penalties
+      end
+
+    penalties =
+      case Enum.find(clauses, &(&1.clause_id == "LAYTIME_DEMURRAGE")) do
+        %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
+          [{:demurrage, rate} | penalties]
+        _ -> penalties
+      end
+
+    penalties
+  end
+  defp extract_penalty_clauses(_), do: []
 
   # --- Variable access helpers ---
 

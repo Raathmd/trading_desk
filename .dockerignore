@@ -1,0 +1,46 @@
+# Exclude all of _build EXCEPT the prod release
+_build/
+!_build/prod/
+!_build/prod/rel/
+!_build/prod/rel/**
+
+# Deps are embedded in the release — don't need to send them
+deps/
+
+# Zig build artifacts — only the solver binary is needed
+native/zig-cache/
+native/zig-out/
+native/HiGHS/
+native/lp_data/
+native/util/
+native/build/
+native/*.o
+# NOTE: native/solver is intentionally NOT excluded — it's copied into the image
+
+# Dev/test
+cover/
+doc/
+tmp/
+.elixir_ls/
+
+# Secrets — never send to Docker daemon
+.env
+.env.local
+
+# Git
+.git/
+.gitignore
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
+
+# Logs
+*.log
+erl_crash.dump
+
+# Node
+node_modules/

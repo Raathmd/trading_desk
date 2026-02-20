@@ -38,7 +38,8 @@ defmodule TradingDesk.Data.Poller do
     broker:           :timer.hours(1),
     internal:         :timer.minutes(5),
     vessel_tracking:  :timer.minutes(10),
-    tides:            :timer.minutes(15)
+    tides:            :timer.minutes(15),
+    forecast:         :timer.hours(2)
   }
 
   # USGS gauge IDs for Mississippi River (kept for fallback)
@@ -53,6 +54,14 @@ defmodule TradingDesk.Data.Poller do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
+  @doc "Get the status of all polled data sources: last poll time, errors, intervals."
+  def status do
+    GenServer.call(__MODULE__, :status)
+  catch
+    :exit, _ ->
+      %{sources: [], last_poll: %{}, errors: %{}}
+  end
+
   @impl true
   def init(_) do
     # Subscribe to config changes so we can adjust poll intervals
@@ -65,6 +74,26 @@ defmodule TradingDesk.Data.Poller do
     end)
 
     {:ok, %{last_poll: %{}, errors: %{}, timers: %{}}}
+  end
+
+  @impl true
+  def handle_call(:status, _from, state) do
+    sources =
+      @fallback_intervals
+      |> Map.keys()
+      |> Enum.map(fn source ->
+        %{
+          source: source,
+          label: source_label(source),
+          last_poll_at: Map.get(state.last_poll, source),
+          error: Map.get(state.errors, source),
+          interval_ms: get_poll_interval(source),
+          status: if(Map.has_key?(state.errors, source), do: :error, else: :ok)
+        }
+      end)
+      |> Enum.sort_by(& &1.source)
+
+    {:reply, %{sources: sources, last_poll: state.last_poll, errors: state.errors}, state}
   end
 
   @impl true
@@ -247,6 +276,63 @@ defmodule TradingDesk.Data.Poller do
     end
   end
 
+  defp poll_source(:forecast) do
+    # Fetch 7-day weather forecast from all NOAA stations
+    weather_forecast =
+      case API.NOAA.fetch_all_forecasts() do
+        {:ok, data} -> data
+        {:error, _} -> nil
+      end
+
+    # Fetch river stage forecast from NOAA NWPS
+    river_forecast =
+      case API.USGS.fetch_river_forecast() do
+        {:ok, data} -> data
+        {:error, _} -> nil
+      end
+
+    forecast_data = %{
+      weather: weather_forecast,
+      river: river_forecast,
+      fetched_at: DateTime.utc_now()
+    }
+
+    # Store full forecast as supplementary data (available to analyst, pipeline, UI)
+    TradingDesk.Data.LiveState.update_supplementary(:forecast, forecast_data)
+
+    # Extract D+3 worst-case for solver — these override current conditions
+    # when running forward-looking scenarios
+    solver_overrides = %{}
+
+    solver_overrides =
+      if weather_forecast do
+        d3 = weather_forecast[:solver_d3] || %{}
+        solver_overrides
+        |> maybe_put(:forecast_temp_f, d3[:forecast_temp_f])
+        |> maybe_put(:forecast_wind_mph, d3[:forecast_wind_mph])
+        |> maybe_put(:forecast_vis_mi, d3[:forecast_vis_mi])
+        |> maybe_put(:forecast_precip_in, d3[:forecast_precip_in])
+      else
+        solver_overrides
+      end
+
+    solver_overrides =
+      if river_forecast do
+        d3 = river_forecast[:solver_d3] || %{}
+        maybe_put(solver_overrides, :forecast_river_stage, d3[:forecast_river_stage])
+      else
+        solver_overrides
+      end
+
+    Logger.info(
+      "Poller: forecast updated — " <>
+        "weather: #{if weather_forecast, do: "#{length(weather_forecast[:days] || [])} days", else: "failed"}, " <>
+        "river: #{if river_forecast, do: "#{length(river_forecast[:forecasts] || [])} points", else: "failed"}"
+    )
+
+    {:ok, solver_overrides}
+  end
+
   # ──────────────────────────────────────────────────────────
   # FALLBACK PARSERS (from original implementation)
   # ──────────────────────────────────────────────────────────
@@ -356,4 +442,16 @@ defmodule TradingDesk.Data.Poller do
   rescue
     _ -> {:error, :http_exception}
   end
+
+  defp source_label(:usgs), do: "USGS Water Services"
+  defp source_label(:noaa), do: "NOAA Weather"
+  defp source_label(:usace), do: "USACE Lock Performance"
+  defp source_label(:eia), do: "EIA Natural Gas"
+  defp source_label(:market), do: "Market Prices"
+  defp source_label(:broker), do: "Broker Freight"
+  defp source_label(:internal), do: "Internal Systems"
+  defp source_label(:vessel_tracking), do: "Vessel Tracking"
+  defp source_label(:tides), do: "NOAA Tides"
+  defp source_label(:forecast), do: "Weather & River Forecast"
+  defp source_label(other), do: other |> to_string() |> String.capitalize()
 end

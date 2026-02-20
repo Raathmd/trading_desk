@@ -97,6 +97,125 @@ defmodule TradingDesk.Data.API.USGS do
     end
   end
 
+  # NWS gauge location identifiers (for NOAA NWPS river forecasts)
+  @nws_gauges %{
+    baton_rouge: "BTRL1",
+    vicksburg:   "VCKM6",
+    memphis:     "MEMM6",
+    cairo:       "CIRL2"
+  }
+
+  @nwps_base "https://api.water.noaa.gov/nwps/v1/gauges"
+
+  @doc """
+  Fetch river stage forecast from NOAA Water Prediction Service.
+
+  Returns 7-day forecast river stage for all gauges:
+    `{:ok, %{forecasts: [%{date, stage_ft, flow_cfs, gauge}], solver_d3: %{forecast_river_stage: float}}}`
+  """
+  @spec fetch_river_forecast() :: {:ok, map()} | {:error, term()}
+  def fetch_river_forecast do
+    results =
+      @nws_gauges
+      |> Enum.map(fn {key, lid} ->
+        url = "#{@nwps_base}/#{lid}/stageflow/forecast"
+        {key, fetch_nwps(url)}
+      end)
+
+    forecasts =
+      results
+      |> Enum.flat_map(fn {key, result} ->
+        case result do
+          {:ok, points} ->
+            Enum.map(points, &Map.put(&1, :gauge, key))
+          _ -> []
+        end
+      end)
+      |> Enum.sort_by(& &1.date)
+
+    if forecasts == [] do
+      {:error, :no_forecast_data}
+    else
+      # D+3 river stage for solver: use Baton Rouge (primary) or worst-case across gauges
+      today = Date.utc_today()
+      d3_date = Date.add(today, 3) |> Date.to_iso8601()
+
+      d3_stage =
+        forecasts
+        |> Enum.filter(&(&1.gauge == :baton_rouge and String.starts_with?(&1.date, d3_date)))
+        |> case do
+          [first | _] -> first.stage_ft
+          [] ->
+            # Fallback: any gauge's D+3
+            forecasts
+            |> Enum.filter(&String.starts_with?(&1.date, d3_date))
+            |> case do
+              [first | _] -> first.stage_ft
+              [] -> nil
+            end
+        end
+
+      {:ok, %{
+        forecasts: forecasts,
+        solver_d3: %{forecast_river_stage: d3_stage},
+        gauges: Map.new(results)
+      }}
+    end
+  rescue
+    e ->
+      Logger.warning("USGS: river forecast failed: #{Exception.message(e)}")
+      {:error, :forecast_exception}
+  end
+
+  defp fetch_nwps(url) do
+    headers = [{"Accept", "application/json"}]
+
+    case Req.get(url, headers: headers, receive_timeout: 15_000) do
+      {:ok, %{status: 200, body: body}} ->
+        parse_nwps_forecast(body)
+
+      {:ok, %{status: status}} ->
+        {:error, {:http_status, status}}
+
+      {:error, reason} ->
+        {:error, {:http_error, reason}}
+    end
+  rescue
+    e -> {:error, {:exception, Exception.message(e)}}
+  end
+
+  defp parse_nwps_forecast(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, data} -> parse_nwps_forecast(data)
+      _ -> {:error, :parse_failed}
+    end
+  end
+
+  defp parse_nwps_forecast(%{"data" => points}) when is_list(points) do
+    parsed =
+      Enum.map(points, fn p ->
+        %{
+          date:     p["validTime"] || p["time"],
+          stage_ft: safe_float(p["primary"] || p["stage"]),
+          flow_cfs: safe_float(p["secondary"] || p["flow"])
+        }
+      end)
+      |> Enum.reject(&is_nil(&1.stage_ft))
+
+    {:ok, parsed}
+  end
+
+  defp parse_nwps_forecast(_), do: {:error, :unexpected_format}
+
+  defp safe_float(nil), do: nil
+  defp safe_float(v) when is_number(v), do: v / 1.0
+  defp safe_float(v) when is_binary(v) do
+    case Float.parse(v) do
+      {f, _} -> f
+      :error -> nil
+    end
+  end
+
   @doc "Fetch all gauges and return combined data."
   @spec fetch_all_gauges() :: {:ok, map()} | {:error, term()}
   def fetch_all_gauges do
