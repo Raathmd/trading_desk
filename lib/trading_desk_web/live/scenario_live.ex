@@ -24,6 +24,7 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.Data.LiveState
   alias TradingDesk.Scenarios.Store
   alias TradingDesk.ProductGroup
+  alias TradingDesk.ApiConfig
 
   @impl true
   def mount(_params, _session, socket) do
@@ -82,6 +83,9 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:contracts_stale, false)
       |> assign(:vessel_data, vessel_data)
       |> assign(:tides_data, tides_data)
+      |> assign(:api_configs, ApiConfig.get_entries(product_group))
+      |> assign(:api_key_visible, MapSet.new())
+      |> assign(:api_save_flash, nil)
 
     {:ok, socket}
   end
@@ -229,6 +233,9 @@ defmodule TradingDesk.ScenarioLive do
         |> assign(:result, nil)
         |> assign(:distribution, nil)
         |> assign(:explanation, nil)
+        |> assign(:api_configs, ApiConfig.get_entries(pg))
+        |> assign(:api_key_visible, MapSet.new())
+        |> assign(:api_save_flash, nil)
 
       {:noreply, socket}
     else
@@ -256,7 +263,56 @@ defmodule TradingDesk.ScenarioLive do
         socket
       end
 
+    # Reload API config when switching to API tab
+    socket =
+      if tab_atom == :api do
+        assign(socket, :api_configs, ApiConfig.get_entries(socket.assigns.product_group))
+      else
+        socket
+      end
+
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("save_api_config", %{"source" => source, "url" => url, "api_key" => api_key}, socket) do
+    pg = socket.assigns.product_group
+
+    case ApiConfig.update_source(pg, source, url, api_key) do
+      {:ok, _record} ->
+        socket =
+          socket
+          |> assign(:api_configs, ApiConfig.get_entries(pg))
+          |> assign(:api_save_flash, {:ok, source})
+
+        # Clear flash after 3s
+        Process.send_after(self(), :clear_api_flash, 3_000)
+        {:noreply, socket}
+
+      {:error, _changeset} ->
+        {:noreply, assign(socket, :api_save_flash, {:error, source})}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_api_key_visible", %{"source" => source}, socket) do
+    visible = socket.assigns.api_key_visible
+
+    new_visible =
+      if MapSet.member?(visible, source) do
+        MapSet.delete(visible, source)
+      else
+        MapSet.put(visible, source)
+      end
+
+    {:noreply, assign(socket, :api_key_visible, new_visible)}
+  end
+
+  # --- API flash clear ---
+
+  @impl true
+  def handle_info(:clear_api_flash, socket) do
+    {:noreply, assign(socket, :api_save_flash, nil)}
   end
 
   # --- Async solve handlers ---
@@ -612,6 +668,10 @@ defmodule TradingDesk.ScenarioLive do
             <button phx-click="switch_tab" phx-value-tab="agent"
               style={"padding:8px 16px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @active_tab == :agent, do: "#111827", else: "transparent"};color:#{if @active_tab == :agent, do: "#e2e8f0", else: "#475569"};border-bottom:2px solid #{if @active_tab == :agent, do: "#10b981", else: "transparent"}"}>
               🤖 Agent
+            </button>
+            <button phx-click="switch_tab" phx-value-tab="api"
+              style={"padding:8px 16px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @active_tab == :api, do: "#111827", else: "transparent"};color:#{if @active_tab == :api, do: "#e2e8f0", else: "#475569"};border-bottom:2px solid #{if @active_tab == :api, do: "#f59e0b", else: "transparent"}"}>
+              🔌 API
             </button>
           </div>
 
@@ -1092,6 +1152,99 @@ defmodule TradingDesk.ScenarioLive do
                 Agent is initializing...
               </div>
             <% end %>
+          <% end %>
+
+          <%!-- === API TAB === --%>
+          <%= if @active_tab == :api do %>
+            <% api_sources = Map.keys(@frame.api_sources) |> Enum.map(&to_string/1) |> Enum.sort() %>
+            <div style="background:#111827;border-radius:10px;padding:20px;margin-bottom:16px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+                <div>
+                  <div style="font-size:11px;color:#f59e0b;letter-spacing:1px;font-weight:700;text-transform:uppercase">API Configuration</div>
+                  <div style="font-size:13px;color:#94a3b8;margin-top:4px"><%= @frame.name %> — <%= length(api_sources) %> data sources</div>
+                </div>
+                <%= case @api_save_flash do %>
+                  <% {:ok, src} -> %>
+                    <div style="background:#0f2a1f;border:1px solid #10b981;border-radius:6px;padding:6px 12px;font-size:11px;color:#10b981;font-weight:600">
+                      Saved <%= src %>
+                    </div>
+                  <% {:error, src} -> %>
+                    <div style="background:#2a0f0f;border:1px solid #ef4444;border-radius:6px;padding:6px 12px;font-size:11px;color:#ef4444;font-weight:600">
+                      Error saving <%= src %>
+                    </div>
+                  <% _ -> %>
+                    <div></div>
+                <% end %>
+              </div>
+
+              <%!-- Column headers --%>
+              <div style="display:grid;grid-template-columns:120px 1fr 180px 80px;gap:8px;padding:0 8px 8px;border-bottom:1px solid #1e293b">
+                <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">SOURCE</div>
+                <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">API URL</div>
+                <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">API KEY</div>
+                <div></div>
+              </div>
+
+              <%!-- One row per API source --%>
+              <%= for source <- api_sources do %>
+                <% entry = Map.get(@api_configs, source, %{}) %>
+                <% source_info = Map.get(@frame.api_sources, String.to_existing_atom(source)) %>
+                <% fed_vars = (source_info[:variables] || []) |> Enum.map(&to_string/1) %>
+                <% key_shown = MapSet.member?(@api_key_visible, source) %>
+
+                <div style="padding:12px 8px;border-bottom:1px solid #1e293b11">
+                  <%!-- Source label + fed variables --%>
+                  <div style="margin-bottom:8px">
+                    <div style="font-size:12px;font-weight:700;color:#e2e8f0;text-transform:uppercase;letter-spacing:0.5px"><%= source %></div>
+                    <%= if length(fed_vars) > 0 do %>
+                      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+                        <%= for var <- fed_vars do %>
+                          <span style="background:#1e293b;color:#64748b;font-size:9px;padding:2px 6px;border-radius:3px;font-family:monospace"><%= var %></span>
+                        <% end %>
+                      </div>
+                    <% end %>
+                  </div>
+
+                  <%!-- Edit form for this source --%>
+                  <form phx-submit="save_api_config" style="display:grid;grid-template-columns:1fr 180px 80px;gap:8px;align-items:center">
+                    <input type="hidden" name="source" value={source} />
+                    <input
+                      type="text"
+                      name="url"
+                      value={Map.get(entry, "url", "")}
+                      placeholder="https://..."
+                      style="background:#0a0f18;border:1px solid #1e293b;color:#c8d6e5;padding:7px 10px;border-radius:6px;font-size:12px;font-family:monospace;width:100%"
+                    />
+                    <div style="display:flex;gap:4px;align-items:center">
+                      <input
+                        type={if key_shown, do: "text", else: "password"}
+                        name="api_key"
+                        value={Map.get(entry, "api_key", "")}
+                        placeholder="API key..."
+                        style="flex:1;min-width:0;background:#0a0f18;border:1px solid #1e293b;color:#c8d6e5;padding:7px 10px;border-radius:6px;font-size:12px;font-family:monospace"
+                      />
+                      <button
+                        type="button"
+                        phx-click="toggle_api_key_visible"
+                        phx-value-source={source}
+                        style="background:#1e293b;border:none;color:#64748b;padding:7px 8px;border-radius:6px;cursor:pointer;font-size:11px;flex-shrink:0"
+                        title={if key_shown, do: "Hide key", else: "Show key"}
+                      ><%= if key_shown, do: "🙈", else: "👁" %></button>
+                    </div>
+                    <button
+                      type="submit"
+                      style="background:#1a3a2a;border:1px solid #10b98133;color:#10b981;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap"
+                    >Save</button>
+                  </form>
+                </div>
+              <% end %>
+
+              <%= if length(api_sources) == 0 do %>
+                <div style="padding:32px;text-align:center;color:#475569;font-size:13px">
+                  No API sources configured for this product group.
+                </div>
+              <% end %>
+            </div>
           <% end %>
         </div>
       </div>
