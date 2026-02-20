@@ -1066,7 +1066,7 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- Scenario description --%>
               <div style="margin-bottom:14px">
                 <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:5px;font-weight:600">WHAT DO YOU WANT TO TEST?</div>
-                <textarea phx-change="update_scenario_description" phx-debounce="300" name="description"
+                <textarea phx-change="update_scenario_description" phx-debounce="blur" name="description"
                   rows="3"
                   placeholder="e.g. One barge in for repair — assess impact on D+3 delivery schedule"
                   style="width:100%;background:#060a11;border:1px solid #2d1b69;color:#c8d6e5;padding:10px;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box"><%= @scenario_description %></textarea>
@@ -2723,32 +2723,33 @@ defmodule TradingDesk.ScenarioLive do
 
             <%!-- Trader Scenario — with toggle to show what Claude receives (anonymized) --%>
             <div style="background:#0a0318;border-radius:8px;padding:14px;margin-bottom:14px;border-left:3px solid #a78bfa">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                 <div style="font-size:10px;color:#a78bfa;letter-spacing:1.2px;font-weight:700">SCENARIO INPUT</div>
                 <%= if @anon_model_preview && @anon_model_preview != "" do %>
                   <button phx-click="toggle_anon_preview"
                     style={"font-size:9px;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:600;letter-spacing:0.5px;border:1px solid #{if @show_anon_preview, do: "#a78bfa", else: "#374151"};background:#{if @show_anon_preview, do: "#2d1057", else: "transparent"};color:#{if @show_anon_preview, do: "#c4b5fd", else: "#64748b"}"}>
-                    <%= if @show_anon_preview, do: "← Show Original", else: "🔒 Anonymized (sent to Claude)" %>
+                    <%= if @show_anon_preview, do: "← Show Narrative", else: "🔒 Anonymized (sent to Claude)" %>
                   </button>
                 <% end %>
               </div>
-              <%
-                raw_text = if @show_anon_preview, do: @anon_model_preview, else: @model_summary
-                display_lines = (raw_text || "")
-                  |> String.split("\n")
-                  |> Enum.reject(&(String.starts_with?(String.trim(&1), "#") or String.trim(&1) == ""))
-                  |> Enum.take(if @show_anon_preview, do: 20, else: 6)
-                display_text = Enum.join(display_lines, "\n")
-              %>
-              <%= if display_text != "" do %>
-                <pre style="font-size:10px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:200px;overflow-y:auto"><%= display_text %></pre>
-                <%= if not @show_anon_preview do %>
-                  <div style="font-size:9px;color:#475569;margin-top:4px">…full model summary submitted · click <em>Anonymized</em> to preview what Claude sees</div>
-                <% else %>
-                  <div style="font-size:9px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
-                <% end %>
+              <%= if @show_anon_preview do %>
+                <%
+                  anon_lines = (@anon_model_preview || "")
+                    |> String.split("\n")
+                    |> Enum.reject(&(String.starts_with?(String.trim(&1), "#") or String.trim(&1) == ""))
+                    |> Enum.take(20)
+                  anon_text = Enum.join(anon_lines, "\n")
+                %>
+                <pre style="font-size:10px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:200px;overflow-y:auto"><%= anon_text %></pre>
+                <div style="font-size:9px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
               <% else %>
-                <div style="font-size:12px;color:#475569;font-style:italic">No scenario text — manual variable adjustments only</div>
+                <%-- Show the trader's narrative description prominently --%>
+                <%= if (@scenario_description || "") != "" do %>
+                  <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;padding:8px 10px;background:#0d0a20;border-radius:5px;border:1px solid #2d1b69"><%= @scenario_description %></div>
+                <% else %>
+                  <div style="font-size:12px;color:#475569;font-style:italic">No description entered — variable adjustments only</div>
+                <% end %>
+                <div style="font-size:9px;color:#475569;margin-top:6px">Full model context (variables, routes, positions) submitted to solver · click <em>Anonymized</em> to preview what Claude sees</div>
               <% end %>
             </div>
 
