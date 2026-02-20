@@ -27,6 +27,7 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.Traders
   alias TradingDesk.Data.History.{Ingester, Stats}
   alias TradingDesk.Fleet.TrackedVessel
+  alias TradingDesk.Schedule.DeliveryScheduler
 
   @impl true
   def mount(_params, _session, socket) do
@@ -126,6 +127,11 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:fleet_vessels, [])
       |> assign(:fleet_error, nil)
       |> assign(:fleet_pg_filter, to_string(product_group))
+      # Schedule tab
+      |> assign(:schedule_lines, [])
+      |> assign(:schedule_summary, nil)
+      |> assign(:schedule_loading, false)
+      |> assign(:schedule_direction_filter, :all)
       # Model summary (always computed) + scenario description (trader narrative)
       |> assign(:model_summary, "")
       |> assign(:scenario_description, "")
@@ -495,11 +501,48 @@ defmodule TradingDesk.ScenarioLive do
           assign(socket, history_stats: Stats.all(history_filter_opts(socket.assigns)))
         :fleet ->
           assign_fleet(socket, socket.assigns.fleet_pg_filter)
+        :schedule ->
+          assign(socket, schedule_lines: DeliveryScheduler.build_schedule())
         _ ->
           socket
       end
 
     {:noreply, socket}
+  end
+
+  # ── Schedule tab events ──
+
+  @impl true
+  def handle_event("refresh_schedule_summary", _params, socket) do
+    lines = case socket.assigns.schedule_lines do
+      [] ->
+        loaded = DeliveryScheduler.build_schedule()
+        loaded
+      existing -> existing
+    end
+
+    lv_pid = self()
+    socket = assign(socket,
+      schedule_lines: lines,
+      schedule_loading: true,
+      schedule_summary: nil
+    )
+    spawn(fn ->
+      result = DeliveryScheduler.ai_summary(lines)
+      send(lv_pid, {:schedule_summary_result, result})
+    end)
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("reload_schedule", _params, socket) do
+    lines = DeliveryScheduler.build_schedule()
+    {:noreply, assign(socket, schedule_lines: lines, schedule_summary: nil)}
+  end
+
+  @impl true
+  def handle_event("schedule_filter", %{"filter" => f}, socket) do
+    {:noreply, assign(socket, :schedule_direction_filter, String.to_existing_atom(f))}
   end
 
   # ── Fleet tab events ──
@@ -767,6 +810,17 @@ defmodule TradingDesk.ScenarioLive do
     objective = socket.assigns.objective_mode
     lv_pid = self()
 
+    # Update delivery schedule estimated dates based on this solve result
+    socket =
+      if socket.assigns.schedule_lines != [] do
+        updated_lines = DeliveryScheduler.apply_solver_result(
+          socket.assigns.schedule_lines, result, socket.assigns.route_names, vars
+        )
+        assign(socket, schedule_lines: updated_lines)
+      else
+        socket
+      end
+
     # Spawn explanation + post-solve impact analysis
     spawn(fn ->
       try do
@@ -804,6 +858,20 @@ defmodule TradingDesk.ScenarioLive do
     )
     vars = socket.assigns.current_vars
     lv_pid = self()
+
+    # Update delivery schedule estimated dates — derive pseudo-status from MC signal
+    mc_status = if dist.signal in [:no_go, :weak], do: :infeasible, else: :optimal
+    socket =
+      if socket.assigns.schedule_lines != [] do
+        pseudo_result = %{status: mc_status}
+        updated_lines = DeliveryScheduler.apply_solver_result(
+          socket.assigns.schedule_lines, pseudo_result, socket.assigns.route_names, vars
+        )
+        assign(socket, schedule_lines: updated_lines)
+      else
+        socket
+      end
+
     spawn(fn ->
       try do
         case TradingDesk.Analyst.explain_distribution(vars, dist) do
@@ -925,6 +993,15 @@ defmodule TradingDesk.ScenarioLive do
 
   def handle_info({:explanation_result, text}, socket) do
     {:noreply, assign(socket, explanation: text, explaining: false)}
+  end
+
+  @impl true
+  def handle_info({:schedule_summary_result, {:ok, text}}, socket) do
+    {:noreply, assign(socket, schedule_summary: text, schedule_loading: false)}
+  end
+
+  def handle_info({:schedule_summary_result, {:error, _reason}}, socket) do
+    {:noreply, assign(socket, schedule_loading: false)}
   end
 
   @impl true
@@ -1116,7 +1193,7 @@ defmodule TradingDesk.ScenarioLive do
         <div style="overflow-y:auto;padding:16px">
           <%!-- Tab buttons --%>
           <div style="display:flex;gap:2px;margin-bottom:16px">
-            <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:fleet, "Fleet", "#22d3ee"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}, {:history, "History", "#06b6d4"}] do %>
+            <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:schedule, "Schedule", "#f472b6"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:fleet, "Fleet", "#22d3ee"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}, {:history, "History", "#06b6d4"}] do %>
               <button phx-click="switch_tab" phx-value-tab={tab}
                 style={"padding:8px 16px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @active_tab == tab, do: "#111827", else: "transparent"};color:#{if @active_tab == tab, do: "#e2e8f0", else: "#7b8fa4"};border-bottom:2px solid #{if @active_tab == tab, do: color, else: "transparent"}"}>
                 <%= label %>
@@ -1643,6 +1720,245 @@ defmodule TradingDesk.ScenarioLive do
             </div>
           <% end %>
           <% end %><%!-- end :response active_tab+sub-tab wrapper --%>
+
+          <%!-- ═══════ SCHEDULE TAB ═══════ --%>
+          <%= if @active_tab == :schedule do %>
+            <%
+              # Filtered lines
+              all_lines = @schedule_lines
+              filtered_lines = case @schedule_direction_filter do
+                :sale     -> Enum.filter(all_lines, &(&1.direction == :sale))
+                :purchase -> Enum.filter(all_lines, &(&1.direction == :purchase))
+                :at_risk  -> Enum.filter(all_lines, &(&1.status in [:at_risk, :delayed]))
+                _         -> all_lines
+              end
+
+              # Summary stats
+              total_lines   = length(all_lines)
+              sale_lines    = Enum.filter(all_lines, &(&1.direction == :sale))
+              purch_lines   = Enum.filter(all_lines, &(&1.direction == :purchase))
+              risk_lines    = Enum.filter(all_lines, &(&1.status in [:at_risk, :delayed]))
+              delayed_lines = Enum.filter(all_lines, &(&1.status == :delayed))
+              total_sale_mt = sale_lines  |> Enum.map(& &1.quantity_mt) |> Enum.sum()
+              total_purch_mt= purch_lines |> Enum.map(& &1.quantity_mt) |> Enum.sum()
+              next_delivery = all_lines |> Enum.min_by(& &1.required_date, fn -> nil end)
+            %>
+            <div style="background:#111827;border-radius:10px;padding:16px">
+
+              <%!-- Header --%>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:#f472b6;letter-spacing:1px">DELIVERY SCHEDULE</div>
+                  <div style="font-size:11px;color:#7b8fa4;margin-top:2px">
+                    Forward delivery plan · all open ammonia contracts · updated each solve
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <button phx-click="reload_schedule"
+                    style="font-size:11px;font-weight:600;padding:6px 12px;border:1px solid #1e293b;border-radius:6px;background:#0a0f18;color:#94a3b8;cursor:pointer">
+                    ⟳ Reload
+                  </button>
+                  <button phx-click="refresh_schedule_summary"
+                    style="font-size:11px;font-weight:600;padding:6px 14px;border:none;border-radius:6px;background:linear-gradient(135deg,#831843,#be185d);color:#fce7f3;cursor:pointer">
+                    🧠 <%= if @schedule_loading, do: "Analysing…", else: "AI Summary" %>
+                  </button>
+                </div>
+              </div>
+
+              <%!-- Stats row --%>
+              <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">DELIVERIES</div>
+                  <div style="font-size:20px;font-weight:800;font-family:monospace;color:#f472b6"><%= total_lines %></div>
+                </div>
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">SALE (MT)</div>
+                  <div style="font-size:15px;font-weight:700;font-family:monospace;color:#10b981"><%= format_number(total_sale_mt) %></div>
+                </div>
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">PURCHASE (MT)</div>
+                  <div style="font-size:15px;font-weight:700;font-family:monospace;color:#60a5fa"><%= format_number(total_purch_mt) %></div>
+                </div>
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">AT RISK</div>
+                  <div style="font-size:20px;font-weight:800;font-family:monospace;color:#{if length(risk_lines) > 0, do: "#f59e0b", else: "#10b981"}">
+                    <%= length(risk_lines) %>
+                  </div>
+                </div>
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">NEXT DUE</div>
+                  <div style="font-size:12px;font-weight:700;font-family:monospace;color:#e2e8f0">
+                    <%= if next_delivery, do: Calendar.strftime(next_delivery.required_date, "%b %d"), else: "—" %>
+                  </div>
+                  <%= if next_delivery do %>
+                    <div style="font-size:10px;color:#7b8fa4;margin-top:2px"><%= next_delivery.counterparty %></div>
+                  <% end %>
+                </div>
+              </div>
+
+              <%!-- Claude AI Summary --%>
+              <%= if @schedule_loading do %>
+                <div style="background:#060c16;border:1px solid #831843;border-radius:8px;padding:12px;margin-bottom:14px">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div style="width:6px;height:6px;border-radius:50%;background:#f472b6;animation:pulse 1s infinite"></div>
+                    <span style="font-size:12px;color:#f472b6;font-weight:600">🧠 SCHEDULE ANALYST</span>
+                    <span style="font-size:11px;color:#7b8fa4;font-style:italic">Claude is reviewing the delivery schedule…</span>
+                  </div>
+                </div>
+              <% end %>
+              <%= if @schedule_summary && @schedule_summary != "" do %>
+                <div style="background:#060c16;border:1px solid #831843;border-radius:8px;padding:14px;margin-bottom:14px">
+                  <div style="font-size:11px;color:#f472b6;font-weight:700;letter-spacing:1px;margin-bottom:8px">🧠 SCHEDULE ANALYST SUMMARY</div>
+                  <div style="font-size:13px;color:#e2e8f0;line-height:1.75;white-space:pre-wrap"><%= @schedule_summary %></div>
+                </div>
+              <% end %>
+
+              <%!-- Direction filter --%>
+              <%= if total_lines > 0 do %>
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
+                  <span style="font-size:11px;color:#7b8fa4;font-weight:600">SHOW:</span>
+                  <%= for {filter_atom, label, cnt} <- [
+                    {:all,      "All",       total_lines},
+                    {:sale,     "Sales",     length(sale_lines)},
+                    {:purchase, "Purchases", length(purch_lines)},
+                    {:at_risk,  "At Risk",   length(risk_lines)}
+                  ] do %>
+                    <button phx-click="schedule_filter" phx-value-filter={filter_atom}
+                      style={"font-size:11px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @schedule_direction_filter == filter_atom, do: "background:#f472b6;color:#111827;", else: "background:#1e293b;color:#94a3b8;"}"}>
+                      <%= label %> (<%= cnt %>)
+                    </button>
+                  <% end %>
+                </div>
+
+                <%!-- Delivery table --%>
+                <div style="overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:11px;white-space:nowrap">
+                    <thead>
+                      <tr style="border-bottom:2px solid #1e293b">
+                        <th style="text-align:left;padding:6px 8px;color:#f472b6;font-weight:700;letter-spacing:0.8px;font-size:10px">#</th>
+                        <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">COUNTERPARTY</th>
+                        <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">CONTRACT</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">DIR</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">INCO</th>
+                        <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">QTY (MT)</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">CONTRACT DATE</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">EST. DATE</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">DELAY</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">STATUS</th>
+                        <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;white-space:normal;min-width:160px">NOTES</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <%= for {line, row_idx} <- Enum.with_index(filtered_lines, 1) do %>
+                        <%
+                          row_bg = if rem(row_idx, 2) == 0, do: "background:#0c1220;", else: ""
+                          dir_color  = if line.direction == :sale, do: "#10b981", else: "#60a5fa"
+                          dir_label  = if line.direction == :sale, do: "SELL", else: "BUY"
+                          inco_str   = line.incoterm |> to_string() |> String.upcase()
+                          delay_color = case line.delay_days do
+                            0 -> "#10b981"
+                            d when d <= 7 -> "#f59e0b"
+                            _ -> "#ef4444"
+                          end
+                          status_bg = case line.status do
+                            :on_track -> "background:#0f2a1f;color:#10b981;"
+                            :at_risk  -> "background:#2d1b00;color:#f59e0b;"
+                            :delayed  -> "background:#2d0f0f;color:#ef4444;"
+                          end
+                          status_label = case line.status do
+                            :on_track -> "ON TRACK"
+                            :at_risk  -> "AT RISK"
+                            :delayed  -> "DELAYED"
+                          end
+                          dates_match = line.required_date == line.estimated_date
+                        %>
+                        <tr style={"border-bottom:1px solid #0f172a;#{row_bg}"}>
+                          <%!-- Row index --%>
+                          <td style="padding:6px 8px;color:#475569;font-family:monospace"><%= row_idx %></td>
+                          <%!-- Counterparty --%>
+                          <td style="padding:6px 8px;color:#e2e8f0;font-weight:600;white-space:normal;max-width:140px">
+                            <div style="font-size:11px"><%= line.counterparty %></div>
+                            <div style="font-size:10px;color:#7b8fa4;margin-top:1px">
+                              <%= line.delivery_index %>/<%= line.total_deliveries %>
+                            </div>
+                          </td>
+                          <%!-- Contract number --%>
+                          <td style="padding:6px 8px;color:#7b8fa4;font-family:monospace;font-size:10px">
+                            <%= line.contract_number %>
+                          </td>
+                          <%!-- Direction --%>
+                          <td style="padding:6px 8px;text-align:center">
+                            <span style={"font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:#{if line.direction == :sale, do: "#0f2a1f", else: "#0e1f3e"};color:#{dir_color}"}>
+                              <%= dir_label %>
+                            </span>
+                          </td>
+                          <%!-- Incoterm --%>
+                          <td style="padding:6px 8px;text-align:center;color:#94a3b8;font-family:monospace;font-size:10px">
+                            <%= inco_str %>
+                          </td>
+                          <%!-- Quantity --%>
+                          <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700;color:#e2e8f0">
+                            <%= format_number(line.quantity_mt) %>
+                          </td>
+                          <%!-- Contract required date --%>
+                          <td style="padding:6px 8px;text-align:center;font-family:monospace;color:#94a3b8">
+                            <%= Calendar.strftime(line.required_date, "%d %b %Y") %>
+                          </td>
+                          <%!-- Estimated date --%>
+                          <td style={"padding:6px 8px;text-align:center;font-family:monospace;font-weight:#{if dates_match, do: "400", else: "700"};color:#{if dates_match, do: "#94a3b8", else: delay_color}"}>
+                            <%= Calendar.strftime(line.estimated_date, "%d %b %Y") %>
+                            <%= if not dates_match do %>
+                              <span style="font-size:9px;margin-left:3px;vertical-align:middle">▲</span>
+                            <% end %>
+                          </td>
+                          <%!-- Delay days --%>
+                          <td style={"padding:6px 8px;text-align:center;font-family:monospace;font-weight:700;color:#{delay_color}"}>
+                            <%= if line.delay_days == 0, do: "—", else: "+#{line.delay_days}d" %>
+                          </td>
+                          <%!-- Status badge --%>
+                          <td style="padding:6px 8px;text-align:center">
+                            <span style={"font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:0.5px;#{status_bg}"}>
+                              <%= status_label %>
+                            </span>
+                          </td>
+                          <%!-- Notes --%>
+                          <td style="padding:6px 8px;color:#7b8fa4;font-size:10px;white-space:normal;line-height:1.4">
+                            <%= line.notes || "" %>
+                          </td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+
+                <%!-- Table footer --%>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid #1e293b;font-size:11px;color:#7b8fa4">
+                  <span>
+                    Showing <%= length(filtered_lines) %> of <%= total_lines %> delivery lines ·
+                    <%= length(delayed_lines) %> delayed
+                  </span>
+                  <span>
+                    Estimated dates update automatically when the solver runs
+                  </span>
+                </div>
+              <% else %>
+                <%!-- Empty state --%>
+                <div style="padding:40px;text-align:center;color:#7b8fa4">
+                  <div style="font-size:32px;margin-bottom:12px">📋</div>
+                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No delivery lines loaded</div>
+                  <div style="font-size:12px;margin-bottom:16px">
+                    Click <strong style="color:#f472b6">Reload</strong> to generate the schedule from SAP contract positions,
+                    or run a solve from the Trader tab to populate automatically.
+                  </div>
+                  <button phx-click="reload_schedule"
+                    style="padding:10px 24px;border:none;border-radius:8px;background:#831843;color:#fce7f3;font-size:13px;font-weight:700;cursor:pointer">
+                    📋 Load Schedule
+                  </button>
+                </div>
+              <% end %>
+
+            </div>
+          <% end %><%!-- end :schedule tab --%>
 
           <%!-- === CONTRACTS TAB === --%>
           <%= if @active_tab == :contracts do %>

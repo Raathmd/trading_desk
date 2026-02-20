@@ -555,6 +555,20 @@ defmodule TradingDesk.Analyst do
     end
   end
 
+  # ── Generic prompt (for external callers) ───────────────────
+
+  @doc """
+  Send an arbitrary prompt to Claude and return the raw text response.
+
+  Used by modules that need Claude analysis but don't fit the structured
+  explain_solve / explain_distribution flow (e.g. DeliveryScheduler summaries).
+
+  Returns `{:ok, text}` or `{:error, reason}`.
+  """
+  def prompt(text, opts \\ []) do
+    call_claude(text, opts)
+  end
+
   # ── Claude API ──────────────────────────────────────────────
 
   defp call_claude(prompt, opts \\ []) do
