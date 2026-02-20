@@ -7,6 +7,7 @@ defmodule TradingDesk.Application do
     TradingDesk.Notifications.init_ets()
 
     children = [
+      {Finch, name: Swoosh.Finch},
       TradingDesk.Repo,
       TradingDesk.DB.SnapshotLog,
       {Phoenix.PubSub, name: TradingDesk.PubSub},

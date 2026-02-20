@@ -1,5 +1,11 @@
 defmodule TradingDeskWeb.AuthController do
-  use TradingDeskWeb, :controller
+  use Phoenix.Controller,
+    namespace: TradingDeskWeb,
+    formats: [:html],
+    layouts: [html: false]
+
+  import Plug.Conn
+  plug :put_view, TradingDeskWeb.AuthHTML
 
   alias TradingDesk.Auth.MagicLink
   alias TradingDesk.Emails.MagicLinkEmail

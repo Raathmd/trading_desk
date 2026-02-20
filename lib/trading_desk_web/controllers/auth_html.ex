@@ -1,5 +1,5 @@
 defmodule TradingDeskWeb.AuthHTML do
-  use TradingDeskWeb, :html
+  use Phoenix.Component
 
   embed_templates "auth_html/*"
 end

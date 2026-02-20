@@ -2236,7 +2236,7 @@ defmodule TradingDesk.ScenarioLive do
                           <%= if c.revised_quantity_mt, do: Float.round(c.revised_quantity_mt * 1.0, 0) |> trunc(), else: "—" %>
                         </td>
                         <td style="padding:6px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px"><%= c.original_date %></td>
-                        <td style="padding:6px;text-align:right;font-family:monospace;font-size:10px;color:#{if c.revised_date != c.original_date, do: "#fb923c", else: "#94a3b8"}"><%= c.revised_date || "—" %></td>
+                        <td style={"padding:6px;text-align:right;font-family:monospace;font-size:10px;color:#{if c.revised_date != c.original_date, do: "#fb923c", else: "#94a3b8"}"}><%= c.revised_date || "—" %></td>
                         <td style="padding:6px;text-align:center">
                           <span style={"font-size:10px;font-weight:700;color:#{status_color}"}><%= status_label %></span>
                         </td>

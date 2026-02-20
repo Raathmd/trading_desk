@@ -19,3 +19,6 @@ config :trading_desk, ecto_repos: [TradingDesk.Repo]
 
 # Mailer — uses local (log-only) adapter in dev; overridden in runtime.exs for prod
 config :trading_desk, TradingDesk.Mailer, adapter: Swoosh.Adapters.Local
+
+# Swoosh — use Finch as the HTTP client (replaces hackney)
+config :swoosh, :api_client, Swoosh.ApiClient.Finch

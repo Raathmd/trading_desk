@@ -34,7 +34,8 @@ defmodule TradingDesk.MixProject do
       {:ecto_sqlite3, "~> 0.17"},
       {:websockex, "~> 0.4"},
       {:swoosh, "~> 1.16"},
-      {:gen_smtp, "~> 1.2"}
+      {:gen_smtp, "~> 1.2"},
+      {:finch, "~> 0.18"}
     ]
   end
 
