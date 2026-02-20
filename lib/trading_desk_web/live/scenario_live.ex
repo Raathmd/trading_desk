@@ -139,6 +139,9 @@ defmodule TradingDesk.ScenarioLive do
       # Workflow tab
       |> assign(:workflow_changes, [])
       |> assign(:workflow_status_filter, "pending")
+      |> assign(:workflow_direction_filter, :all)
+      |> assign(:workflow_delivery_status_filter, :all)
+      |> assign(:workflow_sap_flash, nil)
       |> assign(:scenario_saved_flash, nil)
       # Model summary (always computed) + scenario description (trader narrative)
       |> assign(:model_summary, "")
@@ -353,7 +356,11 @@ defmodule TradingDesk.ScenarioLive do
           end)
         end
 
-        {:noreply, assign(socket, saved_scenarios: scenarios, scenario_saved_flash: name)}
+        # Apply the solver result directly to schedule_lines so both the schedule tab
+        # and the workflow tab immediately reflect the updated quantities and dates.
+        updated_lines = apply_scenario_to_schedule(schedule_lines, result)
+
+        {:noreply, assign(socket, saved_scenarios: scenarios, scenario_saved_flash: name, schedule_lines: updated_lines)}
     end
   end
 
@@ -518,6 +525,10 @@ defmodule TradingDesk.ScenarioLive do
         :schedule ->
           assign(socket, schedule_lines: DeliveryScheduler.build_schedule())
         :workflow ->
+          # Load schedule lines if not yet loaded (shared source of truth with schedule tab)
+          socket = if socket.assigns.schedule_lines == [],
+            do: assign(socket, schedule_lines: DeliveryScheduler.build_schedule()),
+            else: socket
           pg = to_string(socket.assigns.product_group)
           changes = safe_call(fn -> PendingDeliveryChange.list_for_product_group(pg, socket.assigns.workflow_status_filter) end, [])
           assign(socket, workflow_changes: changes)
@@ -762,6 +773,39 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def handle_event("schedule_delivery_status_filter", %{"status" => status}, socket) do
     {:noreply, assign(socket, schedule_delivery_status_filter: String.to_existing_atom(status))}
+  end
+
+  @impl true
+  def handle_event("workflow_update_sap", _params, socket) do
+    # Simulate pushing all open delivery records to SAP.
+    # Marks every open line as :closed with a generated SAP document number
+    # and updates sap_updated_at — mirroring what a real SAP write-back would do.
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    updated_lines =
+      Enum.map(socket.assigns.schedule_lines, fn line ->
+        if Map.get(line, :delivery_status, :open) == :open do
+          sap_doc = "SAP-#{:rand.uniform(999_999) |> Integer.to_string() |> String.pad_leading(6, "0")}"
+          line
+          |> Map.put(:delivery_status, :closed)
+          |> Map.put(:sap_updated_at, now)
+          |> Map.put(:sap_document, sap_doc)
+        else
+          line
+        end
+      end)
+    open_count = Enum.count(socket.assigns.schedule_lines, &(Map.get(&1, :delivery_status, :open) == :open))
+    flash_msg = "SAP updated — #{open_count} open delivery record(s) submitted"
+    {:noreply, assign(socket, schedule_lines: updated_lines, workflow_sap_flash: flash_msg)}
+  end
+
+  @impl true
+  def handle_event("workflow_filter_direction", %{"filter" => f}, socket) do
+    {:noreply, assign(socket, :workflow_direction_filter, String.to_existing_atom(f))}
+  end
+
+  @impl true
+  def handle_event("workflow_filter_delivery_status", %{"status" => s}, socket) do
+    {:noreply, assign(socket, :workflow_delivery_status_filter, String.to_existing_atom(s))}
   end
 
   # ── History tab events ──
@@ -2161,116 +2205,277 @@ defmodule TradingDesk.ScenarioLive do
 
           <%!-- ═══════ WORKFLOW TAB ═══════ --%>
           <%= if @active_tab == :workflow do %>
+            <%
+              # Shared source: same schedule_lines as the Schedule tab
+              wf_all_lines = @schedule_lines
+
+              # Apply delivery_status filter
+              wf_status_filtered = case @workflow_delivery_status_filter do
+                :open      -> Enum.filter(wf_all_lines, &(Map.get(&1, :delivery_status, :open) == :open))
+                :closed    -> Enum.filter(wf_all_lines, &(Map.get(&1, :delivery_status, :open) == :closed))
+                :cancelled -> Enum.filter(wf_all_lines, &(Map.get(&1, :delivery_status, :open) == :cancelled))
+                _          -> wf_all_lines
+              end
+
+              # Apply direction filter
+              wf_filtered_lines = case @workflow_direction_filter do
+                :sale     -> Enum.filter(wf_status_filtered, &(&1.direction == :sale))
+                :purchase -> Enum.filter(wf_status_filtered, &(&1.direction == :purchase))
+                :at_risk  -> Enum.filter(wf_status_filtered, &(&1.status in [:at_risk, :delayed]))
+                _         -> wf_status_filtered
+              end
+
+              wf_total      = length(wf_all_lines)
+              wf_sale_lines = Enum.filter(wf_all_lines, &(&1.direction == :sale))
+              wf_purch_lines= Enum.filter(wf_all_lines, &(&1.direction == :purchase))
+              wf_risk_lines = Enum.filter(wf_all_lines, &(&1.status in [:at_risk, :delayed]))
+              wf_open_lines = Enum.filter(wf_all_lines, &(Map.get(&1, :delivery_status, :open) == :open))
+              wf_closed_lines  = Enum.filter(wf_all_lines, &(Map.get(&1, :delivery_status, :open) == :closed))
+              wf_cancelled_lines = Enum.filter(wf_all_lines, &(Map.get(&1, :delivery_status, :open) == :cancelled))
+              wf_open_mt    = wf_open_lines |> Enum.map(& &1.quantity_mt) |> Enum.sum()
+            %>
             <div style="background:#111827;border-radius:10px;padding:16px">
+
               <%!-- Header --%>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
                 <div>
                   <div style="font-size:13px;font-weight:700;color:#fb923c;letter-spacing:1px">DELIVERY WORKFLOW</div>
                   <div style="font-size:11px;color:#7b8fa4;margin-top:2px">
-                    Proposed delivery changes pending SAP capture · save a scenario to generate changes
+                    Live delivery schedule · open records ready for SAP submission
                   </div>
                 </div>
-                <div style="font-size:12px;color:#7b8fa4"><%= length(@workflow_changes) %> record<%= if length(@workflow_changes) != 1, do: "s" %></div>
-              </div>
-
-              <%!-- Status filter --%>
-              <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
-                <span style="font-size:11px;color:#94a3b8;font-weight:600">STATUS</span>
-                <%= for {status, label, color} <- [{"all", "All", "#94a3b8"}, {"pending", "Pending", "#fb923c"}, {"applied", "Applied", "#4ade80"}, {"rejected", "Rejected", "#f87171"}, {"cancelled", "Cancelled", "#7b8fa4"}] do %>
-                  <button phx-click="workflow_filter_status" phx-value-status={status}
-                    style={"font-size:11px;font-weight:600;padding:3px 10px;border:none;border-radius:4px;cursor:pointer;#{if @workflow_status_filter == status, do: "background:#{color};color:#0a0f18;", else: "background:#1e293b;color:#94a3b8;"}"}>
-                    <%= label %>
-                  </button>
-                <% end %>
-              </div>
-
-              <%!-- Changes table --%>
-              <%= if @workflow_changes == [] do %>
-                <div style="padding:32px;text-align:center;color:#7b8fa4;font-size:13px">
-                  <%= if @workflow_status_filter == "pending" do %>
-                    No pending delivery changes. Save a solved scenario to generate workflow items.
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="font-size:12px;color:#7b8fa4">
+                    <%= length(wf_open_lines) %> open · <%= format_number(wf_open_mt) %> MT
+                  </div>
+                  <%= if wf_open_lines != [] do %>
+                    <button phx-click="workflow_update_sap"
+                      data-confirm={"Submit #{length(wf_open_lines)} open delivery record(s) to SAP?"}
+                      style="font-size:11px;font-weight:700;padding:7px 16px;border:none;border-radius:6px;background:linear-gradient(135deg,#166534,#15803d);color:#4ade80;cursor:pointer;letter-spacing:0.5px;white-space:nowrap">
+                      ⬆ UPDATE SAP
+                    </button>
                   <% else %>
-                    No changes found for this filter.
+                    <span style="font-size:11px;font-weight:600;padding:7px 16px;border:1px solid #1e293b;border-radius:6px;color:#4ade80;background:#0a1f0a">
+                      ✓ SAP up to date
+                    </span>
                   <% end %>
                 </div>
-              <% else %>
-                <table style="width:100%;border-collapse:collapse;font-size:11px">
-                  <thead>
-                    <tr style="border-bottom:1px solid #1e293b">
-                      <th style="text-align:left;padding:5px 6px;color:#94a3b8;font-weight:600">Scenario</th>
-                      <th style="text-align:left;padding:5px 6px;color:#94a3b8;font-weight:600">Counterparty</th>
-                      <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600">Dir</th>
-                      <th style="text-align:right;padding:5px 6px;color:#94a3b8;font-weight:600">Orig MT</th>
-                      <th style="text-align:right;padding:5px 6px;color:#94a3b8;font-weight:600">New MT</th>
-                      <th style="text-align:right;padding:5px 6px;color:#94a3b8;font-weight:600">Orig Date</th>
-                      <th style="text-align:right;padding:5px 6px;color:#94a3b8;font-weight:600">New Date</th>
-                      <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600">Status</th>
-                      <th style="text-align:left;padding:5px 6px;color:#94a3b8;font-weight:600">SAP Doc</th>
-                      <th style="text-align:center;padding:5px 6px;color:#4ade80;font-weight:600;white-space:nowrap">SAP Created</th>
-                      <th style="text-align:center;padding:5px 6px;color:#4ade80;font-weight:600;white-space:nowrap">SAP Updated</th>
-                      <th style="padding:5px 6px;width:160px"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <%= for c <- @workflow_changes do %>
-                      <%
-                        {status_color, status_label} = case c.status do
-                          "pending"   -> {"#fb923c", "PENDING"}
-                          "applied"   -> {"#4ade80", "APPLIED"}
-                          "rejected"  -> {"#f87171", "REJECTED"}
-                          "cancelled" -> {"#7b8fa4", "CANCELLED"}
-                          _           -> {"#94a3b8", String.upcase(c.status || "?")}
-                        end
-                        dir_color = if c.direction == "sale", do: "#f59e0b", else: "#60a5fa"
-                      %>
-                      <tr style="border-bottom:1px solid #0f172a">
-                        <td style="padding:6px;color:#94a3b8;font-size:11px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= c.scenario_name %></td>
-                        <td style="padding:6px;color:#e2e8f0;font-weight:500"><%= c.counterparty %></td>
-                        <td style="padding:6px;text-align:center">
-                          <span style={"font-size:10px;font-weight:700;color:#{dir_color}"}><%= String.upcase(c.direction || "") %></span>
-                        </td>
-                        <td style="padding:6px;text-align:right;color:#94a3b8;font-family:monospace">
-                          <%= if c.original_quantity_mt, do: Float.round(c.original_quantity_mt * 1.0, 0) |> trunc(), else: "—" %>
-                        </td>
-                        <td style="padding:6px;text-align:right;font-family:monospace;color:#fb923c;font-weight:600">
-                          <%= if c.revised_quantity_mt, do: Float.round(c.revised_quantity_mt * 1.0, 0) |> trunc(), else: "—" %>
-                        </td>
-                        <td style="padding:6px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px"><%= c.original_date %></td>
-                        <td style={"padding:6px;text-align:right;font-family:monospace;font-size:10px;color:#{if c.revised_date != c.original_date, do: "#fb923c", else: "#94a3b8"}"}><%= c.revised_date || "—" %></td>
-                        <td style="padding:6px;text-align:center">
-                          <span style={"font-size:10px;font-weight:700;color:#{status_color}"}><%= status_label %></span>
-                        </td>
-                        <td style="padding:6px;color:#7b8fa4;font-family:monospace;font-size:10px"><%= c.sap_document || "—" %></td>
-                        <td style="padding:6px;text-align:center;font-family:monospace;font-size:10px;color:#4ade80">
-                          <%= if c.sap_created_at, do: Calendar.strftime(c.sap_created_at, "%d %b %Y"), else: "—" %>
-                        </td>
-                        <td style="padding:6px;text-align:center;font-family:monospace;font-size:10px;color:#4ade80">
-                          <%= if c.sap_updated_at, do: Calendar.strftime(c.sap_updated_at, "%d %b %Y"), else: "—" %>
-                        </td>
-                        <td style="padding:6px;text-align:right">
-                          <%= if c.status == "pending" do %>
-                            <div style="display:flex;gap:4px;justify-content:flex-end">
-                              <button phx-click="workflow_apply_change" phx-value-id={c.id}
-                                data-confirm="Simulate SAP update for this delivery change?"
-                                style="font-size:10px;font-weight:700;padding:3px 8px;border:none;border-radius:4px;background:#166534;color:#4ade80;cursor:pointer;letter-spacing:0.5px">
-                                APPLY TO SAP
-                              </button>
-                              <button phx-click="workflow_reject_change" phx-value-id={c.id}
-                                style="font-size:10px;padding:3px 8px;border:none;border-radius:4px;background:#1f0a0a;color:#f87171;cursor:pointer">
-                                REJECT
-                              </button>
-                            </div>
-                          <% else %>
-                            <span style="font-size:10px;color:#7b8fa4">
-                              <%= if c.applied_at, do: Calendar.strftime(c.applied_at, "%d %b %H:%M"), else: "" %>
-                            </span>
-                          <% end %>
-                        </td>
-                      </tr>
-                    <% end %>
-                  </tbody>
-                </table>
+              </div>
+
+              <%!-- SAP update flash --%>
+              <%= if @workflow_sap_flash do %>
+                <div style="background:#0a1f0a;border:1px solid #166534;border-left:4px solid #4ade80;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+                  <span style="font-size:14px">✓</span>
+                  <span style="font-size:12px;color:#4ade80;font-weight:600"><%= @workflow_sap_flash %></span>
+                </div>
               <% end %>
+
+              <%!-- Stats row --%>
+              <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">DELIVERIES</div>
+                  <div style="font-size:20px;font-weight:800;font-family:monospace;color:#fb923c"><%= wf_total %></div>
+                </div>
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">OPEN</div>
+                  <div style="font-size:20px;font-weight:800;font-family:monospace;color:#4ade80"><%= length(wf_open_lines) %></div>
+                </div>
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">CLOSED</div>
+                  <div style="font-size:20px;font-weight:800;font-family:monospace;color:#7b8fa4"><%= length(wf_closed_lines) %></div>
+                </div>
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">AT RISK</div>
+                  <div style={"font-size:20px;font-weight:800;font-family:monospace;color:#{if length(wf_risk_lines) > 0, do: "#f59e0b", else: "#10b981"}"}>
+                    <%= length(wf_risk_lines) %>
+                  </div>
+                </div>
+                <div style="background:#0a0f18;padding:10px;border-radius:6px;text-align:center">
+                  <div style="font-size:11px;color:#94a3b8;margin-bottom:3px">OPEN MT</div>
+                  <div style="font-size:13px;font-weight:700;font-family:monospace;color:#fb923c"><%= format_number(wf_open_mt) %></div>
+                </div>
+              </div>
+
+              <%= if wf_total > 0 do %>
+                <%!-- Direction filter --%>
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+                  <span style="font-size:11px;color:#7b8fa4;font-weight:600">SHOW:</span>
+                  <%= for {filter_atom, label, cnt} <- [
+                    {:all,      "All",       wf_total},
+                    {:sale,     "Sales",     length(wf_sale_lines)},
+                    {:purchase, "Purchases", length(wf_purch_lines)},
+                    {:at_risk,  "At Risk",   length(wf_risk_lines)}
+                  ] do %>
+                    <button phx-click="workflow_filter_direction" phx-value-filter={filter_atom}
+                      style={"font-size:11px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @workflow_direction_filter == filter_atom, do: "background:#fb923c;color:#111827;", else: "background:#1e293b;color:#94a3b8;"}"}>
+                      <%= label %> (<%= cnt %>)
+                    </button>
+                  <% end %>
+                </div>
+
+                <%!-- Delivery status filter --%>
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+                  <span style="font-size:11px;color:#7b8fa4;font-weight:600">STATUS:</span>
+                  <%= for {status_atom, label, cnt, active_color} <- [
+                    {:all,       "All",       wf_total,                      "#94a3b8"},
+                    {:open,      "Open",      length(wf_open_lines),         "#4ade80"},
+                    {:closed,    "Closed",    length(wf_closed_lines),       "#7b8fa4"},
+                    {:cancelled, "Cancelled", length(wf_cancelled_lines),    "#f87171"}
+                  ] do %>
+                    <button phx-click="workflow_filter_delivery_status" phx-value-status={status_atom}
+                      style={"font-size:11px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @workflow_delivery_status_filter == status_atom, do: "background:#{active_color};color:#0a0f18;", else: "background:#1e293b;color:#94a3b8;"}"}>
+                      <%= label %> (<%= cnt %>)
+                    </button>
+                  <% end %>
+                </div>
+
+                <%!-- Delivery table (same structure as Schedule tab) --%>
+                <div style="overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:11px;white-space:nowrap">
+                    <thead>
+                      <tr style="border-bottom:2px solid #1e293b">
+                        <th style="text-align:left;padding:6px 8px;color:#fb923c;font-weight:700;letter-spacing:0.8px;font-size:10px">#</th>
+                        <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">COUNTERPARTY</th>
+                        <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">CONTRACT</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">DIR</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">INCO</th>
+                        <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">QTY (MT)</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">CONTRACT DATE</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">EST. DATE</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">DELAY</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">STATUS</th>
+                        <th style="text-align:center;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px">DEL. STATUS</th>
+                        <th style="text-align:center;padding:6px 8px;color:#4ade80;font-weight:600;font-size:10px;white-space:nowrap">SAP CREATED</th>
+                        <th style="text-align:center;padding:6px 8px;color:#4ade80;font-weight:600;font-size:10px;white-space:nowrap">SAP UPDATED</th>
+                        <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600;font-size:10px;white-space:normal;min-width:160px">NOTES</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <%= for {line, row_idx} <- Enum.with_index(wf_filtered_lines, 1) do %>
+                        <%
+                          row_bg = if rem(row_idx, 2) == 0, do: "background:#0c1220;", else: ""
+                          dir_color  = if line.direction == :sale, do: "#10b981", else: "#60a5fa"
+                          dir_label  = if line.direction == :sale, do: "SELL", else: "BUY"
+                          inco_str   = line.incoterm |> to_string() |> String.upcase()
+                          delay_color = case line.delay_days do
+                            0 -> "#10b981"
+                            d when d <= 7 -> "#f59e0b"
+                            _ -> "#ef4444"
+                          end
+                          status_bg = case line.status do
+                            :on_track -> "background:#0f2a1f;color:#10b981;"
+                            :at_risk  -> "background:#2d1b00;color:#f59e0b;"
+                            :delayed  -> "background:#2d0f0f;color:#ef4444;"
+                          end
+                          status_label = case line.status do
+                            :on_track -> "ON TRACK"
+                            :at_risk  -> "AT RISK"
+                            :delayed  -> "DELAYED"
+                          end
+                          dates_match = line.required_date == line.estimated_date
+                          slip_row_style = case line.status do
+                            :delayed -> "border-left:4px solid #ef4444;background:#2d0a0a;"
+                            :at_risk  -> "border-left:4px solid #f59e0b;background:#2a1500;"
+                            _         -> ""
+                          end
+                          effective_bg = if line.status in [:at_risk, :delayed], do: "", else: row_bg
+                          del_status = Map.get(line, :delivery_status, :open)
+                          del_status_style = case del_status do
+                            :open      -> "background:#0f2a1f;color:#4ade80;"
+                            :closed    -> "background:#1e293b;color:#7b8fa4;"
+                            :cancelled -> "background:#2d0f0f;color:#f87171;"
+                            _          -> "background:#0f2a1f;color:#4ade80;"
+                          end
+                          del_status_label = del_status |> to_string() |> String.upcase()
+                        %>
+                        <tr style={"border-bottom:1px solid #0f172a;#{effective_bg}#{slip_row_style}"}>
+                          <td style="padding:6px 8px;color:#475569;font-family:monospace"><%= row_idx %></td>
+                          <td style="padding:6px 8px;color:#e2e8f0;font-weight:600;white-space:normal;max-width:140px">
+                            <div style="font-size:11px"><%= line.counterparty %></div>
+                            <div style="font-size:10px;color:#7b8fa4;margin-top:1px">
+                              <%= line.delivery_index %>/<%= line.total_deliveries %>
+                            </div>
+                          </td>
+                          <td style="padding:6px 8px;color:#7b8fa4;font-family:monospace;font-size:10px">
+                            <%= line.contract_number %>
+                          </td>
+                          <td style="padding:6px 8px;text-align:center">
+                            <span style={"font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:#{if line.direction == :sale, do: "#0f2a1f", else: "#0e1f3e"};color:#{dir_color}"}>
+                              <%= dir_label %>
+                            </span>
+                          </td>
+                          <td style="padding:6px 8px;text-align:center;color:#94a3b8;font-family:monospace;font-size:10px">
+                            <%= inco_str %>
+                          </td>
+                          <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700;color:#e2e8f0">
+                            <%= format_number(line.quantity_mt) %>
+                          </td>
+                          <td style="padding:6px 8px;text-align:center;font-family:monospace;color:#94a3b8">
+                            <%= Calendar.strftime(line.required_date, "%d %b %Y") %>
+                          </td>
+                          <td style={"padding:6px 8px;text-align:center;font-family:monospace;font-weight:#{if dates_match, do: "400", else: "700"};color:#{if dates_match, do: "#94a3b8", else: delay_color}"}>
+                            <%= Calendar.strftime(line.estimated_date, "%d %b %Y") %>
+                            <%= if not dates_match do %>
+                              <span style="font-size:9px;margin-left:3px;vertical-align:middle">▲</span>
+                            <% end %>
+                          </td>
+                          <td style={"padding:6px 8px;text-align:center;font-family:monospace;font-weight:700;color:#{delay_color}"}>
+                            <%= if line.delay_days == 0, do: "—", else: "+#{line.delay_days}d" %>
+                          </td>
+                          <td style="padding:6px 8px;text-align:center">
+                            <span style={"font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:0.5px;#{status_bg}"}>
+                              <%= status_label %>
+                            </span>
+                          </td>
+                          <td style="padding:6px 8px;text-align:center">
+                            <span style={"font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:0.5px;#{del_status_style}"}>
+                              <%= del_status_label %>
+                            </span>
+                          </td>
+                          <td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:10px;color:#4ade80">
+                            <%= if Map.get(line, :sap_created_at) do %>
+                              <%= Calendar.strftime(line.sap_created_at, "%d %b %Y") %>
+                            <% else %>
+                              <span style="color:#475569">—</span>
+                            <% end %>
+                          </td>
+                          <td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:10px;color:#4ade80">
+                            <%= if Map.get(line, :sap_updated_at) do %>
+                              <%= Calendar.strftime(line.sap_updated_at, "%d %b %Y") %>
+                            <% else %>
+                              <span style="color:#475569">—</span>
+                            <% end %>
+                          </td>
+                          <td style="padding:6px 8px;color:#7b8fa4;font-size:10px;white-space:normal;line-height:1.4">
+                            <%= line.notes || "" %>
+                          </td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+
+                <%!-- Table footer --%>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid #1e293b;font-size:11px;color:#7b8fa4">
+                  <span>
+                    Showing <%= length(wf_filtered_lines) %> of <%= wf_total %> delivery lines
+                  </span>
+                  <span>
+                    <%= length(wf_open_lines) %> open · press UPDATE SAP to submit to SAP
+                  </span>
+                </div>
+              <% else %>
+                <%!-- Empty state --%>
+                <div style="padding:40px;text-align:center;color:#7b8fa4">
+                  <div style="font-size:32px;margin-bottom:12px">⚙️</div>
+                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No delivery lines loaded</div>
+                  <div style="font-size:12px;margin-bottom:16px">
+                    Switch to the <strong style="color:#f472b6">Schedule</strong> tab and click Reload,
+                    or run and save a solve from the Trader tab.
+                  </div>
+                </div>
+              <% end %>
+
             </div>
           <% end %><%!-- end :workflow tab --%>
 
@@ -5163,6 +5368,30 @@ defmodule TradingDesk.ScenarioLive do
         |> Enum.join("\n")
       "--- FLEET (AIS TRACKING) ---\n#{content}"
     end
+  end
+
+  # Apply a solver result directly to schedule_lines so that saving a scenario
+  # immediately reflects the revised quantities and estimated dates on both the
+  # schedule tab and the workflow tab (they share the same schedule_lines data).
+  defp apply_scenario_to_schedule([], _result), do: []
+  defp apply_scenario_to_schedule(schedule_lines, solver_result) do
+    Enum.map(schedule_lines, fn line ->
+      original_qty = line[:quantity_mt] || 0
+      solver_tons  = Map.get(solver_result, :tons, 0)
+      route_factor = solver_tons / max(original_qty, 1)
+      revised_qty  = Float.round(original_qty * min(route_factor, 1.0), 2)
+
+      delay_days    = line[:delay_days] || 0
+      original_date = line[:required_date]
+      revised_date  =
+        if delay_days > 0 && original_date,
+          do: Date.add(original_date, delay_days),
+          else: original_date
+
+      line
+      |> Map.put(:quantity_mt, revised_qty)
+      |> then(fn l -> if revised_date, do: Map.put(l, :estimated_date, revised_date), else: l end)
+    end)
   end
 
   # Safe GenServer call — returns fallback if the service isn't running yet
