@@ -7,6 +7,7 @@ defmodule TradingDesk.MixProject do
       version: "0.1.0",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
+      releases: releases(),
       deps: deps(),
       aliases: aliases()
     ]
@@ -34,6 +35,15 @@ defmodule TradingDesk.MixProject do
       {:websockex, "~> 0.4"},
       {:swoosh, "~> 1.16"},
       {:gen_smtp, "~> 1.2"}
+    ]
+  end
+
+  defp releases do
+    [
+      trading_desk: [
+        include_executables_for: [:unix],
+        applications: [runtime_tools: :permanent]
+      ]
     ]
   end
 

@@ -1,9 +1,13 @@
-# Build artifacts
+# Exclude all of _build EXCEPT the prod release
 _build/
-deps/
-.elixir_ls/
+!_build/prod/
+!_build/prod/rel/
+!_build/prod/rel/**
 
-# Zig build artifacts
+# Deps are embedded in the release — don't need to send them
+deps/
+
+# Zig build artifacts — only the solver binary is needed
 native/zig-cache/
 native/zig-out/
 native/HiGHS/
@@ -11,12 +15,13 @@ native/lp_data/
 native/util/
 native/build/
 native/*.o
-native/solver
+# NOTE: native/solver is intentionally NOT excluded — it's copied into the image
 
 # Dev/test
 cover/
 doc/
 tmp/
+.elixir_ls/
 
 # Secrets — never send to Docker daemon
 .env
@@ -37,8 +42,5 @@ tmp/
 *.log
 erl_crash.dump
 
-# Node (if any)
+# Node
 node_modules/
-
-# Fly
-fly.toml
