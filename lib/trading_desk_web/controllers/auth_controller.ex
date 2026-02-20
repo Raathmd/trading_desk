@@ -13,81 +13,75 @@ defmodule TradingDeskWeb.AuthController do
 
   require Logger
 
-  # GET /login — redirect straight to app if already authenticated
+  # GET /login — always show the login page; magic link is the only entry point
   def login(conn, _params) do
-    if get_session(conn, :authenticated_email) do
-      redirect(conn, to: "/")
-    else
-      conn
-      |> put_layout(false)
-      |> render(:login,
-        error: nil,
-        flash_error: get_flash(conn, :error),
-        has_session: false
-      )
+    conn
+    |> put_layout(false)
+    |> render(:login,
+      error: nil,
+      flash_error: get_flash(conn, :error),
+      users: MagicLink.list_emails()
+    )
+  end
+
+  # POST /login/request
+  def request_link(conn, %{"email" => email}) do
+    email = String.downcase(String.trim(email || ""))
+
+    case MagicLink.generate(email) do
+      {:ok, token} ->
+        base_url = TradingDeskWeb.Endpoint.url()
+        link = "#{base_url}/auth/#{token}"
+
+        Logger.info("\n\n========================================\n" <>
+                    "MAGIC LINK for #{email}\n#{link}\n" <>
+                    "========================================\n")
+
+        email
+        |> MagicLinkEmail.build(link)
+        |> Mailer.deliver()
+        |> case do
+          {:ok, _}        -> Logger.info("Magic link email sent to #{email}")
+          {:error, reason} -> Logger.error("Failed to send magic link email: #{inspect(reason)}")
+        end
+
+        conn
+        |> put_layout(false)
+        |> render(:sent)
+
+      {:error, :rate_limited} ->
+        conn
+        |> put_layout(false)
+        |> render(:sent)
+
+      {:error, :not_allowed} ->
+        conn
+        |> put_layout(false)
+        |> render(:login,
+          error: "That email address is not authorised.",
+          flash_error: nil,
+          users: MagicLink.list_emails()
+        )
+
+      {:error, _} ->
+        conn
+        |> put_layout(false)
+        |> render(:login,
+          error: "Something went wrong. Please try again.",
+          flash_error: nil,
+          users: MagicLink.list_emails()
+        )
     end
   end
 
-  @authorised_email "marcus.raath@trammo.com"
-
-  # POST /login/request — email is hardcoded; no user input accepted
   def request_link(conn, _params) do
-    # Already authenticated — send straight to app, don't issue a new token
-    if get_session(conn, :authenticated_email) do
-      redirect(conn, to: "/")
-    else
-      email = @authorised_email
-
-      case MagicLink.generate(email) do
-        {:ok, token} ->
-          base_url = TradingDeskWeb.Endpoint.url()
-          link = "#{base_url}/auth/#{token}"
-
-          # Always log to console as fallback (visible via fly logs)
-          Logger.info("\n\n========================================\n" <>
-                      "MAGIC LINK for #{email}\n#{link}\n" <>
-                      "========================================\n")
-
-          # Send email — log if it fails but don't block the response
-          email
-          |> MagicLinkEmail.build(link)
-          |> Mailer.deliver()
-          |> case do
-            {:ok, _} ->
-              Logger.info("Magic link email sent to #{email}")
-            {:error, reason} ->
-              Logger.error("Failed to send magic link email to #{email}: #{inspect(reason)}")
-          end
-
-          conn
-          |> put_layout(false)
-          |> render(:sent)
-
-        {:error, :rate_limited} ->
-          # Indistinguishable from success — prevents probing
-          conn
-          |> put_layout(false)
-          |> render(:sent)
-
-        {:error, :not_allowed} ->
-          conn
-          |> put_layout(false)
-          |> render(:login,
-            error: "That email address is not authorised.",
-            flash_error: nil,
-            has_session: false
-          )
-
-        {:error, _} ->
-          conn
-          |> put_layout(false)
-          |> render(:login,
-            error: "Something went wrong. Please try again.",
-            flash_error: nil,
-            has_session: false
-          )
-      end
-    end
+    conn
+    |> put_layout(false)
+    |> render(:login,
+      error: nil,
+      flash_error: nil,
+      users: MagicLink.list_emails()
+    )
   end
 
   # GET /auth/:token

@@ -15,11 +15,9 @@ defmodule TradingDesk.Auth.MagicLink do
   import Ecto.Query
 
   alias TradingDesk.Repo
+  alias TradingDesk.Auth.User
 
   require Logger
-
-  # Allowlist — add more addresses here as needed
-  @allowed_emails ["marcus.raath@trammo.com"]
 
   # Token TTL — effectively permanent until used (100 years)
   # Change this if expiry is needed in future.
@@ -38,12 +36,16 @@ defmodule TradingDesk.Auth.MagicLink do
 
   # ── Public API ──────────────────────────────────────────────────────────
 
-  @doc """
-  Returns true if the email is on the allowlist.
-  """
+  @doc "Returns all authorised email addresses from the users table, sorted."
+  @spec list_emails() :: [String.t()]
+  def list_emails do
+    Repo.all(from u in User, select: u.email, order_by: u.email)
+  end
+
+  @doc "Returns true if the email exists in the users table."
   @spec allowed?(String.t()) :: boolean()
   def allowed?(email) when is_binary(email) do
-    String.downcase(email) in Enum.map(@allowed_emails, &String.downcase/1)
+    Repo.exists?(from u in User, where: u.email == ^String.downcase(String.trim(email)))
   end
   def allowed?(_), do: false
 
