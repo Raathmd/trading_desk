@@ -15,6 +15,10 @@ defmodule TradingDesk.Layouts do
       <script src="https://cdn.jsdelivr.net/npm/phoenix@1.7.21/priv/static/phoenix.min.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/phoenix_live_view@0.20.17/priv/static/phoenix_live_view.min.js"></script>
       <script>
+        // Apply saved theme immediately to avoid flash (documentElement available in <head>)
+        (function() {
+          if (localStorage.getItem('td-theme') === 'light') document.documentElement.classList.add('theme-light');
+        })();
         document.addEventListener("DOMContentLoaded", function() {
           let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 
@@ -82,6 +86,12 @@ defmodule TradingDesk.Layouts do
             }
           }
 
+          // Theme toggle
+          window.toggleTheme = function() {
+            var isLight = document.documentElement.classList.toggle('theme-light');
+            localStorage.setItem('td-theme', isLight ? 'light' : 'dark');
+          };
+
           let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
             params: {_csrf_token: csrfToken},
             hooks: Hooks
@@ -94,6 +104,12 @@ defmodule TradingDesk.Layouts do
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         input:focus, button:focus { outline: 2px solid #38bdf8; outline-offset: 2px; }
+        /* Light theme — invert the dark theme colours while preserving hues */
+        html.theme-light body { filter: invert(1) hue-rotate(180deg); }
+        /* Counter-invert media (images, video) so they stay natural */
+        html.theme-light img,
+        html.theme-light video,
+        html.theme-light canvas { filter: invert(1) hue-rotate(180deg); }
       </style>
     </head>
     <body>

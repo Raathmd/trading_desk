@@ -898,6 +898,12 @@ defmodule TradingDesk.ScenarioLive do
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
+          <%!-- Theme toggle --%>
+          <button onclick="window.toggleTheme()"
+            style="background:none;border:1px solid #2d3748;color:#64748b;padding:3px 9px;border-radius:4px;font-size:10px;cursor:pointer;font-weight:600;letter-spacing:0.5px"
+            title="Toggle light / dark theme">
+            ◐ THEME
+          </button>
           <%!-- Ammonia Prices Ticker --%>
           <div style="display:flex;align-items:center;gap:8px;padding-right:12px;border-right:1px solid #1b2838">
             <%= for p <- Enum.take(@ammonia_prices, 4) do %>
