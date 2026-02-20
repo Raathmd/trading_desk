@@ -124,6 +124,7 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:history_year_to, Date.utc_today().year)
       # Fleet tab
       |> assign(:fleet_vessels, [])
+      |> assign(:fleet_error, nil)
       |> assign(:fleet_pg_filter, to_string(product_group))
       # Model summary (always computed) + scenario description (trader narrative)
       |> assign(:model_summary, "")
@@ -493,7 +494,7 @@ defmodule TradingDesk.ScenarioLive do
         :history ->
           assign(socket, history_stats: Stats.all(history_filter_opts(socket.assigns)))
         :fleet ->
-          assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))
+          assign_fleet(socket, socket.assigns.fleet_pg_filter)
         _ ->
           socket
       end
@@ -508,7 +509,7 @@ defmodule TradingDesk.ScenarioLive do
     socket =
       socket
       |> assign(:fleet_pg_filter, pg)
-      |> assign(:fleet_vessels, load_fleet_vessels(pg))
+      |> assign_fleet(pg)
     {:noreply, socket}
   end
 
@@ -522,7 +523,7 @@ defmodule TradingDesk.ScenarioLive do
       # Refresh AIS subscription with updated MMSI list
       TradingDesk.Data.AIS.AISStreamConnector.refresh_tracked()
     end
-    {:noreply, assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))}
+    {:noreply, assign_fleet(socket, socket.assigns.fleet_pg_filter)}
   end
 
   # ── Notification Preference Handlers ────────────────────────────────────────
@@ -627,7 +628,7 @@ defmodule TradingDesk.ScenarioLive do
     case TrackedVessel.create(attrs) do
       {:ok, _} ->
         TradingDesk.Data.AIS.AISStreamConnector.refresh_tracked()
-        {:noreply, assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))}
+        {:noreply, assign_fleet(socket, socket.assigns.fleet_pg_filter)}
       {:error, _cs} ->
         {:noreply, socket}
     end
@@ -638,7 +639,7 @@ defmodule TradingDesk.ScenarioLive do
     vessel = TradingDesk.Repo.get(TrackedVessel, id)
     if vessel, do: TrackedVessel.delete(vessel)
     TradingDesk.Data.AIS.AISStreamConnector.refresh_tracked()
-    {:noreply, assign(socket, fleet_vessels: load_fleet_vessels(socket.assigns.fleet_pg_filter))}
+    {:noreply, assign_fleet(socket, socket.assigns.fleet_pg_filter)}
   end
 
   # ── History tab events ──
@@ -754,6 +755,7 @@ defmodule TradingDesk.ScenarioLive do
       explaining: true,
       delivery_impact: delivery_impact,
       ops_sent: false,
+      active_tab: :trader,
       trader_sub_tab: :response
     )
     vars = socket.assigns.current_vars
@@ -797,6 +799,7 @@ defmodule TradingDesk.ScenarioLive do
       contracts_stale: contracts_stale,
       explanation: nil,
       explaining: true,
+      active_tab: :trader,
       trader_sub_tab: :response
     )
     vars = socket.assigns.current_vars
@@ -1331,6 +1334,30 @@ defmodule TradingDesk.ScenarioLive do
             <%!-- === RESPONSE SUB-TAB === --%>
             <%= if @trader_sub_tab == :response do %>
 
+            <%!-- AI Explanation — always shown first on Response tab --%>
+            <div style="background:#060c16;border:1px solid #1e293b;border-radius:10px;padding:20px;margin-bottom:16px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <span style="font-size:12px;color:#8b5cf6;font-weight:700;letter-spacing:1px">🧠 ANALYST NOTE</span>
+                <%= if @explaining do %>
+                  <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating analysis...</span>
+                <% end %>
+                <%= if is_binary(@explanation) do %>
+                  <button phx-click="save_explanation"
+                    style="margin-left:auto;padding:5px 14px;border:none;border-radius:6px;background:linear-gradient(135deg,#4c1d95,#7c3aed);color:#e9d5ff;font-weight:700;font-size:11px;cursor:pointer">
+                    💾 Save Analysis
+                  </button>
+                <% end %>
+              </div>
+              <%= case @explanation do %>
+                <% {:error, err_text} -> %>
+                  <div style="font-size:13px;color:#f87171;line-height:1.7"><%= err_text %></div>
+                <% text when is_binary(text) -> %>
+                  <div style="font-size:14px;color:#e2e8f0;line-height:1.8;white-space:pre-wrap"><%= text %></div>
+                <% _ -> %>
+                  <div style="font-size:13px;color:#7b8fa4;font-style:italic">Analysis will appear here after SOLVE or MONTE CARLO</div>
+              <% end %>
+            </div>
+
             <%!-- Solve result: optimal --%>
             <%= if @result && @result.status == :optimal do %>
               <div style="background:#111827;border-radius:10px;padding:20px;margin-bottom:16px">
@@ -1417,30 +1444,6 @@ defmodule TradingDesk.ScenarioLive do
               </div>
             <% end %>
 
-            <%!-- AI Explanation (full) --%>
-            <div style="background:#060c16;border:1px solid #1e293b;border-radius:10px;padding:20px;margin-bottom:16px">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                <span style="font-size:12px;color:#8b5cf6;font-weight:700;letter-spacing:1px">🧠 ANALYST NOTE</span>
-                <%= if @explaining do %>
-                  <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating analysis...</span>
-                <% end %>
-                <%= if is_binary(@explanation) do %>
-                  <button phx-click="save_explanation"
-                    style="margin-left:auto;padding:5px 14px;border:none;border-radius:6px;background:linear-gradient(135deg,#4c1d95,#7c3aed);color:#e9d5ff;font-weight:700;font-size:11px;cursor:pointer">
-                    💾 Save Analysis
-                  </button>
-                <% end %>
-              </div>
-              <%= case @explanation do %>
-                <% {:error, err_text} -> %>
-                  <div style="font-size:13px;color:#f87171;line-height:1.7"><%= err_text %></div>
-                <% text when is_binary(text) -> %>
-                  <div style="font-size:14px;color:#e2e8f0;line-height:1.8;white-space:pre-wrap"><%= text %></div>
-                <% _ -> %>
-                  <div style="font-size:13px;color:#7b8fa4;font-style:italic">Analysis will appear here after SOLVE or MONTE CARLO</div>
-              <% end %>
-            </div>
-
             <%!-- Monte Carlo distribution --%>
             <%= if @distribution do %>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
@@ -1463,7 +1466,7 @@ defmodule TradingDesk.ScenarioLive do
                       <div style="flex:1;height:6px;background:#1e293b;border-radius:3px;overflow:hidden">
                         <div style={"width:#{round(abs(corr) * 100)}%;height:100%;border-radius:3px;background:#{if corr > 0, do: "#10b981", else: "#ef4444"}"}></div>
                       </div>
-                      <span style={"width:50px;text-align:right;font-family:monospace;font-size:11px;color:#{if corr > 0, do: "#10b981", else: "#ef4444"}"}><%= if corr > 0, do: "+", else: "" %><%= Float.round(corr, 2) %></span>
+                      <span style={"width:50px;text-align:right;font-family:monospace;font-size:11px;color:#{if corr > 0, do: "#10b981", else: "#ef4444"}"}><%= if corr > 0, do: "+", else: "" %><%= Float.round(corr * 1.0, 2) %></span>
                     </div>
                   <% end %>
                 <% end %>
@@ -2488,6 +2491,15 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
               </div>
 
+              <%!-- DB error banner (migration not run, etc.) --%>
+              <%= if @fleet_error do %>
+                <div style="background:#1a0a0a;border:1px solid #7f1d1d;border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px">
+                  <div style="color:#f87171;font-weight:700;margin-bottom:4px">⚠ DATABASE ERROR — fleet data unavailable</div>
+                  <div style="color:#94a3b8;font-family:monospace;font-size:11px"><%= @fleet_error %></div>
+                  <div style="color:#7b8fa4;margin-top:6px">Run <code style="background:#0a0f18;padding:2px 6px;border-radius:4px">mix ecto.migrate</code> then <code style="background:#0a0f18;padding:2px 6px;border-radius:4px">mix run priv/repo/seeds/tracked_vessels.exs</code> to apply the fleet schema migration and seed vessels.</div>
+                </div>
+              <% end %>
+
               <%!-- Vessel table --%>
               <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
                 <thead>
@@ -3017,7 +3029,7 @@ defmodule TradingDesk.ScenarioLive do
                         onmouseover="this.style.background='#0c1629'" onmouseout="this.style.background='transparent'">
                         <td style="padding:6px;font-weight:600;color:#c8d6e5"><%= sc.name %></td>
                         <td style="text-align:right;padding:6px;font-family:monospace;color:#10b981">$<%= format_number(sc.result.profit) %></td>
-                        <td style="text-align:right;padding:6px;font-family:monospace"><%= Float.round(sc.result.roi, 1) %>%</td>
+                        <td style="text-align:right;padding:6px;font-family:monospace"><%= Float.round((sc.result.roi || 0) * 1.0, 1) %>%</td>
                         <td style="text-align:right;padding:6px;font-family:monospace"><%= format_number(sc.result.tons) %></td>
                         <td style="text-align:center;padding:6px">
                           <%= if Map.get(sc.result, :analyst_note) do %>
@@ -3410,19 +3422,30 @@ defmodule TradingDesk.ScenarioLive do
     end
   end
 
-  defp load_fleet_vessels(pg_filter) do
-    if pg_filter in ["", "all"] do
-      TrackedVessel.list_all()
-    else
-      import Ecto.Query
-      TradingDesk.Repo.all(
-        from v in TrackedVessel,
-          where: v.product_group == ^pg_filter,
-          order_by: [asc: v.status, desc: v.updated_at]
-      )
+  # Assigns fleet_vessels + fleet_error to the socket. Use this instead of
+  # calling load_fleet_vessels directly so DB errors are surfaced in the UI.
+  defp assign_fleet(socket, pg_filter) do
+    case try_load_fleet_vessels(pg_filter) do
+      {:ok, vessels} -> assign(socket, fleet_vessels: vessels, fleet_error: nil)
+      {:error, msg}  -> assign(socket, fleet_vessels: [], fleet_error: msg)
     end
+  end
+
+  defp try_load_fleet_vessels(pg_filter) do
+    vessels =
+      if pg_filter in ["", "all"] do
+        TrackedVessel.list_all()
+      else
+        import Ecto.Query
+        TradingDesk.Repo.all(
+          from v in TrackedVessel,
+            where: v.product_group == ^pg_filter,
+            order_by: [asc: v.status, desc: v.updated_at]
+        )
+      end
+    {:ok, vessels}
   rescue
-    _ -> []
+    e -> {:error, Exception.message(e)}
   end
 
   defp nilify(nil), do: nil
