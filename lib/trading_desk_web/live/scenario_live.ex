@@ -1122,6 +1122,9 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, assign(socket, :auto_result, auto_result)}
   end
 
+  # Catch-all for any stray messages (e.g. Task replies from async_nolink, DOWN monitors, etc.)
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
   # --- Render ---
 
   @impl true

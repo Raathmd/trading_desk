@@ -238,7 +238,7 @@ defmodule TradingDesk.Solver.Pipeline do
 
   @doc "Run pipeline asynchronously — broadcasts events to PubSub."
   def run_async(variables, opts \\ []) do
-    Task.Supervisor.async_nolink(
+    Task.Supervisor.start_child(
       TradingDesk.Contracts.TaskSupervisor,
       fn -> run(variables, opts) end
     )
