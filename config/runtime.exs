@@ -22,4 +22,26 @@ if config_env() == :prod do
   config :trading_desk, TradingDesk.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+
+  # SMTP mailer — Microsoft 365 / Exchange by default
+  # Override SMTP_HOST/PORT to use a different provider (SendGrid, Mailgun, etc.)
+  smtp_host     = System.get_env("SMTP_HOST") || "smtp.office365.com"
+  smtp_port     = String.to_integer(System.get_env("SMTP_PORT") || "587")
+  smtp_username = System.get_env("SMTP_USERNAME") || ""
+  smtp_password = System.get_env("SMTP_PASSWORD") || ""
+
+  if smtp_username != "" and smtp_password != "" do
+    config :trading_desk, TradingDesk.Mailer,
+      adapter: Swoosh.Adapters.SMTP,
+      relay: smtp_host,
+      port: smtp_port,
+      username: smtp_username,
+      password: smtp_password,
+      tls: :always,
+      auth: :always,
+      retries: 2
+  else
+    # No SMTP credentials — log-only fallback (magic link still appears in fly logs)
+    config :trading_desk, TradingDesk.Mailer, adapter: Swoosh.Adapters.Local
+  end
 end

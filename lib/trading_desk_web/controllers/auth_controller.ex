@@ -2,6 +2,8 @@ defmodule TradingDeskWeb.AuthController do
   use TradingDeskWeb, :controller
 
   alias TradingDesk.Auth.MagicLink
+  alias TradingDesk.Emails.MagicLinkEmail
+  alias TradingDesk.Mailer
 
   require Logger
 
@@ -33,10 +35,21 @@ defmodule TradingDeskWeb.AuthController do
           base_url = TradingDeskWeb.Endpoint.url()
           link = "#{base_url}/auth/#{token}"
 
-          # Link is printed to server logs; NOT returned to the browser
+          # Always log to console as fallback (visible via fly logs)
           Logger.info("\n\n========================================\n" <>
                       "MAGIC LINK for #{email}\n#{link}\n" <>
                       "========================================\n")
+
+          # Send email — log if it fails but don't block the response
+          email
+          |> MagicLinkEmail.build(link)
+          |> Mailer.deliver()
+          |> case do
+            {:ok, _} ->
+              Logger.info("Magic link email sent to #{email}")
+            {:error, reason} ->
+              Logger.error("Failed to send magic link email to #{email}: #{inspect(reason)}")
+          end
 
           conn
           |> put_layout(false)

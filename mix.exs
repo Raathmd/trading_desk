@@ -31,7 +31,9 @@ defmodule TradingDesk.MixProject do
       {:ecto_sql, "~> 3.11"},
       {:postgrex, "~> 0.18"},
       {:ecto_sqlite3, "~> 0.17"},
-      {:websockex, "~> 0.4"}
+      {:websockex, "~> 0.4"},
+      {:swoosh, "~> 1.16"},
+      {:gen_smtp, "~> 1.2"}
     ]
   end
 
