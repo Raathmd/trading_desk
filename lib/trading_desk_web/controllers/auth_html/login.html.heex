@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="csrf-token" content={Phoenix.Controller.get_csrf_token()}/>
+  <title>Trading Desk · Login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #040810;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: #0d1526;
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+      padding: 40px 44px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    }
+    .logo {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: #38bdf8;
+      margin-bottom: 6px;
+    }
+    h1 { font-size: 22px; font-weight: 800; color: #f8fafc; margin-bottom: 6px; }
+    .subtitle { font-size: 13px; color: #7b8fa4; margin-bottom: 28px; line-height: 1.5; }
+    label { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; color: #94a3b8; margin-bottom: 6px; }
+    input[type="email"] {
+      width: 100%;
+      background: #0a0f18;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 11px 14px;
+      font-size: 14px;
+      color: #e2e8f0;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 18px;
+    }
+    input[type="email"]:focus { border-color: #38bdf8; }
+    input[type="email"]::placeholder { color: #475569; }
+    button[type="submit"] {
+      width: 100%;
+      background: linear-gradient(135deg, #0ea5e9, #2563eb);
+      border: none;
+      border-radius: 8px;
+      padding: 13px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      transition: opacity 0.15s;
+    }
+    button[type="submit"]:hover:not(:disabled) { opacity: 0.9; }
+    button[type="submit"]:disabled {
+      background: #1e293b;
+      color: #475569;
+      cursor: not-allowed;
+      opacity: 1;
+    }
+    .error {
+      background: #2d0f0f;
+      border: 1px solid #7f1d1d;
+      border-radius: 8px;
+      padding: 11px 14px;
+      font-size: 13px;
+      color: #f87171;
+      margin-bottom: 18px;
+    }
+    .badge {
+      display: inline-block;
+      background: #0f2a1f;
+      color: #34d399;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 1px;
+      margin-bottom: 20px;
+    }
+    .footer { margin-top: 24px; font-size: 11px; color: #475569; text-align: center; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">TRAMMO · NH3 DESK</div>
+    <h1>Secure Login</h1>
+    <p class="subtitle">Enter your Trammo email to receive a one-time login link.</p>
+
+    <div class="badge">PRIVATE · AUTHORISED ACCESS ONLY</div>
+
+    <%= if @flash_error && @flash_error != "" do %>
+      <div class="error"><%= @flash_error %></div>
+    <% end %>
+
+    <%= if @error do %>
+      <div class="error"><%= @error %></div>
+    <% end %>
+
+    <%= if @has_session do %>
+      <div style="background:#0f2a1f;border:1px solid #166534;border-radius:8px;padding:14px;margin-bottom:18px;font-size:13px;color:#4ade80;text-align:center">
+        You already have an active session.<br/>
+        <a href="/" style="color:#38bdf8;font-weight:700">Go to Trading Desk →</a>
+      </div>
+    <% else %>
+      <form id="login-form" action="/login/request" method="post" onsubmit="disableBtn()">
+        <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()}/>
+        <label for="email">WORK EMAIL</label>
+        <input type="email" id="email" name="email" placeholder="you@trammo.com"
+          value="" required autofocus/>
+        <button type="submit" id="submit-btn">Send Login Link →</button>
+      </form>
+    <% end %>
+
+    <div class="footer">
+      This application is private.<br/>
+      Only authorised Trammo personnel may access it.
+    </div>
+  </div>
+
+  <script>
+    function disableBtn() {
+      var btn = document.getElementById('submit-btn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+      }
+    }
+  </script>
+</body>
+</html>

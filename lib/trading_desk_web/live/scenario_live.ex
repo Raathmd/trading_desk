@@ -31,7 +31,8 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.Workflow.PendingDeliveryChange
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    current_user_email = Map.get(session, "authenticated_email")
     if connected?(socket) do
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "live_data")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "auto_runner")
@@ -72,6 +73,7 @@ defmodule TradingDesk.ScenarioLive do
 
     socket =
       socket
+      |> assign(:current_user_email, current_user_email)
       |> assign(:available_traders, available_traders)
       |> assign(:selected_trader, selected_trader)
       |> assign(:product_group, product_group)
@@ -1147,6 +1149,15 @@ defmodule TradingDesk.ScenarioLive do
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
+          <%!-- Logged-in user + logout --%>
+          <%= if @current_user_email do %>
+            <span style="color:#475569;font-size:10px"><%= @current_user_email %></span>
+            <a href="/logout"
+              style="background:none;border:1px solid #2d3748;color:#7b8fa4;padding:3px 9px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;letter-spacing:0.5px;text-decoration:none"
+              title="Sign out">
+              LOGOUT
+            </a>
+          <% end %>
           <%!-- Theme toggle --%>
           <button onclick="window.toggleTheme()"
             style="background:none;border:1px solid #2d3748;color:#94a3b8;padding:3px 9px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;letter-spacing:0.5px"

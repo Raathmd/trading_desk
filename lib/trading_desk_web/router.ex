@@ -11,24 +11,37 @@ defmodule TradingDesk.Router do
     plug :put_secure_browser_headers
   end
 
+  pipeline :require_auth do
+    plug TradingDeskWeb.Plugs.RequireAuth
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
   end
 
-  scope "/", TradingDesk do
+  # ── Public auth routes (no login required) ───────────────────────────────
+  scope "/", TradingDeskWeb do
     pipe_through :browser
-    live "/", ScenarioLive
+
+    get  "/login",          AuthController, :login
+    post "/login/request",  AuthController, :request_link
+    get  "/auth/:token",    AuthController, :verify
+    get  "/logout",         AuthController, :logout
+  end
+
+  # ── Protected trading desk (requires magic-link session) ─────────────────
+  scope "/", TradingDesk do
+    pipe_through [:browser, :require_auth]
+
+    live "/",          ScenarioLive
     live "/contracts", ContractsLive
   end
 
-  # SAP integration endpoints
+  # ── SAP integration endpoints (no browser auth needed) ───────────────────
   scope "/api/sap", TradingDeskWeb do
     pipe_through :api
 
-    # SAP calls this when a contract position changes
-    post "/ping", SapWebhookController, :ping
-
-    # Health check for SAP refresh scheduler
-    get "/status", SapWebhookController, :status
+    post "/ping",   SapWebhookController, :ping
+    get  "/status", SapWebhookController, :status
   end
 end
