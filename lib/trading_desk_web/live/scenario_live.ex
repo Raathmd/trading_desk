@@ -880,17 +880,17 @@ defmodule TradingDesk.ScenarioLive do
       <%!-- === TOP BAR === --%>
       <div style="background:#0d1117;border-bottom:1px solid #1b2838;padding:10px 20px;display:flex;justify-content:space-between;align-items:center">
         <div style="display:flex;align-items:center;gap:12px">
-          <div style={"width:8px;height:8px;border-radius:50%;background:#{if @auto_result, do: "#10b981", else: "#64748b"};box-shadow:0 0 8px #{if @auto_result, do: "#10b981", else: "transparent"}"}></div>
+          <div style={"width:8px;height:8px;border-radius:50%;background:#{if @auto_result, do: "#10b981", else: "#94a3b8"};box-shadow:0 0 8px #{if @auto_result, do: "#10b981", else: "transparent"}"}></div>
           <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px"><%= (@frame && @frame[:name]) || "SCENARIO DESK" %></span>
           <select phx-change="switch_trader" name="trader"
-            style="background:#111827;border:1px solid #2563eb;color:#60a5fa;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer"
+            style="background:#111827;border:1px solid #2563eb;color:#60a5fa;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer"
             title="Active trader">
             <%= for t <- @available_traders do %>
               <option value={t.id} selected={@selected_trader && t.id == @selected_trader.id}><%= t.name %></option>
             <% end %>
           </select>
           <select phx-change="switch_product_group" name="group"
-            style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer">
+            style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">
             <%= for pg <- @available_groups do %>
               <option value={pg.id} selected={pg.id == @product_group}><%= pg.name %></option>
             <% end %>
@@ -900,26 +900,26 @@ defmodule TradingDesk.ScenarioLive do
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
           <%!-- Theme toggle --%>
           <button onclick="window.toggleTheme()"
-            style="background:none;border:1px solid #2d3748;color:#64748b;padding:3px 9px;border-radius:4px;font-size:10px;cursor:pointer;font-weight:600;letter-spacing:0.5px"
+            style="background:none;border:1px solid #2d3748;color:#94a3b8;padding:3px 9px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;letter-spacing:0.5px"
             title="Toggle light / dark theme">
             ◐ THEME
           </button>
           <%!-- Ammonia Prices Ticker --%>
           <div style="display:flex;align-items:center;gap:8px;padding-right:12px;border-right:1px solid #1b2838">
             <%= for p <- Enum.take(@ammonia_prices, 4) do %>
-              <span style="color:#475569"><%= p.label %></span>
+              <span style="color:#7b8fa4"><%= p.label %></span>
               <span style={"color:#{if p.direction == :buy, do: "#60a5fa", else: "#f59e0b"};font-weight:700;font-family:monospace"}>$<%= round(p.price) %></span>
             <% end %>
           </div>
           <%= if @auto_result do %>
-            <span style="color:#64748b">AUTO</span>
+            <span style="color:#94a3b8">AUTO</span>
             <span style={"background:#0f2a1f;color:#{signal_color(@auto_result.distribution.signal)};padding:3px 10px;border-radius:4px;font-weight:700;font-size:11px"}><%= signal_text(@auto_result.distribution.signal) %></span>
-            <span style="color:#64748b">E[V]</span>
+            <span style="color:#94a3b8">E[V]</span>
             <span style="color:#10b981;font-weight:700;font-family:monospace">$<%= format_number(@auto_result.distribution.mean) %></span>
-            <span style="color:#64748b">VaR₅</span>
+            <span style="color:#94a3b8">VaR₅</span>
             <span style="color:#f59e0b;font-weight:700;font-family:monospace">$<%= format_number(@auto_result.distribution.p5) %></span>
           <% else %>
-            <span style="color:#475569">AUTO: waiting...</span>
+            <span style="color:#7b8fa4">AUTO: waiting...</span>
           <% end %>
         </div>
       </div>
@@ -939,7 +939,7 @@ defmodule TradingDesk.ScenarioLive do
                   <span style="font-size:11px;color:#8899aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= meta.label %></span>
                   <%= if Map.get(meta, :type) == :boolean do %>
                     <button phx-click="toggle_bool" phx-value-key={meta.key}
-                      style={"padding:2px 0;border:1px solid #{if Map.get(@current_vars, meta.key), do: "#991b1b", else: "#1e3a5f"};border-radius:3px;background:#{if Map.get(@current_vars, meta.key), do: "#7f1d1d", else: "#0f2a3d"};color:#{if Map.get(@current_vars, meta.key), do: "#fca5a5", else: "#67e8f9"};font-weight:700;font-size:10px;cursor:pointer;letter-spacing:1px"}>
+                      style={"padding:2px 0;border:1px solid #{if Map.get(@current_vars, meta.key), do: "#991b1b", else: "#1e3a5f"};border-radius:3px;background:#{if Map.get(@current_vars, meta.key), do: "#7f1d1d", else: "#0f2a3d"};color:#{if Map.get(@current_vars, meta.key), do: "#fca5a5", else: "#67e8f9"};font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px"}>
                       <%= if Map.get(@current_vars, meta.key), do: "⬤ OUTAGE", else: "◯ ONLINE" %>
                     </button>
                   <% else %>
@@ -961,13 +961,6 @@ defmodule TradingDesk.ScenarioLive do
           <% end %>
 
           <div style="border-top:1px solid #1b2838;padding-top:12px;margin-top:8px">
-            <%!-- Trader Action Input --%>
-            <div style="margin-bottom:10px">
-              <div style="font-size:10px;color:#a78bfa;letter-spacing:0.8px;margin-bottom:4px">TRADER ACTION</div>
-              <textarea phx-blur="update_action" name="action"
-                placeholder="Describe what you want to test... e.g. 'Redirect March Yuzhnyy cargo to India' or 'Simulate river drop to 15ft'"
-                style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#c8d6e5;padding:8px;border-radius:6px;font-size:11px;font-family:inherit;resize:vertical;min-height:48px;max-height:120px"><%= @trader_action %></textarea>
-            </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
               <button phx-click="solve" disabled={@solving}
                 style="padding:10px;border:none;border-radius:6px;font-weight:700;font-size:12px;background:linear-gradient(135deg,#0891b2,#06b6d4);color:#fff;cursor:pointer;letter-spacing:1px">
@@ -979,7 +972,7 @@ defmodule TradingDesk.ScenarioLive do
               </button>
             </div>
             <div style="margin-top:8px">
-              <div style="font-size:10px;color:#64748b;letter-spacing:0.8px;margin-bottom:4px">OBJECTIVE</div>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:0.8px;margin-bottom:4px">OBJECTIVE</div>
               <select phx-change="switch_objective" name="objective"
                 style="width:100%;background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:6px 8px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer">
                 <%= for {val, label} <- [max_profit: "Maximize Profit", min_cost: "Minimize Cost", max_roi: "Maximize ROI", cvar_adjusted: "CVaR-Adjusted", min_risk: "Minimize Risk"] do %>
@@ -988,10 +981,10 @@ defmodule TradingDesk.ScenarioLive do
               </select>
             </div>
             <button phx-click="reset"
-              style="width:100%;padding:7px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#64748b;cursor:pointer;margin-top:8px">
+              style="width:100%;padding:7px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#94a3b8;cursor:pointer;margin-top:8px">
               📡 RESET TO LIVE
             </button>
-            <div style="text-align:center;margin-top:6px;font-size:10px;color:#334155">
+            <div style="text-align:center;margin-top:6px;font-size:12px;color:#94a3b8">
               <%= MapSet.size(@overrides) %> override<%= if MapSet.size(@overrides) != 1, do: "s", else: "" %> active
             </div>
           </div>
@@ -999,24 +992,24 @@ defmodule TradingDesk.ScenarioLive do
           <%!-- === FLEET & TIDES COMPACT === --%>
           <%= if @vessel_data || @tides_data do %>
             <div style="border-top:1px solid #1b2838;padding-top:10px;margin-top:10px">
-              <div style="font-size:10px;font-weight:700;color:#60a5fa;letter-spacing:1.2px;margin-bottom:6px">FLEET & TIDES</div>
+              <div style="font-size:12px;font-weight:700;color:#60a5fa;letter-spacing:1.2px;margin-bottom:6px">FLEET & TIDES</div>
               <%= if @vessel_data && @vessel_data[:vessels] do %>
                 <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">
                   <%= length(@vessel_data[:vessels]) %> vessel<%= if length(@vessel_data[:vessels]) != 1, do: "s", else: "" %> tracked
                 </div>
                 <%= for vessel <- Enum.take(@vessel_data[:vessels] || [], 3) do %>
-                  <div style="display:flex;align-items:center;gap:6px;font-size:10px;padding:2px 0">
+                  <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0">
                     <span style={"color:#{vessel_status_color(vessel[:status])}"}><%= vessel_status_icon(vessel[:direction]) %></span>
                     <span style="color:#c8d6e5;font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= vessel[:name] || "Unknown" %></span>
-                    <span style="color:#64748b;font-size:9px">mi <%= vessel[:river_mile] || "?" %></span>
-                    <span style="color:#475569;font-size:9px"><%= vessel[:nearest_waypoint] || "" %></span>
+                    <span style="color:#94a3b8;font-size:11px">mi <%= vessel[:river_mile] || "?" %></span>
+                    <span style="color:#7b8fa4;font-size:11px"><%= vessel[:nearest_waypoint] || "" %></span>
                   </div>
                 <% end %>
               <% else %>
-                <div style="font-size:10px;color:#475569">No AIS data</div>
+                <div style="font-size:12px;color:#7b8fa4">No AIS data</div>
               <% end %>
               <%= if @tides_data do %>
-                <div style="display:flex;gap:8px;margin-top:4px;font-size:10px">
+                <div style="display:flex;gap:8px;margin-top:4px;font-size:12px">
                   <%= if @tides_data[:water_level_ft] do %>
                     <span style="color:#60a5fa">WL: <%= Float.round(@tides_data[:water_level_ft], 1) %>ft</span>
                   <% end %>
@@ -1038,7 +1031,7 @@ defmodule TradingDesk.ScenarioLive do
           <div style="display:flex;gap:2px;margin-bottom:16px">
             <%= for {tab, label, color} <- [{:trader, "Trader", "#38bdf8"}, {:contracts, "Contracts", "#a78bfa"}, {:solves, "Solves", "#eab308"}, {:map, "Map", "#60a5fa"}, {:fleet, "Fleet", "#22d3ee"}, {:agent, "Agent", "#10b981"}, {:apis, "APIs", "#f97316"}, {:history, "History", "#06b6d4"}] do %>
               <button phx-click="switch_tab" phx-value-tab={tab}
-                style={"padding:8px 16px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @active_tab == tab, do: "#111827", else: "transparent"};color:#{if @active_tab == tab, do: "#e2e8f0", else: "#475569"};border-bottom:2px solid #{if @active_tab == tab, do: color, else: "transparent"}"}>
+                style={"padding:8px 16px;border:none;border-radius:6px 6px 0 0;font-size:12px;font-weight:600;cursor:pointer;background:#{if @active_tab == tab, do: "#111827", else: "transparent"};color:#{if @active_tab == tab, do: "#e2e8f0", else: "#7b8fa4"};border-bottom:2px solid #{if @active_tab == tab, do: color, else: "transparent"}"}>
                 <%= label %>
               </button>
             <% end %>
@@ -1066,13 +1059,13 @@ defmodule TradingDesk.ScenarioLive do
             <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:10px;padding:16px;margin-bottom:16px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                 <span style="font-size:11px;color:#a78bfa;font-weight:700;letter-spacing:1.2px">SCENARIO MODEL</span>
-                <span style="font-size:10px;color:#475569">Objective: <%= objective_label(@objective_mode) %></span>
+                <span style="font-size:12px;color:#7b8fa4">Objective: <%= objective_label(@objective_mode) %></span>
               </div>
 
               <%!-- Scenario description --%>
               <div style="margin-bottom:14px">
-                <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:5px;font-weight:600">WHAT DO YOU WANT TO TEST?</div>
-                <textarea phx-change="update_scenario_description" phx-debounce="blur" name="description"
+                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:5px;font-weight:600">WHAT DO YOU WANT TO TEST?</div>
+                <textarea phx-blur="update_scenario_description" name="description"
                   rows="3"
                   placeholder="e.g. One barge in for repair — assess impact on D+3 delivery schedule"
                   style="width:100%;background:#060a11;border:1px solid #2d1b69;color:#c8d6e5;padding:10px;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box"><%= @scenario_description %></textarea>
@@ -1082,7 +1075,7 @@ defmodule TradingDesk.ScenarioLive do
               <%= for {group, defs} <- Enum.group_by(@frame[:variables] || [], &(&1[:group])) |> Enum.sort_by(fn {g, _} -> to_string(g) end) do %>
                 <% {booleans, numerics} = Enum.split_with(defs, &(&1[:type] == :boolean)) %>
                 <div style="margin-bottom:12px">
-                  <div style="font-size:9px;color:#475569;letter-spacing:1.4px;font-weight:700;margin-bottom:6px;text-transform:uppercase;padding-bottom:4px;border-bottom:1px solid #1e293b">
+                  <div style="font-size:11px;color:#7b8fa4;letter-spacing:1.4px;font-weight:700;margin-bottom:6px;text-transform:uppercase;padding-bottom:4px;border-bottom:1px solid #1e293b">
                     <%= to_string(group) |> String.upcase() %>
                   </div>
 
@@ -1100,14 +1093,14 @@ defmodule TradingDesk.ScenarioLive do
                             end %>
                         <div style={"background:#{if is_override, do: "#0d1a0d", else: "#060a11"};border:1px solid #{if is_override, do: "#166534", else: "#1e293b"};border-radius:6px;padding:7px 9px"}>
                           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-                            <span style="font-size:10px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px" title={v[:label]}><%= v[:label] %></span>
+                            <span style="font-size:12px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px" title={v[:label]}><%= v[:label] %></span>
                             <%= if is_override do %>
                               <button phx-click="toggle_override" phx-value-key={v[:key]}
-                                style="font-size:8px;color:#4ade80;background:none;border:none;cursor:pointer;padding:0;letter-spacing:0.5px">
+                                style="font-size:12px;color:#4ade80;background:none;border:none;cursor:pointer;padding:0;letter-spacing:0.5px">
                                 ↺ LIVE
                               </button>
                             <% else %>
-                              <span style="font-size:8px;color:#334155">LIVE</span>
+                              <span style="font-size:12px;color:#94a3b8">LIVE</span>
                             <% end %>
                           </div>
                           <div style="display:flex;align-items:center;gap:4px">
@@ -1119,11 +1112,11 @@ defmodule TradingDesk.ScenarioLive do
                               min={v[:min]} max={v[:max]} step={v[:step] || "any"}
                               style={"flex:1;min-width:0;background:#0a0f18;border:1px solid #{if is_override, do: "#166534", else: "#1e293b"};color:#{if is_override, do: "#4ade80", else: "#c8d6e5"};padding:4px 6px;border-radius:4px;font-size:12px;font-family:monospace;font-weight:700;width:100%;box-sizing:border-box"} />
                             <%= if v[:unit] && v[:unit] != "" do %>
-                              <span style="font-size:9px;color:#475569;white-space:nowrap"><%= v[:unit] %></span>
+                              <span style="font-size:11px;color:#7b8fa4;white-space:nowrap"><%= v[:unit] %></span>
                             <% end %>
                           </div>
                           <%= if is_override and live_val != nil do %>
-                            <div style="font-size:8px;color:#4ade80;margin-top:2px">
+                            <div style="font-size:12px;color:#4ade80;margin-top:2px">
                               live: <%= case live_val do
                                 fv when is_float(fv) -> :erlang.float_to_binary(fv, [{:decimals, 1}])
                                 _ -> to_string(live_val)
@@ -1143,10 +1136,10 @@ defmodule TradingDesk.ScenarioLive do
                         <% is_outage = val in [true, 1.0] %>
                         <button phx-click="toggle_bool" phx-value-key={v[:key]}
                           style={"display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;border:1px solid #{if is_outage, do: "#991b1b", else: "#1e3a5f"};background:#{if is_outage, do: "#7f1d1d22", else: "#0f2a3d22"};cursor:pointer"}>
-                          <span style={"font-size:10px;color:#{if is_outage, do: "#fca5a5", else: "#67e8f9"};font-weight:700"}>
+                          <span style={"font-size:12px;color:#{if is_outage, do: "#fca5a5", else: "#67e8f9"};font-weight:700"}>
                             <%= if is_outage, do: "⬤ OUTAGE", else: "◯ ONLINE" %>
                           </span>
-                          <span style="font-size:10px;color:#64748b"><%= v[:label] %></span>
+                          <span style="font-size:12px;color:#94a3b8"><%= v[:label] %></span>
                         </button>
                       <% end %>
                     </div>
@@ -1156,10 +1149,10 @@ defmodule TradingDesk.ScenarioLive do
 
               <%!-- Collapsible: full model context sent to Claude --%>
               <details style="margin-top:8px">
-                <summary style="font-size:9px;color:#334155;cursor:pointer;letter-spacing:1px;font-weight:600;user-select:none">
+                <summary style="font-size:11px;color:#94a3b8;cursor:pointer;letter-spacing:1px;font-weight:600;user-select:none">
                   MODEL CONTEXT (sent to Claude) ▸
                 </summary>
-                <pre style="font-size:9px;color:#475569;line-height:1.5;white-space:pre-wrap;margin:6px 0 0;background:#060a11;border:1px solid #1e293b;border-radius:4px;padding:8px;max-height:240px;overflow-y:auto"><%= @model_summary %></pre>
+                <pre style="font-size:11px;color:#7b8fa4;line-height:1.5;white-space:pre-wrap;margin:6px 0 0;background:#060a11;border:1px solid #1e293b;border-radius:4px;padding:8px;max-height:240px;overflow-y:auto"><%= @model_summary %></pre>
               </details>
             </div>
 
@@ -1168,27 +1161,27 @@ defmodule TradingDesk.ScenarioLive do
               <div style="background:#111827;border-radius:10px;padding:20px;margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start">
                   <div>
-                    <div style="font-size:11px;color:#64748b;letter-spacing:1px;text-transform:uppercase">Gross Profit</div>
+                    <div style="font-size:11px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase">Gross Profit</div>
                     <div style="font-size:36px;font-weight:800;color:#10b981;font-family:monospace">$<%= format_number(@result.profit) %></div>
                   </div>
                   <div style="background:#0f2a1f;padding:6px 14px;border-radius:6px;text-align:center">
-                    <div style="font-size:10px;color:#64748b">STATUS</div>
+                    <div style="font-size:12px;color:#94a3b8">STATUS</div>
                     <div style="font-size:13px;font-weight:700;color:#10b981">OPTIMAL</div>
                   </div>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px">
-                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:10px;color:#64748b">Tons</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= format_number(@result.tons) %></div></div>
-                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:10px;color:#64748b">Barges</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= Float.round(@result.barges, 1) %></div></div>
-                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:10px;color:#64748b">ROI</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= Float.round(@result.roi, 1) %>%</div></div>
-                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:10px;color:#64748b">Capital</div><div style="font-size:15px;font-weight:700;font-family:monospace">$<%= format_number(@result.cost) %></div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">Tons</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= format_number(@result.tons) %></div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">Barges</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= Float.round(@result.barges, 1) %></div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">ROI</div><div style="font-size:15px;font-weight:700;font-family:monospace"><%= Float.round(@result.roi, 1) %>%</div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:6px"><div style="font-size:12px;color:#94a3b8">Capital</div><div style="font-size:15px;font-weight:700;font-family:monospace">$<%= format_number(@result.cost) %></div></div>
                 </div>
                 <%!-- Routes --%>
                 <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:12px">
                   <thead><tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:6px;color:#64748b;font-size:11px">Route</th>
-                    <th style="text-align:right;padding:6px;color:#64748b;font-size:11px">Tons</th>
-                    <th style="text-align:right;padding:6px;color:#64748b;font-size:11px">Margin</th>
-                    <th style="text-align:right;padding:6px;color:#64748b;font-size:11px">Profit</th>
+                    <th style="text-align:left;padding:6px;color:#94a3b8;font-size:11px">Route</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8;font-size:11px">Tons</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8;font-size:11px">Margin</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8;font-size:11px">Profit</th>
                   </tr></thead>
                   <tbody>
                     <%= for {name, idx} <- Enum.with_index(@route_names) do %>
@@ -1225,7 +1218,7 @@ defmodule TradingDesk.ScenarioLive do
                     <button type="submit" style="background:#1e293b;border:none;color:#94a3b8;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
                   </form>
                   <button phx-click="show_explanation_popup" disabled={is_nil(@explanation) or @explaining}
-                    style={"padding:8px 14px;border:1px solid #4c1d95;border-radius:6px;background:#1e1030;color:#{if is_nil(@explanation) or @explaining, do: "#475569", else: "#a78bfa"};cursor:#{if is_nil(@explanation) or @explaining, do: "default", else: "pointer"};font-size:12px;font-weight:600;white-space:nowrap"}>
+                    style={"padding:8px 14px;border:1px solid #4c1d95;border-radius:6px;background:#1e1030;color:#{if is_nil(@explanation) or @explaining, do: "#7b8fa4", else: "#a78bfa"};cursor:#{if is_nil(@explanation) or @explaining, do: "default", else: "pointer"};font-size:12px;font-weight:600;white-space:nowrap"}>
                     🧠 Full Analysis
                   </button>
                 </div>
@@ -1237,7 +1230,7 @@ defmodule TradingDesk.ScenarioLive do
               <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
                 <span style="font-size:11px;color:#8b5cf6;font-weight:700;letter-spacing:1px">🧠 ANALYST</span>
                 <%= if @explaining do %>
-                  <span style="font-size:10px;color:#475569">thinking...</span>
+                  <span style="font-size:12px;color:#7b8fa4">thinking...</span>
                 <% end %>
               </div>
               <%= case @explanation do %>
@@ -1246,7 +1239,7 @@ defmodule TradingDesk.ScenarioLive do
                 <% text when is_binary(text) -> %>
                   <div style="font-size:13px;color:#c8d6e5;line-height:1.5"><%= text %></div>
                 <% _ -> %>
-                  <div style="font-size:12px;color:#475569;font-style:italic">Run SOLVE or MONTE CARLO to get analysis</div>
+                  <div style="font-size:12px;color:#7b8fa4;font-style:italic">Run SOLVE or MONTE CARLO to get analysis</div>
               <% end %>
             </div>
 
@@ -1254,18 +1247,18 @@ defmodule TradingDesk.ScenarioLive do
             <%= if @distribution do %>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                  <span style="font-size:11px;color:#64748b;letter-spacing:1px">MONTE CARLO — <%= @distribution.n_feasible %>/<%= @distribution.n_scenarios %> feasible</span>
+                  <span style="font-size:11px;color:#94a3b8;letter-spacing:1px">MONTE CARLO — <%= @distribution.n_feasible %>/<%= @distribution.n_scenarios %> feasible</span>
                   <span style={"color:#{signal_color(@distribution.signal)};font-weight:700;font-size:12px"}><%= signal_text(@distribution.signal) %></span>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-                  <div style="background:#0a0f18;padding:8px;border-radius:4px"><div style="font-size:10px;color:#64748b">Mean</div><div style="color:#10b981;font-weight:700;font-family:monospace">$<%= format_number(@distribution.mean) %></div></div>
-                  <div style="background:#0a0f18;padding:8px;border-radius:4px"><div style="font-size:10px;color:#64748b">VaR₅</div><div style="color:#f59e0b;font-weight:700;font-family:monospace">$<%= format_number(@distribution.p5) %></div></div>
-                  <div style="background:#0a0f18;padding:8px;border-radius:4px"><div style="font-size:10px;color:#64748b">P95</div><div style="color:#10b981;font-weight:700;font-family:monospace">$<%= format_number(@distribution.p95) %></div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:4px"><div style="font-size:12px;color:#94a3b8">Mean</div><div style="color:#10b981;font-weight:700;font-family:monospace">$<%= format_number(@distribution.mean) %></div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:4px"><div style="font-size:12px;color:#94a3b8">VaR₅</div><div style="color:#f59e0b;font-weight:700;font-family:monospace">$<%= format_number(@distribution.p5) %></div></div>
+                  <div style="background:#0a0f18;padding:8px;border-radius:4px"><div style="font-size:12px;color:#94a3b8">P95</div><div style="color:#10b981;font-weight:700;font-family:monospace">$<%= format_number(@distribution.p95) %></div></div>
                 </div>
 
                 <%!-- Sensitivity --%>
                 <%= if length(@distribution.sensitivity) > 0 do %>
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:6px;margin-top:12px">TOP RISK DRIVERS</div>
+                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px;margin-top:12px">TOP RISK DRIVERS</div>
                   <%= for {key, corr} <- @distribution.sensitivity do %>
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px">
                       <span style="width:120px;color:#94a3b8"><%= sensitivity_label(key) %></span>
@@ -1282,35 +1275,35 @@ defmodule TradingDesk.ScenarioLive do
             <%!-- === TIDES & CURRENTS (Trader tab) === --%>
             <%= if @tides_data do %>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
-                <div style="font-size:10px;color:#818cf8;letter-spacing:1px;font-weight:700;margin-bottom:10px">TIDES & CURRENTS</div>
+                <div style="font-size:12px;color:#818cf8;letter-spacing:1px;font-weight:700;margin-bottom:10px">TIDES & CURRENTS</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
                   <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Water Level</div>
+                    <div style="font-size:11px;color:#94a3b8">Water Level</div>
                     <div style="font-size:16px;font-weight:700;color:#60a5fa;font-family:monospace">
                       <%= if @tides_data[:water_level_ft], do: "#{Float.round(@tides_data[:water_level_ft], 1)}ft", else: "—" %>
                     </div>
                   </div>
                   <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Tidal Range</div>
+                    <div style="font-size:11px;color:#94a3b8">Tidal Range</div>
                     <div style="font-size:16px;font-weight:700;color:#818cf8;font-family:monospace">
                       <%= if @tides_data[:tidal_range_ft], do: "#{Float.round(@tides_data[:tidal_range_ft], 1)}ft", else: "—" %>
                     </div>
                   </div>
                   <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Current</div>
+                    <div style="font-size:11px;color:#94a3b8">Current</div>
                     <div style="font-size:16px;font-weight:700;color:#38bdf8;font-family:monospace">
                       <%= if @tides_data[:current_speed_kn], do: "#{Float.round(@tides_data[:current_speed_kn], 1)}kn", else: "—" %>
                     </div>
                   </div>
                 </div>
                 <%= if @tides_data[:tidal_predictions] && @tides_data[:tidal_predictions][:next_high] do %>
-                  <div style="font-size:10px;color:#475569;margin-top:4px">
+                  <div style="font-size:12px;color:#7b8fa4;margin-top:4px">
                     Next high: <span style="color:#94a3b8"><%= @tides_data[:tidal_predictions][:next_high][:time] %></span>
                     (<span style="color:#60a5fa"><%= Float.round(@tides_data[:tidal_predictions][:next_high][:level], 1) %>ft</span>)
                   </div>
                 <% end %>
                 <%= if @tides_data[:tidal_predictions] && @tides_data[:tidal_predictions][:next_low] do %>
-                  <div style="font-size:10px;color:#475569">
+                  <div style="font-size:12px;color:#7b8fa4">
                     Next low: <span style="color:#94a3b8"><%= @tides_data[:tidal_predictions][:next_low][:time] %></span>
                     (<span style="color:#f59e0b"><%= Float.round(@tides_data[:tidal_predictions][:next_low][:level], 1) %>ft</span>)
                   </div>
@@ -1321,13 +1314,13 @@ defmodule TradingDesk.ScenarioLive do
             <%!-- Saved scenarios --%>
             <%= if length(@saved_scenarios) > 0 do %>
               <div style="background:#111827;border-radius:10px;padding:16px">
-                <div style="font-size:11px;color:#64748b;letter-spacing:1px;margin-bottom:8px">SAVED SCENARIOS</div>
+                <div style="font-size:11px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">SAVED SCENARIOS</div>
                 <table style="width:100%;border-collapse:collapse;font-size:12px">
                   <thead><tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:4px;color:#64748b;font-size:11px">Name</th>
-                    <th style="text-align:right;padding:4px;color:#64748b;font-size:11px">Profit</th>
-                    <th style="text-align:right;padding:4px;color:#64748b;font-size:11px">ROI</th>
-                    <th style="text-align:right;padding:4px;color:#64748b;font-size:11px">Tons</th>
+                    <th style="text-align:left;padding:4px;color:#94a3b8;font-size:11px">Name</th>
+                    <th style="text-align:right;padding:4px;color:#94a3b8;font-size:11px">Profit</th>
+                    <th style="text-align:right;padding:4px;color:#94a3b8;font-size:11px">ROI</th>
+                    <th style="text-align:right;padding:4px;color:#94a3b8;font-size:11px">Tons</th>
                   </tr></thead>
                   <tbody>
                     <%= for sc <- @saved_scenarios do %>
@@ -1354,18 +1347,18 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if @post_solve_impact[:by_contract] do %>
                   <table style="width:100%;border-collapse:collapse;font-size:11px">
                     <thead><tr style="border-bottom:1px solid #1e293b">
-                      <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:10px">Counterparty</th>
-                      <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:10px">Dir</th>
-                      <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:10px">Open Qty</th>
-                      <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:10px">Impact</th>
+                      <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:12px">Counterparty</th>
+                      <th style="text-align:center;padding:4px 6px;color:#94a3b8;font-size:12px">Dir</th>
+                      <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:12px">Open Qty</th>
+                      <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:12px">Impact</th>
                     </tr></thead>
                     <tbody>
                       <%= for cp <- @post_solve_impact[:by_contract] do %>
                         <tr style="border-bottom:1px solid #1e293b11">
                           <td style="padding:4px 6px;font-weight:600;color:#e2e8f0"><%= cp[:counterparty] %></td>
-                          <td style={"text-align:center;padding:4px 6px;color:#{if cp[:direction] == "purchase", do: "#60a5fa", else: "#f59e0b"};font-size:10px;font-weight:600"}><%= if cp[:direction] == "purchase", do: "BUY", else: "SELL" %></td>
+                          <td style={"text-align:center;padding:4px 6px;color:#{if cp[:direction] == "purchase", do: "#60a5fa", else: "#f59e0b"};font-size:12px;font-weight:600"}><%= if cp[:direction] == "purchase", do: "BUY", else: "SELL" %></td>
                           <td style="text-align:right;padding:4px 6px;font-family:monospace;color:#c8d6e5"><%= format_number(cp[:open_qty] || 0) %></td>
-                          <td style="padding:4px 6px;color:#94a3b8;font-size:10px"><%= cp[:impact] %></td>
+                          <td style="padding:4px 6px;color:#94a3b8;font-size:12px"><%= cp[:impact] %></td>
                         </tr>
                       <% end %>
                     </tbody>
@@ -1384,7 +1377,7 @@ defmodule TradingDesk.ScenarioLive do
           <%!-- Delivery Impact (populated after solve when delivery schedules are loaded) --%>
           <%= if @delivery_impact do %>
             <div style="background:#111827;border-radius:8px;padding:14px;margin-bottom:16px;border:1px solid #1e293b">
-              <div style="font-size:10px;font-weight:700;letter-spacing:1.2px;margin-bottom:10px;color:#a78bfa">DELIVERY SCHEDULE IMPACT</div>
+              <div style="font-size:12px;font-weight:700;letter-spacing:1.2px;margin-bottom:10px;color:#a78bfa">DELIVERY SCHEDULE IMPACT</div>
               <%= for c <- @delivery_impact.by_customer do %>
                 <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e293b33">
                   <div style="display:flex;align-items:center;gap:10px">
@@ -1395,7 +1388,7 @@ defmodule TradingDesk.ScenarioLive do
                       <div style={"font-size:11px;font-weight:600;#{delivery_impact_style(c.status)}"}>
                         <%= c.counterparty |> String.split(",") |> List.first() |> String.split(" ") |> Enum.take(2) |> Enum.join(" ") %>
                       </div>
-                      <div style="font-size:10px;color:#64748b">
+                      <div style="font-size:12px;color:#94a3b8">
                         <%= format_number(round(c.scheduled_qty_mt)) %> MT
                         · <%= c.frequency %>
                         · <%= if c.next_window_days == 0, do: "window open", else: "opens in #{c.next_window_days}d" %>
@@ -1407,9 +1400,9 @@ defmodule TradingDesk.ScenarioLive do
                       <div style="font-size:11px;font-weight:700;font-family:monospace;color:#fca5a5">
                         ~$<%= format_number(round(c.penalty_estimate)) %>
                       </div>
-                      <div style="font-size:9px;color:#64748b">est. penalty</div>
+                      <div style="font-size:11px;color:#94a3b8">est. penalty</div>
                     <% else %>
-                      <div style="font-size:10px;color:#475569"><%= delivery_impact_note(c.status) %></div>
+                      <div style="font-size:12px;color:#7b8fa4"><%= delivery_impact_note(c.status) %></div>
                     <% end %>
                   </div>
                 </div>
@@ -1429,14 +1422,14 @@ defmodule TradingDesk.ScenarioLive do
               <%= if @ops_sent do %>
                 <div style="background:#0d1a0d;border:1px solid #166534;border-radius:8px;padding:12px;text-align:center">
                   <div style="font-size:12px;color:#4ade80;font-weight:700">✓ Saved and sent to ops team</div>
-                  <div style="font-size:10px;color:#64748b;margin-top:2px">Email queued for ops@trammo.com · Scenario saved</div>
+                  <div style="font-size:12px;color:#94a3b8;margin-top:2px">Email queued for ops@trammo.com · Scenario saved</div>
                 </div>
               <% else %>
                 <button phx-click="save_and_send_ops"
                   style="width:100%;padding:11px;border:1px solid #a78bfa;border-radius:8px;background:#0a0318;color:#c4b5fd;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:0.5px">
                   📋 SAVE SCENARIO &amp; SEND TO OPS
                 </button>
-                <div style="text-align:center;font-size:10px;color:#475569;margin-top:4px">
+                <div style="text-align:center;font-size:12px;color:#7b8fa4;margin-top:4px">
                   Saves to database · Emails instructions to ops team for SAP data entry
                 </div>
               <% end %>
@@ -1450,8 +1443,8 @@ defmodule TradingDesk.ScenarioLive do
             <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                 <div>
-                  <div style="font-size:10px;color:#a78bfa;letter-spacing:1px;font-weight:700">CONTRACT INGESTION</div>
-                  <div style="font-size:10px;color:#475569;margin-top:2px">
+                  <div style="font-size:12px;color:#a78bfa;letter-spacing:1px;font-weight:700">CONTRACT INGESTION</div>
+                  <div style="font-size:12px;color:#7b8fa4;margin-top:2px">
                     Seed files in <code style="color:#94a3b8">priv/contracts/seed/</code> — parsed and loaded into the solver
                   </div>
                 </div>
@@ -1468,26 +1461,26 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- File list --%>
               <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px">
                 <thead><tr style="border-bottom:1px solid #1e293b">
-                  <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:9px">FILE</th>
-                  <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:9px">COUNTERPARTY</th>
-                  <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:9px">TYPE</th>
-                  <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:9px">OPEN QTY</th>
-                  <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:9px">STATUS</th>
+                  <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:11px">FILE</th>
+                  <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:11px">COUNTERPARTY</th>
+                  <th style="text-align:center;padding:4px 6px;color:#94a3b8;font-size:11px">TYPE</th>
+                  <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:11px">OPEN QTY</th>
+                  <th style="text-align:center;padding:4px 6px;color:#94a3b8;font-size:11px">STATUS</th>
                 </tr></thead>
                 <tbody>
                   <%= for sf <- @seed_files do %>
                     <tr style="border-bottom:1px solid #1e293b22">
-                      <td style="padding:4px 6px;font-family:monospace;font-size:9px;color:#64748b"><%= sf.file || sf.prefix %></td>
+                      <td style="padding:4px 6px;font-family:monospace;font-size:11px;color:#94a3b8"><%= sf.file || sf.prefix %></td>
                       <td style="padding:4px 6px;color:#e2e8f0;font-weight:600"><%= sf.counterparty %></td>
-                      <td style={"text-align:center;padding:4px 6px;font-size:9px;font-weight:600;color:#{if sf.counterparty_type == :supplier, do: "#60a5fa", else: "#f59e0b"}"}>
+                      <td style={"text-align:center;padding:4px 6px;font-size:11px;font-weight:600;color:#{if sf.counterparty_type == :supplier, do: "#60a5fa", else: "#f59e0b"}"}>
                         <%= if sf.counterparty_type == :supplier, do: "PURCHASE", else: "SALE" %>
                       </td>
                       <td style="text-align:right;padding:4px 6px;font-family:monospace;color:#94a3b8"><%= sf.open_qty |> round() |> Integer.to_string() |> String.replace(~r/(\d{3})(?=\d)/, "\\1,") %> MT</td>
                       <td style="text-align:center;padding:4px 6px">
                         <%= if sf.found do %>
-                          <span style="font-size:9px;color:#4ade80">✓ found</span>
+                          <span style="font-size:11px;color:#4ade80">✓ found</span>
                         <% else %>
-                          <span style="font-size:9px;color:#f87171">✗ missing</span>
+                          <span style="font-size:11px;color:#f87171">✗ missing</span>
                         <% end %>
                       </td>
                     </tr>
@@ -1501,51 +1494,51 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- assign a local for convenience --%>
               <% r = @seed_ingestion_result %>
               <div style="background:#0a130a;border:1px solid #166534;border-radius:10px;padding:16px;margin-bottom:16px">
-                <div style="font-size:10px;color:#4ade80;letter-spacing:1px;font-weight:700;margin-bottom:10px">
+                <div style="font-size:12px;color:#4ade80;letter-spacing:1px;font-weight:700;margin-bottom:10px">
                   INGESTION COMPLETE — <%= r.loaded %> contracts loaded, <%= r.errors %> errors
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
                   <div style="background:#0a1f0a;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Contracts</div>
+                    <div style="font-size:11px;color:#94a3b8">Contracts</div>
                     <div style="font-size:20px;font-weight:800;color:#4ade80;font-family:monospace"><%= r.loaded %></div>
                   </div>
                   <div style="background:#0a1f0a;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Total Clauses</div>
+                    <div style="font-size:11px;color:#94a3b8">Total Clauses</div>
                     <div style="font-size:20px;font-weight:800;color:#34d399;font-family:monospace"><%= r.total_clauses %></div>
                   </div>
                   <div style="background:#0a1f0a;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Penalty Clauses</div>
+                    <div style="font-size:11px;color:#94a3b8">Penalty Clauses</div>
                     <div style="font-size:20px;font-weight:800;color:#fb923c;font-family:monospace"><%= r.total_penalty_clauses %></div>
                   </div>
                   <div style="background:#0a1f0a;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Net Position</div>
+                    <div style="font-size:11px;color:#94a3b8">Net Position</div>
                     <div style={"font-size:16px;font-weight:800;font-family:monospace;color:#{if r.net_position > 0, do: "#4ade80", else: "#f87171"}"}>
                       <%= if r.net_position > 0, do: "+", else: "" %><%= format_number(r.net_position / 1) %> MT
                     </div>
                   </div>
                 </div>
-                <table style="width:100%;border-collapse:collapse;font-size:10px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px">
                   <thead><tr style="border-bottom:1px solid #166534">
-                    <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:9px">COUNTERPARTY</th>
-                    <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:9px">TYPE</th>
-                    <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:9px">INCOTERM</th>
-                    <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:9px">OPEN MT</th>
-                    <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:9px">CLAUSES</th>
-                    <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:9px">PENALTIES</th>
-                    <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:9px">FILE</th>
+                    <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:11px">COUNTERPARTY</th>
+                    <th style="text-align:center;padding:4px 6px;color:#94a3b8;font-size:11px">TYPE</th>
+                    <th style="text-align:center;padding:4px 6px;color:#94a3b8;font-size:11px">INCOTERM</th>
+                    <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:11px">OPEN MT</th>
+                    <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:11px">CLAUSES</th>
+                    <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:11px">PENALTIES</th>
+                    <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:11px">FILE</th>
                   </tr></thead>
                   <tbody>
                     <%= for c <- r.contracts do %>
                       <tr style="border-bottom:1px solid #1e293b22">
                         <td style="padding:4px 6px;color:#e2e8f0;font-weight:600"><%= c.counterparty %></td>
-                        <td style={"text-align:center;padding:4px 6px;font-size:9px;font-weight:600;color:#{if c.counterparty_type == :supplier, do: "#60a5fa", else: "#f59e0b"}"}>
+                        <td style={"text-align:center;padding:4px 6px;font-size:11px;font-weight:600;color:#{if c.counterparty_type == :supplier, do: "#60a5fa", else: "#f59e0b"}"}>
                           <%= if c.counterparty_type == :supplier, do: "BUY", else: "SELL" %>
                         </td>
                         <td style="text-align:center;padding:4px 6px;color:#94a3b8"><%= c.incoterm |> to_string() |> String.upcase() %></td>
                         <td style="text-align:right;padding:4px 6px;font-family:monospace;color:#e2e8f0"><%= format_number(c.open_qty / 1) %></td>
                         <td style="text-align:right;padding:4px 6px;font-family:monospace;color:#94a3b8"><%= c.clauses %></td>
-                        <td style={"text-align:right;padding:4px 6px;font-family:monospace;color:#{if c.penalties > 0, do: "#fb923c", else: "#475569"}"}><%= c.penalties %></td>
-                        <td style="padding:4px 6px;font-size:9px;color:#475569;font-family:monospace"><%= c.file %></td>
+                        <td style={"text-align:right;padding:4px 6px;font-family:monospace;color:#{if c.penalties > 0, do: "#fb923c", else: "#7b8fa4"}"}><%= c.penalties %></td>
+                        <td style="padding:4px 6px;font-size:11px;color:#7b8fa4;font-family:monospace"><%= c.file %></td>
                       </tr>
                     <% end %>
                   </tbody>
@@ -1555,13 +1548,13 @@ defmodule TradingDesk.ScenarioLive do
 
             <%!-- Ammonia Price Board --%>
             <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
-              <div style="font-size:10px;color:#a78bfa;letter-spacing:1px;font-weight:700;margin-bottom:10px">AMMONIA BENCHMARK PRICES</div>
+              <div style="font-size:12px;color:#a78bfa;letter-spacing:1px;font-weight:700;margin-bottom:10px">AMMONIA BENCHMARK PRICES</div>
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
                 <%= for p <- @ammonia_prices do %>
                   <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b"><%= p.label %></div>
+                    <div style="font-size:11px;color:#94a3b8"><%= p.label %></div>
                     <div style={"font-size:16px;font-weight:700;font-family:monospace;color:#{if p.direction == :buy, do: "#60a5fa", else: "#f59e0b"};"}>$<%= round(p.price) %></div>
-                    <div style="font-size:8px;color:#475569"><%= p.source %></div>
+                    <div style="font-size:12px;color:#7b8fa4"><%= p.source %></div>
                   </div>
                 <% end %>
               </div>
@@ -1571,41 +1564,41 @@ defmodule TradingDesk.ScenarioLive do
             <%= if @contracts_data do %>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                  <span style="font-size:10px;color:#a78bfa;letter-spacing:1px;font-weight:700">OPEN BOOK</span>
+                  <span style="font-size:12px;color:#a78bfa;letter-spacing:1px;font-weight:700">OPEN BOOK</span>
                   <span style={"font-size:12px;font-weight:700;font-family:monospace;color:#{if @contracts_data.net_position > 0, do: "#4ade80", else: "#f87171"}"}>
                     NET: <%= if @contracts_data.net_position > 0, do: "+", else: "" %><%= format_number(@contracts_data.net_position) %> MT
                   </span>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
                   <div style="background:#0a1628;padding:12px;border-radius:8px;border-left:3px solid #60a5fa">
-                    <div style="font-size:10px;color:#64748b">Purchase Open</div>
+                    <div style="font-size:12px;color:#94a3b8">Purchase Open</div>
                     <div style="font-size:22px;font-weight:800;color:#60a5fa;font-family:monospace"><%= format_number(@contracts_data.total_purchase_open) %> MT</div>
-                    <div style="font-size:10px;color:#475569"><%= length(Enum.filter(@contracts_data.contracts, & &1.direction == :purchase)) %> contracts</div>
+                    <div style="font-size:12px;color:#7b8fa4"><%= length(Enum.filter(@contracts_data.contracts, & &1.direction == :purchase)) %> contracts</div>
                   </div>
                   <div style="background:#1a1400;padding:12px;border-radius:8px;border-left:3px solid #f59e0b">
-                    <div style="font-size:10px;color:#64748b">Sale Open</div>
+                    <div style="font-size:12px;color:#94a3b8">Sale Open</div>
                     <div style="font-size:22px;font-weight:800;color:#f59e0b;font-family:monospace"><%= format_number(@contracts_data.total_sale_open) %> MT</div>
-                    <div style="font-size:10px;color:#475569"><%= length(Enum.filter(@contracts_data.contracts, & &1.direction == :sale)) %> contracts</div>
+                    <div style="font-size:12px;color:#7b8fa4"><%= length(Enum.filter(@contracts_data.contracts, & &1.direction == :sale)) %> contracts</div>
                   </div>
                 </div>
 
                 <%!-- Contract Detail Table --%>
                 <table style="width:100%;border-collapse:collapse;font-size:11px">
                   <thead><tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:6px;color:#64748b;font-size:10px">Counterparty</th>
-                    <th style="text-align:center;padding:6px;color:#64748b;font-size:10px">Dir</th>
-                    <th style="text-align:center;padding:6px;color:#64748b;font-size:10px">Incoterm</th>
-                    <th style="text-align:right;padding:6px;color:#64748b;font-size:10px">Total</th>
-                    <th style="text-align:right;padding:6px;color:#64748b;font-size:10px">Open</th>
-                    <th style="text-align:center;padding:6px;color:#64748b;font-size:10px">Progress</th>
-                    <th style="text-align:left;padding:6px;color:#64748b;font-size:10px">Penalties</th>
+                    <th style="text-align:left;padding:6px;color:#94a3b8;font-size:12px">Counterparty</th>
+                    <th style="text-align:center;padding:6px;color:#94a3b8;font-size:12px">Dir</th>
+                    <th style="text-align:center;padding:6px;color:#94a3b8;font-size:12px">Incoterm</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8;font-size:12px">Total</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8;font-size:12px">Open</th>
+                    <th style="text-align:center;padding:6px;color:#94a3b8;font-size:12px">Progress</th>
+                    <th style="text-align:left;padding:6px;color:#94a3b8;font-size:12px">Penalties</th>
                   </tr></thead>
                   <tbody>
                     <%= for c <- @contracts_data.contracts do %>
                       <tr style="border-bottom:1px solid #1e293b11">
                         <td style="padding:6px">
                           <div style="font-weight:600;color:#e2e8f0"><%= c.counterparty %></div>
-                          <div style="font-size:9px;color:#475569"><%= c.contract_number %></div>
+                          <div style="font-size:11px;color:#7b8fa4"><%= c.contract_number %></div>
                         </td>
                         <td style={"text-align:center;padding:6px;font-weight:600;color:#{if c.direction == :purchase, do: "#60a5fa", else: "#f59e0b"}"}><%= if c.direction == :purchase, do: "BUY", else: "SELL" %></td>
                         <td style="text-align:center;padding:6px;color:#94a3b8;font-weight:600"><%= c.incoterm |> to_string() |> String.upcase() %></td>
@@ -1616,19 +1609,19 @@ defmodule TradingDesk.ScenarioLive do
                             <div style="flex:1;height:4px;background:#1e293b;border-radius:2px;overflow:hidden">
                               <div style={"width:#{c.pct_complete}%;height:100%;background:#{if c.pct_complete > 50, do: "#10b981", else: "#38bdf8"};border-radius:2px"}></div>
                             </div>
-                            <span style="font-size:9px;color:#64748b;width:28px;text-align:right"><%= c.pct_complete %>%</span>
+                            <span style="font-size:11px;color:#94a3b8;width:28px;text-align:right"><%= c.pct_complete %>%</span>
                           </div>
                         </td>
                         <td style="padding:6px">
                           <%= for p <- c.penalties do %>
-                            <div style="font-size:9px;padding:1px 0">
+                            <div style="font-size:11px;padding:1px 0">
                               <span style="color:#fca5a5"><%= p.type %></span>
-                              <span style="color:#64748b"> — </span>
+                              <span style="color:#94a3b8"> — </span>
                               <span style="color:#f59e0b;font-family:monospace"><%= p.rate %></span>
                             </div>
                           <% end %>
                           <%= if length(c.penalties) == 0 do %>
-                            <span style="font-size:9px;color:#475569">—</span>
+                            <span style="font-size:11px;color:#7b8fa4">—</span>
                           <% end %>
                         </td>
                       </tr>
@@ -1642,7 +1635,7 @@ defmodule TradingDesk.ScenarioLive do
           <%!-- === MAP TAB === --%>
           <%= if @active_tab == :map do %>
             <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
-              <div style="font-size:10px;color:#60a5fa;letter-spacing:1px;font-weight:700;margin-bottom:8px">ROUTE MAP</div>
+              <div style="font-size:12px;color:#60a5fa;letter-spacing:1px;font-weight:700;margin-bottom:8px">ROUTE MAP</div>
               <div id={"map-tab-#{@product_group}"} phx-hook="VesselMap" phx-update="ignore"
                 data-mapdata={map_data_json(@product_group, @frame, @result, @vessel_data)}
                 style="height:450px;border-radius:8px;background:#0a0f18"></div>
@@ -1652,8 +1645,8 @@ defmodule TradingDesk.ScenarioLive do
             <%= if @vessel_data && @vessel_data[:vessels] && length(@vessel_data[:vessels]) > 0 do %>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                  <div style="font-size:10px;color:#60a5fa;letter-spacing:1px;font-weight:700">FLEET TRACKING</div>
-                  <div style="font-size:10px;color:#475569">
+                  <div style="font-size:12px;color:#60a5fa;letter-spacing:1px;font-weight:700">FLEET TRACKING</div>
+                  <div style="font-size:12px;color:#7b8fa4">
                     <%= if @vessel_data[:fleet_summary] do %>
                       <%= @vessel_data[:fleet_summary][:total_vessels] %> vessels
                       — <%= @vessel_data[:fleet_summary][:underway] || 0 %> underway
@@ -1662,12 +1655,12 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
                 <table style="width:100%;border-collapse:collapse;font-size:11px">
                   <thead><tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:10px">Vessel</th>
-                    <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:10px">Near</th>
-                    <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:10px">Mile</th>
-                    <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:10px">Speed</th>
-                    <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:10px">Dir</th>
-                    <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:10px">Status</th>
+                    <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:12px">Vessel</th>
+                    <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:12px">Near</th>
+                    <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:12px">Mile</th>
+                    <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:12px">Speed</th>
+                    <th style="text-align:center;padding:4px 6px;color:#94a3b8;font-size:12px">Dir</th>
+                    <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:12px">Status</th>
                   </tr></thead>
                   <tbody>
                     <%= for vessel <- @vessel_data[:vessels] do %>
@@ -1677,7 +1670,7 @@ defmodule TradingDesk.ScenarioLive do
                         <td style="text-align:right;padding:5px 6px;font-family:monospace;color:#38bdf8"><%= vessel[:river_mile] || "—" %></td>
                         <td style="text-align:right;padding:5px 6px;font-family:monospace;color:#c8d6e5"><%= if vessel[:speed], do: "#{Float.round(vessel[:speed], 1)}kn", else: "—" %></td>
                         <td style="text-align:center;padding:5px 6px"><%= vessel_status_icon(vessel[:direction]) %></td>
-                        <td style={"padding:5px 6px;color:#{vessel_status_color(vessel[:status])};font-size:10px;font-weight:600"}><%= vessel_status_text(vessel[:status]) %></td>
+                        <td style={"padding:5px 6px;color:#{vessel_status_color(vessel[:status])};font-size:12px;font-weight:600"}><%= vessel_status_text(vessel[:status]) %></td>
                       </tr>
                     <% end %>
                   </tbody>
@@ -1688,22 +1681,22 @@ defmodule TradingDesk.ScenarioLive do
             <%!-- Tides & Currents on Map tab --%>
             <%= if @tides_data do %>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
-                <div style="font-size:10px;color:#818cf8;letter-spacing:1px;font-weight:700;margin-bottom:10px">TIDES & CURRENTS</div>
+                <div style="font-size:12px;color:#818cf8;letter-spacing:1px;font-weight:700;margin-bottom:10px">TIDES & CURRENTS</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
                   <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Water Level</div>
+                    <div style="font-size:11px;color:#94a3b8">Water Level</div>
                     <div style="font-size:16px;font-weight:700;color:#60a5fa;font-family:monospace">
                       <%= if @tides_data[:water_level_ft], do: "#{Float.round(@tides_data[:water_level_ft], 1)}ft", else: "—" %>
                     </div>
                   </div>
                   <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Tidal Range</div>
+                    <div style="font-size:11px;color:#94a3b8">Tidal Range</div>
                     <div style="font-size:16px;font-weight:700;color:#818cf8;font-family:monospace">
                       <%= if @tides_data[:tidal_range_ft], do: "#{Float.round(@tides_data[:tidal_range_ft], 1)}ft", else: "—" %>
                     </div>
                   </div>
                   <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                    <div style="font-size:9px;color:#64748b">Current</div>
+                    <div style="font-size:11px;color:#94a3b8">Current</div>
                     <div style="font-size:16px;font-weight:700;color:#38bdf8;font-family:monospace">
                       <%= if @tides_data[:current_speed_kn], do: "#{Float.round(@tides_data[:current_speed_kn], 1)}kn", else: "—" %>
                     </div>
@@ -1723,7 +1716,7 @@ defmodule TradingDesk.ScenarioLive do
                     <div style={"width:10px;height:10px;border-radius:50%;background:#{signal_color(@auto_result.distribution.signal)};box-shadow:0 0 10px #{signal_color(@auto_result.distribution.signal)}"}></div>
                     <span style="font-size:16px;font-weight:700;color:#e2e8f0">AGENT MODE</span>
                   </div>
-                  <span style="font-size:11px;color:#475569">
+                  <span style="font-size:11px;color:#7b8fa4">
                     Last run: <%= Calendar.strftime(@auto_result.timestamp, "%H:%M:%S") %>
                   </span>
                 </div>
@@ -1731,21 +1724,21 @@ defmodule TradingDesk.ScenarioLive do
                 <%!-- Signal + key metrics --%>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
                   <div style="background:#0a0f18;padding:12px;border-radius:8px;text-align:center">
-                    <div style="font-size:10px;color:#64748b;letter-spacing:1px">SIGNAL</div>
+                    <div style="font-size:12px;color:#94a3b8;letter-spacing:1px">SIGNAL</div>
                     <div style={"font-size:20px;font-weight:800;color:#{signal_color(@auto_result.distribution.signal)}"}><%= signal_text(@auto_result.distribution.signal) %></div>
                   </div>
                   <div style="background:#0a0f18;padding:12px;border-radius:8px;text-align:center">
-                    <div style="font-size:10px;color:#64748b;letter-spacing:1px">EXPECTED VALUE</div>
+                    <div style="font-size:12px;color:#94a3b8;letter-spacing:1px">EXPECTED VALUE</div>
                     <div style="font-size:20px;font-weight:800;color:#10b981;font-family:monospace">$<%= format_number(@auto_result.distribution.mean) %></div>
                   </div>
                   <div style="background:#0a0f18;padding:12px;border-radius:8px;text-align:center">
-                    <div style="font-size:10px;color:#64748b;letter-spacing:1px">VALUE AT RISK</div>
+                    <div style="font-size:12px;color:#94a3b8;letter-spacing:1px">VALUE AT RISK</div>
                     <div style="font-size:20px;font-weight:800;color:#f59e0b;font-family:monospace">$<%= format_number(@auto_result.distribution.p5) %></div>
                   </div>
                 </div>
 
                 <%!-- Current live values --%>
-                <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:6px">CURRENT LIVE VALUES</div>
+                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px">CURRENT LIVE VALUES</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:16px;font-size:12px">
                   <span>🌊 River: <span style="color:#38bdf8;font-weight:600"><%= Float.round(Map.get(@auto_result.center, :river_stage, 0.0), 1) %>ft</span></span>
                   <span>🌡 Temp: <span style="color:#38bdf8;font-weight:600"><%= Float.round(Map.get(@auto_result.center, :temp_f, 0.0), 0) %>°F</span></span>
@@ -1757,7 +1750,7 @@ defmodule TradingDesk.ScenarioLive do
 
                 <%!-- What triggered this run --%>
                 <%= if Map.has_key?(@auto_result, :triggers) and length(@auto_result.triggers) > 0 do %>
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:6px">TRIGGERED BY</div>
+                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px">TRIGGERED BY</div>
                   <%= for trigger <- @auto_result.triggers do %>
                     <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
                       <div style="width:6px;height:6px;border-radius:50%;background:#f59e0b"></div>
@@ -1777,10 +1770,10 @@ defmodule TradingDesk.ScenarioLive do
 
               <%!-- Distribution --%>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
-                <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:10px">PROFIT DISTRIBUTION — <%= @auto_result.distribution.n_feasible %>/<%= @auto_result.distribution.n_scenarios %> feasible</div>
+                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:10px">PROFIT DISTRIBUTION — <%= @auto_result.distribution.n_feasible %>/<%= @auto_result.distribution.n_scenarios %> feasible</div>
                 <%= for {label, val, color} <- [{"P95", @auto_result.distribution.p95, "#10b981"}, {"P75", @auto_result.distribution.p75, "#34d399"}, {"Mean", @auto_result.distribution.mean, "#38bdf8"}, {"P50", @auto_result.distribution.p50, "#38bdf8"}, {"P25", @auto_result.distribution.p25, "#f59e0b"}, {"VaR₅", @auto_result.distribution.p5, "#ef4444"}] do %>
                   <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:5px">
-                    <span style="width:40px;color:#64748b;text-align:right"><%= label %></span>
+                    <span style="width:40px;color:#94a3b8;text-align:right"><%= label %></span>
                     <div style="flex:1;height:6px;background:#1e293b;border-radius:3px;overflow:hidden">
                       <div style={"width:#{if @auto_result.distribution.p95 > 0, do: round(val / @auto_result.distribution.p95 * 100), else: 0}%;height:100%;background:#{color};border-radius:3px"}></div>
                     </div>
@@ -1792,7 +1785,7 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- Sensitivity --%>
               <%= if length(@auto_result.distribution.sensitivity) > 0 do %>
                 <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:8px">TOP RISK DRIVERS</div>
+                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">TOP RISK DRIVERS</div>
                   <%= for {key, corr} <- @auto_result.distribution.sensitivity do %>
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">
                       <span style="width:120px;color:#94a3b8"><%= sensitivity_label(key) %></span>
@@ -1808,13 +1801,13 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- History --%>
               <%= if length(@agent_history) > 0 do %>
                 <div style="background:#111827;border-radius:10px;padding:16px">
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:8px">RUN HISTORY</div>
+                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">RUN HISTORY</div>
                   <%= for entry <- @agent_history do %>
                     <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #1e293b11;font-size:12px">
-                      <span style="color:#475569;width:50px"><%= Calendar.strftime(entry.timestamp, "%H:%M") %></span>
+                      <span style="color:#7b8fa4;width:50px"><%= Calendar.strftime(entry.timestamp, "%H:%M") %></span>
                       <span style={"font-weight:700;width:60px;color:#{signal_color(entry.distribution.signal)}"}><%= signal_text(entry.distribution.signal) %></span>
                       <span style="font-family:monospace;color:#e2e8f0;width:80px">$<%= format_number(entry.distribution.mean) %></span>
-                      <span style="color:#475569;flex:1;font-size:11px">
+                      <span style="color:#7b8fa4;flex:1;font-size:11px">
                         <%= Enum.map(entry.triggers, &trigger_label(&1.key)) |> Enum.join(", ") %>
                       </span>
                     </div>
@@ -1824,7 +1817,7 @@ defmodule TradingDesk.ScenarioLive do
 
               <%!-- === AGENT ROUTE MAP === --%>
               <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
-                <div style="font-size:10px;color:#60a5fa;letter-spacing:1px;font-weight:700;margin-bottom:8px">ROUTE MAP</div>
+                <div style="font-size:12px;color:#60a5fa;letter-spacing:1px;font-weight:700;margin-bottom:8px">ROUTE MAP</div>
                 <div id={"agent-map-#{@product_group}"} phx-hook="VesselMap" phx-update="ignore"
                   data-mapdata={map_data_json(@product_group, @frame, nil, @vessel_data)}
                   style="height:280px;border-radius:8px;background:#0a0f18"></div>
@@ -1834,8 +1827,8 @@ defmodule TradingDesk.ScenarioLive do
               <%= if @vessel_data && @vessel_data[:vessels] && length(@vessel_data[:vessels]) > 0 do %>
                 <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                    <div style="font-size:10px;color:#60a5fa;letter-spacing:1px;font-weight:700">FLEET TRACKING</div>
-                    <div style="font-size:10px;color:#475569">
+                    <div style="font-size:12px;color:#60a5fa;letter-spacing:1px;font-weight:700">FLEET TRACKING</div>
+                    <div style="font-size:12px;color:#7b8fa4">
                       <%= if @vessel_data[:fleet_summary] do %>
                         <%= @vessel_data[:fleet_summary][:total_vessels] %> vessels
                         — <%= @vessel_data[:fleet_summary][:underway] || 0 %> underway
@@ -1844,12 +1837,12 @@ defmodule TradingDesk.ScenarioLive do
                   </div>
                   <table style="width:100%;border-collapse:collapse;font-size:11px">
                     <thead><tr style="border-bottom:1px solid #1e293b">
-                      <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:10px">Vessel</th>
-                      <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:10px">Near</th>
-                      <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:10px">Mile</th>
-                      <th style="text-align:right;padding:4px 6px;color:#64748b;font-size:10px">Speed</th>
-                      <th style="text-align:center;padding:4px 6px;color:#64748b;font-size:10px">Dir</th>
-                      <th style="text-align:left;padding:4px 6px;color:#64748b;font-size:10px">Status</th>
+                      <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:12px">Vessel</th>
+                      <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:12px">Near</th>
+                      <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:12px">Mile</th>
+                      <th style="text-align:right;padding:4px 6px;color:#94a3b8;font-size:12px">Speed</th>
+                      <th style="text-align:center;padding:4px 6px;color:#94a3b8;font-size:12px">Dir</th>
+                      <th style="text-align:left;padding:4px 6px;color:#94a3b8;font-size:12px">Status</th>
                     </tr></thead>
                     <tbody>
                       <%= for vessel <- @vessel_data[:vessels] do %>
@@ -1859,7 +1852,7 @@ defmodule TradingDesk.ScenarioLive do
                           <td style="text-align:right;padding:5px 6px;font-family:monospace;color:#38bdf8"><%= vessel[:river_mile] || "—" %></td>
                           <td style="text-align:right;padding:5px 6px;font-family:monospace;color:#c8d6e5"><%= if vessel[:speed], do: "#{Float.round(vessel[:speed], 1)}kn", else: "—" %></td>
                           <td style="text-align:center;padding:5px 6px"><%= vessel_status_icon(vessel[:direction]) %></td>
-                          <td style={"padding:5px 6px;color:#{vessel_status_color(vessel[:status])};font-size:10px;font-weight:600"}><%= vessel_status_text(vessel[:status]) %></td>
+                          <td style={"padding:5px 6px;color:#{vessel_status_color(vessel[:status])};font-size:12px;font-weight:600"}><%= vessel_status_text(vessel[:status]) %></td>
                         </tr>
                       <% end %>
                     </tbody>
@@ -1867,29 +1860,29 @@ defmodule TradingDesk.ScenarioLive do
                   <%!-- Fleet weather from vessel positions --%>
                   <%= if @vessel_data[:fleet_weather] && @vessel_data[:fleet_weather][:source] == :fleet_aggregate do %>
                     <div style="margin-top:10px;padding-top:8px;border-top:1px solid #1e293b">
-                      <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px">FLEET WEATHER (worst-case across positions)</div>
+                      <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:4px">FLEET WEATHER (worst-case across positions)</div>
                       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px">
                         <%= if @vessel_data[:fleet_weather][:wind_mph] do %>
                           <div style="background:#0a0f18;padding:6px;border-radius:4px">
-                            <div style="font-size:9px;color:#64748b">Wind</div>
+                            <div style="font-size:11px;color:#94a3b8">Wind</div>
                             <div style="font-weight:700;color:#38bdf8;font-family:monospace"><%= Float.round(@vessel_data[:fleet_weather][:wind_mph], 0) %> mph</div>
                           </div>
                         <% end %>
                         <%= if @vessel_data[:fleet_weather][:vis_mi] do %>
                           <div style="background:#0a0f18;padding:6px;border-radius:4px">
-                            <div style="font-size:9px;color:#64748b">Visibility</div>
+                            <div style="font-size:11px;color:#94a3b8">Visibility</div>
                             <div style="font-weight:700;color:#38bdf8;font-family:monospace"><%= Float.round(@vessel_data[:fleet_weather][:vis_mi], 1) %> mi</div>
                           </div>
                         <% end %>
                         <%= if @vessel_data[:fleet_weather][:temp_f] do %>
                           <div style="background:#0a0f18;padding:6px;border-radius:4px">
-                            <div style="font-size:9px;color:#64748b">Temp</div>
+                            <div style="font-size:11px;color:#94a3b8">Temp</div>
                             <div style="font-weight:700;color:#38bdf8;font-family:monospace"><%= Float.round(@vessel_data[:fleet_weather][:temp_f], 0) %>°F</div>
                           </div>
                         <% end %>
                         <%= if @vessel_data[:fleet_weather][:precip_in] do %>
                           <div style="background:#0a0f18;padding:6px;border-radius:4px">
-                            <div style="font-size:9px;color:#64748b">Precip</div>
+                            <div style="font-size:11px;color:#94a3b8">Precip</div>
                             <div style="font-weight:700;color:#38bdf8;font-family:monospace"><%= Float.round(@vessel_data[:fleet_weather][:precip_in], 1) %> in</div>
                           </div>
                         <% end %>
@@ -1902,28 +1895,28 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- === TIDES & CURRENTS === --%>
               <%= if @tides_data do %>
                 <div style="background:#111827;border-radius:10px;padding:16px;margin-bottom:16px">
-                  <div style="font-size:10px;color:#818cf8;letter-spacing:1px;font-weight:700;margin-bottom:10px">TIDES & CURRENTS</div>
+                  <div style="font-size:12px;color:#818cf8;letter-spacing:1px;font-weight:700;margin-bottom:10px">TIDES & CURRENTS</div>
                   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
                     <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                      <div style="font-size:9px;color:#64748b">Water Level</div>
+                      <div style="font-size:11px;color:#94a3b8">Water Level</div>
                       <div style="font-size:16px;font-weight:700;color:#60a5fa;font-family:monospace">
                         <%= if @tides_data[:water_level_ft], do: "#{Float.round(@tides_data[:water_level_ft], 1)}ft", else: "—" %>
                       </div>
-                      <div style="font-size:9px;color:#475569">Pilottown</div>
+                      <div style="font-size:11px;color:#7b8fa4">Pilottown</div>
                     </div>
                     <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                      <div style="font-size:9px;color:#64748b">Tidal Range</div>
+                      <div style="font-size:11px;color:#94a3b8">Tidal Range</div>
                       <div style="font-size:16px;font-weight:700;color:#818cf8;font-family:monospace">
                         <%= if @tides_data[:tidal_range_ft], do: "#{Float.round(@tides_data[:tidal_range_ft], 1)}ft", else: "—" %>
                       </div>
-                      <div style="font-size:9px;color:#475569">24h predicted</div>
+                      <div style="font-size:11px;color:#7b8fa4">24h predicted</div>
                     </div>
                     <div style="background:#0a0f18;padding:8px;border-radius:6px;text-align:center">
-                      <div style="font-size:9px;color:#64748b">Current</div>
+                      <div style="font-size:11px;color:#94a3b8">Current</div>
                       <div style="font-size:16px;font-weight:700;color:#38bdf8;font-family:monospace">
                         <%= if @tides_data[:current_speed_kn], do: "#{Float.round(@tides_data[:current_speed_kn], 1)}kn", else: "—" %>
                       </div>
-                      <div style="font-size:9px;color:#475569">SW Pass</div>
+                      <div style="font-size:11px;color:#7b8fa4">SW Pass</div>
                     </div>
                   </div>
                   <%= if @tides_data[:nola_water_level_ft] do %>
@@ -1932,13 +1925,13 @@ defmodule TradingDesk.ScenarioLive do
                     </div>
                   <% end %>
                   <%= if @tides_data[:tidal_predictions] && @tides_data[:tidal_predictions][:next_high] do %>
-                    <div style="font-size:10px;color:#475569;margin-top:4px">
+                    <div style="font-size:12px;color:#7b8fa4;margin-top:4px">
                       Next high: <span style="color:#94a3b8"><%= @tides_data[:tidal_predictions][:next_high][:time] %></span>
                       (<span style="color:#60a5fa"><%= Float.round(@tides_data[:tidal_predictions][:next_high][:level], 1) %>ft</span>)
                     </div>
                   <% end %>
                   <%= if @tides_data[:tidal_predictions] && @tides_data[:tidal_predictions][:next_low] do %>
-                    <div style="font-size:10px;color:#475569">
+                    <div style="font-size:12px;color:#7b8fa4">
                       Next low: <span style="color:#94a3b8"><%= @tides_data[:tidal_predictions][:next_low][:time] %></span>
                       (<span style="color:#f59e0b"><%= Float.round(@tides_data[:tidal_predictions][:next_low][:level], 1) %>ft</span>)
                     </div>
@@ -1946,7 +1939,7 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
               <% end %>
             <% else %>
-              <div style="background:#111827;border-radius:10px;padding:40px;text-align:center;color:#475569">
+              <div style="background:#111827;border-radius:10px;padding:40px;text-align:center;color:#7b8fa4">
                 Agent is initializing...
               </div>
             <% end %>
@@ -1960,14 +1953,14 @@ defmodule TradingDesk.ScenarioLive do
               </div>
 
               <%!-- Data Polling APIs --%>
-              <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:8px">LIVE DATA FEEDS</div>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">LIVE DATA FEEDS</div>
               <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
                 <thead>
                   <tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600">Source</th>
-                    <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600">Status</th>
-                    <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600">Last Called</th>
-                    <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600">Interval</th>
+                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Source</th>
+                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Status</th>
+                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Last Called</th>
+                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Interval</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1975,18 +1968,18 @@ defmodule TradingDesk.ScenarioLive do
                     <tr style="border-bottom:1px solid #0f172a">
                       <td style="padding:6px 8px;color:#e2e8f0;font-weight:500"><%= api.label %></td>
                       <td style="padding:6px 8px">
-                        <span style={"display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#{if api.status == :ok, do: "#10b981", else: "#ef4444"}"}>
+                        <span style={"display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#{if api.status == :ok, do: "#10b981", else: "#ef4444"}"}>
                           <span style={"width:6px;height:6px;border-radius:50%;background:#{if api.status == :ok, do: "#10b981", else: "#ef4444"}"}></span>
                           <%= if api.status == :ok, do: "OK", else: "ERROR" %>
                         </span>
                         <%= if api.error do %>
-                          <span style="color:#ef4444;font-size:9px;margin-left:4px">(<%= inspect(api.error) %>)</span>
+                          <span style="color:#ef4444;font-size:11px;margin-left:4px">(<%= inspect(api.error) %>)</span>
                         <% end %>
                       </td>
-                      <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px">
+                      <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">
                         <%= format_api_timestamp(api.last_poll_at) %>
                       </td>
-                      <td style="padding:6px 8px;text-align:right;color:#64748b;font-family:monospace;font-size:10px">
+                      <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">
                         <%= format_interval(api.interval_ms) %>
                       </td>
                     </tr>
@@ -1995,136 +1988,136 @@ defmodule TradingDesk.ScenarioLive do
               </table>
 
               <%!-- SAP Integration --%>
-              <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:8px">SAP S/4HANA OData</div>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">SAP S/4HANA OData</div>
               <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
                 <thead>
                   <tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600">Endpoint</th>
-                    <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600">Status</th>
-                    <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600">Last Called</th>
-                    <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600">Interval</th>
+                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Endpoint</th>
+                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Status</th>
+                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Last Called</th>
+                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Interval</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr style="border-bottom:1px solid #0f172a">
                     <td style="padding:6px 8px;color:#e2e8f0;font-weight:500">Position Refresh (GET)</td>
                     <td style="padding:6px 8px">
-                      <span style={"display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#{if @api_status.sap.sap_connected, do: "#10b981", else: "#f59e0b"}"}>
+                      <span style={"display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#{if @api_status.sap.sap_connected, do: "#10b981", else: "#f59e0b"}"}>
                         <span style={"width:6px;height:6px;border-radius:50%;background:#{if @api_status.sap.sap_connected, do: "#10b981", else: "#f59e0b"}"}></span>
                         <%= if @api_status.sap.sap_connected, do: "CONNECTED", else: "STUB" %>
                       </span>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px">
+                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">
                       <%= format_api_timestamp(@api_status.sap.last_refresh_at) %>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#64748b;font-family:monospace;font-size:10px">
+                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">
                       <%= format_interval(@api_status.sap.refresh_interval_ms) %>
                     </td>
                   </tr>
                   <tr style="border-bottom:1px solid #0f172a">
                     <td style="padding:6px 8px;color:#e2e8f0;font-weight:500">Create Contract (POST)</td>
                     <td style="padding:6px 8px">
-                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#f59e0b">
+                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#f59e0b">
                         <span style="width:6px;height:6px;border-radius:50%;background:#f59e0b"></span>
                         STUB
                       </span>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#475569;font-family:monospace;font-size:10px">—</td>
-                    <td style="padding:6px 8px;text-align:right;color:#475569;font-family:monospace;font-size:10px">on demand</td>
+                    <td style="padding:6px 8px;text-align:right;color:#7b8fa4;font-family:monospace;font-size:12px">—</td>
+                    <td style="padding:6px 8px;text-align:right;color:#7b8fa4;font-family:monospace;font-size:12px">on demand</td>
                   </tr>
                   <tr style="border-bottom:1px solid #0f172a">
                     <td style="padding:6px 8px;color:#e2e8f0;font-weight:500">Create Delivery (POST)</td>
                     <td style="padding:6px 8px">
-                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#f59e0b">
+                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#f59e0b">
                         <span style="width:6px;height:6px;border-radius:50%;background:#f59e0b"></span>
                         STUB
                       </span>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#475569;font-family:monospace;font-size:10px">—</td>
-                    <td style="padding:6px 8px;text-align:right;color:#475569;font-family:monospace;font-size:10px">on demand</td>
+                    <td style="padding:6px 8px;text-align:right;color:#7b8fa4;font-family:monospace;font-size:12px">—</td>
+                    <td style="padding:6px 8px;text-align:right;color:#7b8fa4;font-family:monospace;font-size:12px">on demand</td>
                   </tr>
                   <tr style="border-bottom:1px solid #0f172a">
                     <td style="padding:6px 8px;color:#e2e8f0;font-weight:500">Webhook Ping (POST /api/sap/ping)</td>
                     <td style="padding:6px 8px">
-                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#10b981">
+                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#10b981">
                         <span style="width:6px;height:6px;border-radius:50%;background:#10b981"></span>
                         READY
                       </span>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#475569;font-family:monospace;font-size:10px">—</td>
-                    <td style="padding:6px 8px;text-align:right;color:#475569;font-family:monospace;font-size:10px">SAP push</td>
+                    <td style="padding:6px 8px;text-align:right;color:#7b8fa4;font-family:monospace;font-size:12px">—</td>
+                    <td style="padding:6px 8px;text-align:right;color:#7b8fa4;font-family:monospace;font-size:12px">SAP push</td>
                   </tr>
                 </tbody>
               </table>
 
               <%!-- Ammonia Pricing --%>
-              <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:8px">AMMONIA PRICING</div>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">AMMONIA PRICING</div>
               <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
                 <thead>
                   <tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600">Source</th>
-                    <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600">Status</th>
-                    <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600">Last Updated</th>
-                    <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600">Interval</th>
+                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Source</th>
+                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Status</th>
+                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Last Updated</th>
+                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Interval</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr style="border-bottom:1px solid #0f172a">
                     <td style="padding:6px 8px;color:#e2e8f0;font-weight:500">Fertecon/FMB Benchmarks</td>
                     <td style="padding:6px 8px">
-                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#10b981">
+                      <span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#10b981">
                         <span style="width:6px;height:6px;border-radius:50%;background:#10b981"></span>
                         SEEDED
                       </span>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px">
+                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">
                       <%= format_api_timestamp(@api_status.prices_updated_at) %>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#64748b;font-family:monospace;font-size:10px">15m</td>
+                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">15m</td>
                   </tr>
                 </tbody>
               </table>
 
               <%!-- Claude API --%>
-              <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:8px">AI / LLM</div>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">AI / LLM</div>
               <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
                 <thead>
                   <tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600">Service</th>
-                    <th style="text-align:left;padding:6px 8px;color:#64748b;font-weight:600">Status</th>
-                    <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600">Model</th>
-                    <th style="text-align:right;padding:6px 8px;color:#64748b;font-weight:600">Usage</th>
+                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Service</th>
+                    <th style="text-align:left;padding:6px 8px;color:#94a3b8;font-weight:600">Status</th>
+                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Model</th>
+                    <th style="text-align:right;padding:6px 8px;color:#94a3b8;font-weight:600">Usage</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr style="border-bottom:1px solid #0f172a">
                     <td style="padding:6px 8px;color:#e2e8f0;font-weight:500">Analyst (Explanations)</td>
                     <td style="padding:6px 8px">
-                      <span style={"display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#{if @api_status.claude_configured, do: "#10b981", else: "#ef4444"}"}>
+                      <span style={"display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#{if @api_status.claude_configured, do: "#10b981", else: "#ef4444"}"}>
                         <span style={"width:6px;height:6px;border-radius:50%;background:#{if @api_status.claude_configured, do: "#10b981", else: "#ef4444"}"}></span>
                         <%= if @api_status.claude_configured, do: "CONFIGURED", else: "NO API KEY" %>
                       </span>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px">claude-sonnet-4-5</td>
-                    <td style="padding:6px 8px;text-align:right;color:#64748b;font-family:monospace;font-size:10px">on solve</td>
+                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">claude-sonnet-4-5</td>
+                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">on solve</td>
                   </tr>
                   <tr style="border-bottom:1px solid #0f172a">
                     <td style="padding:6px 8px;color:#e2e8f0;font-weight:500">Intent Mapper</td>
                     <td style="padding:6px 8px">
-                      <span style={"display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:#{if @api_status.claude_configured, do: "#10b981", else: "#ef4444"}"}>
+                      <span style={"display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#{if @api_status.claude_configured, do: "#10b981", else: "#ef4444"}"}>
                         <span style={"width:6px;height:6px;border-radius:50%;background:#{if @api_status.claude_configured, do: "#10b981", else: "#ef4444"}"}></span>
                         <%= if @api_status.claude_configured, do: "CONFIGURED", else: "NO API KEY" %>
                       </span>
                     </td>
-                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px">claude-sonnet-4-5</td>
-                    <td style="padding:6px 8px;text-align:right;color:#64748b;font-family:monospace;font-size:10px">on action</td>
+                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">claude-sonnet-4-5</td>
+                    <td style="padding:6px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px">on action</td>
                   </tr>
                 </tbody>
               </table>
 
               <%!-- Auto-Solve Thresholds --%>
-              <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:8px">AUTO-SOLVE DELTA THRESHOLDS</div>
-              <div style="font-size:10px;color:#475569;margin-bottom:8px">
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:8px">AUTO-SOLVE DELTA THRESHOLDS</div>
+              <div style="font-size:12px;color:#7b8fa4;margin-bottom:8px">
                 Auto-runner triggers a new Monte Carlo when |current - baseline| exceeds threshold.
                 Cooldown: <span style="color:#94a3b8;font-weight:600"><%= format_interval(@api_status.delta_config.min_solve_interval_ms) %></span>
                 &middot; Scenarios: <span style="color:#94a3b8;font-weight:600"><%= @api_status.delta_config.n_scenarios %></span>
@@ -2133,8 +2126,8 @@ defmodule TradingDesk.ScenarioLive do
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:16px">
                 <%= for {key, threshold} <- Enum.sort_by(@api_status.delta_config.thresholds, fn {k, _} -> to_string(k) end) do %>
                   <div style="background:#0a0f18;padding:6px 8px;border-radius:4px;display:flex;justify-content:space-between;align-items:center">
-                    <span style="font-size:10px;color:#94a3b8"><%= format_threshold_key(key) %></span>
-                    <span style="font-size:10px;font-family:monospace;color:#f59e0b;font-weight:600"><%= format_threshold_value(key, threshold) %></span>
+                    <span style="font-size:12px;color:#94a3b8"><%= format_threshold_key(key) %></span>
+                    <span style="font-size:12px;font-family:monospace;color:#f59e0b;font-weight:600"><%= format_threshold_value(key, threshold) %></span>
                   </div>
                 <% end %>
               </div>
@@ -2142,15 +2135,15 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- Summary --%>
               <div style="display:flex;gap:16px;padding:12px;background:#0a0f18;border-radius:8px;font-size:11px">
                 <div>
-                  <span style="color:#64748b">Total sources:</span>
+                  <span style="color:#94a3b8">Total sources:</span>
                   <span style="color:#e2e8f0;font-weight:600;margin-left:4px"><%= length(@api_status.poller_sources) + 4 %></span>
                 </div>
                 <div>
-                  <span style="color:#64748b">SAP refreshes:</span>
+                  <span style="color:#94a3b8">SAP refreshes:</span>
                   <span style="color:#f97316;font-weight:600;margin-left:4px"><%= @api_status.sap.refresh_count %></span>
                 </div>
                 <div>
-                  <span style="color:#64748b">Errors:</span>
+                  <span style="color:#94a3b8">Errors:</span>
                   <span style={"color:#{if @api_status.error_count > 0, do: "#ef4444", else: "#10b981"};font-weight:600;margin-left:4px"}><%= @api_status.error_count %></span>
                 </div>
               </div>
@@ -2163,16 +2156,16 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- Header --%>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                 <div style="font-size:12px;font-weight:700;color:#22d3ee;letter-spacing:1px">FLEET MANAGEMENT</div>
-                <div style="font-size:10px;color:#475569"><%= length(@fleet_vessels) %> vessel<%= if length(@fleet_vessels) != 1, do: "s" %></div>
+                <div style="font-size:12px;color:#7b8fa4"><%= length(@fleet_vessels) %> vessel<%= if length(@fleet_vessels) != 1, do: "s" %></div>
               </div>
 
               <%!-- Product group filter — defaults to user's product group --%>
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 12px;background:#0a0f18;border-radius:8px">
-                <span style="font-size:10px;color:#64748b;font-weight:600">PRODUCT GROUP</span>
+                <span style="font-size:12px;color:#94a3b8;font-weight:600">PRODUCT GROUP</span>
                 <div style="display:flex;gap:2px">
                   <%= for {pg, label} <- [{"ammonia_domestic", "NH3 Domestic"}, {"ammonia_international", "NH3 Intl"}, {"sulphur_international", "Sulphur"}, {"petcoke", "Petcoke"}, {"all", "All"}] do %>
                     <button phx-click="fleet_filter_pg" phx-value-pg={pg}
-                      style={"font-size:10px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @fleet_pg_filter == pg, do: "background:#22d3ee;color:#0a0f18;", else: "background:#1e293b;color:#64748b;"}"}>
+                      style={"font-size:12px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @fleet_pg_filter == pg, do: "background:#22d3ee;color:#0a0f18;", else: "background:#1e293b;color:#94a3b8;"}"}>
                       <%= label %>
                     </button>
                   <% end %>
@@ -2183,20 +2176,20 @@ defmodule TradingDesk.ScenarioLive do
               <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px">
                 <thead>
                   <tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:center;padding:5px 6px;color:#64748b;font-weight:600;width:50px">Track</th>
-                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Vessel</th>
-                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">MMSI</th>
-                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">SAP Ship#</th>
-                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Cargo</th>
-                    <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Route</th>
-                    <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">ETA</th>
-                    <th style="text-align:center;padding:5px 6px;color:#64748b;font-weight:600;width:40px"></th>
+                    <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600;width:50px">Track</th>
+                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Vessel</th>
+                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">MMSI</th>
+                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">SAP Ship#</th>
+                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Cargo</th>
+                    <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Route</th>
+                    <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">ETA</th>
+                    <th style="text-align:center;padding:5px 6px;color:#94a3b8;font-weight:600;width:40px"></th>
                   </tr>
                 </thead>
                 <tbody>
                   <%= if length(@fleet_vessels) == 0 do %>
                     <tr>
-                      <td colspan="8" style="padding:24px;text-align:center;color:#475569;font-size:12px">
+                      <td colspan="8" style="padding:24px;text-align:center;color:#7b8fa4;font-size:12px">
                         No vessels registered for this product group yet. Add one below.
                       </td>
                     </tr>
@@ -2205,26 +2198,26 @@ defmodule TradingDesk.ScenarioLive do
                     <tr style={"border-bottom:1px solid #0f172a;#{if v.status in ["discharged", "cancelled"], do: "opacity:0.4;", else: ""}"}>
                       <td style="padding:5px 6px;text-align:center">
                         <button phx-click="fleet_toggle_tracking" phx-value-id={v.id}
-                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if v.status in ["active", "in_transit"], do: "background:#22d3ee;", else: "background:#334155;"}"}>
+                          style={"width:28px;height:16px;border-radius:8px;border:none;cursor:pointer;position:relative;#{if v.status in ["active", "in_transit"], do: "background:#22d3ee;", else: "background:#94a3b8;"}"}>
                           <span style={"display:block;width:12px;height:12px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left 0.15s;#{if v.status in ["active", "in_transit"], do: "left:14px;", else: "left:2px;"}"}></span>
                         </button>
                       </td>
                       <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.vessel_name %></td>
-                      <td style="padding:5px 8px;color:#94a3b8;font-family:monospace;font-size:10px"><%= v.mmsi || "—" %></td>
-                      <td style="padding:5px 8px;color:#94a3b8;font-size:10px"><%= v.sap_shipping_number || "—" %></td>
+                      <td style="padding:5px 8px;color:#94a3b8;font-family:monospace;font-size:12px"><%= v.mmsi || "—" %></td>
+                      <td style="padding:5px 8px;color:#94a3b8;font-size:12px"><%= v.sap_shipping_number || "—" %></td>
                       <td style="padding:5px 8px;color:#94a3b8"><%= v.cargo || "—" %></td>
-                      <td style="padding:5px 8px;color:#94a3b8;font-size:10px">
+                      <td style="padding:5px 8px;color:#94a3b8;font-size:12px">
                         <%= if v.loading_port || v.discharge_port do %>
                           <%= v.loading_port || "?" %> → <%= v.discharge_port || "?" %>
                         <% else %>
                           —
                         <% end %>
                       </td>
-                      <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:10px"><%= if v.eta, do: v.eta, else: "—" %></td>
+                      <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace;font-size:12px"><%= if v.eta, do: v.eta, else: "—" %></td>
                       <td style="padding:5px 6px;text-align:center">
                         <button phx-click="fleet_delete_vessel" phx-value-id={v.id}
                           data-confirm="Remove this vessel from tracking?"
-                          style="background:none;border:none;color:#475569;cursor:pointer;font-size:12px;padding:2px 4px">
+                          style="background:none;border:none;color:#7b8fa4;cursor:pointer;font-size:12px;padding:2px 4px">
                           &times;
                         </button>
                       </td>
@@ -2235,40 +2228,40 @@ defmodule TradingDesk.ScenarioLive do
 
               <%!-- Add vessel form --%>
               <div style="border-top:1px solid #1e293b;padding-top:12px">
-                <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600;margin-bottom:8px">ADD VESSEL</div>
+                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;font-weight:600;margin-bottom:8px">ADD VESSEL</div>
                 <form phx-submit="fleet_add_vessel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;align-items:end">
                   <div>
-                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">Vessel Name *</label>
+                    <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">Vessel Name *</label>
                     <input name="vessel_name" required placeholder="MT Gas Chem Beluga"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
                   </div>
                   <div>
-                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">MMSI</label>
+                    <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">MMSI</label>
                     <input name="mmsi" placeholder="338234567" maxlength="9"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:monospace" />
                   </div>
                   <div>
-                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">SAP Ship#</label>
+                    <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">SAP Ship#</label>
                     <input name="sap_shipping" placeholder="80012345"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
                   </div>
                   <div>
-                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">Cargo</label>
+                    <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">Cargo</label>
                     <input name="cargo" placeholder="Anhydrous Ammonia"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
                   </div>
                   <div>
-                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">Loading Port</label>
+                    <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">Loading Port</label>
                     <input name="loading_port" placeholder="Donaldsonville"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
                   </div>
                   <div>
-                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">Discharge Port</label>
+                    <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">Discharge Port</label>
                     <input name="discharge_port" placeholder="Tampa"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
                   </div>
                   <div>
-                    <label style="font-size:9px;color:#475569;display:block;margin-bottom:2px">ETA</label>
+                    <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">ETA</label>
                     <input name="eta" type="date"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
                   </div>
@@ -2300,7 +2293,7 @@ defmodule TradingDesk.ScenarioLive do
                       </button>
                     <% end %>
                     <button phx-click="trigger_backfill"
-                      style={"font-size:11px;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:600;#{if !@history_stats || @history_stats.river.count == 0, do: "background:#06b6d4;color:#0a0f18;border:none;", else: "background:transparent;color:#475569;border:1px solid #1e293b;"}"}>
+                      style={"font-size:11px;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:600;#{if !@history_stats || @history_stats.river.count == 0, do: "background:#06b6d4;color:#0a0f18;border:none;", else: "background:transparent;color:#7b8fa4;border:1px solid #1e293b;"}"}>
                       <%= if !@history_stats || @history_stats.river.count == 0, do: "Run Full Backfill", else: "Re-run Backfill" %>
                     </button>
                   <% end %>
@@ -2313,7 +2306,7 @@ defmodule TradingDesk.ScenarioLive do
                 <div style="display:flex;gap:2px">
                   <%= for {src, label} <- [{:river, "River"}, {:prices, "Prices"}, {:freight, "Freight"}, {:vessels, "Vessels"}] do %>
                     <button phx-click="filter_history" phx-value-source={src}
-                      style={"font-size:10px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @history_source == src, do: "background:#06b6d4;color:#0a0f18;", else: "background:#1e293b;color:#64748b;"}"}>
+                      style={"font-size:12px;font-weight:600;padding:4px 10px;border:none;border-radius:4px;cursor:pointer;#{if @history_source == src, do: "background:#06b6d4;color:#0a0f18;", else: "background:#1e293b;color:#94a3b8;"}"}>
                       <%= label %>
                     </button>
                   <% end %>
@@ -2322,17 +2315,17 @@ defmodule TradingDesk.ScenarioLive do
                 <div style="width:1px;height:20px;background:#1e293b"></div>
 
                 <%!-- Year from --%>
-                <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b">
+                <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#94a3b8">
                   <span>From</span>
                   <select phx-change="filter_history" name="year_from"
-                    style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 6px;border-radius:4px;font-size:10px;cursor:pointer">
+                    style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 6px;border-radius:4px;font-size:12px;cursor:pointer">
                     <%= for yr <- (Date.utc_today().year - 7)..(Date.utc_today().year) do %>
                       <option value={yr} selected={yr == @history_year_from}><%= yr %></option>
                     <% end %>
                   </select>
                   <span>To</span>
                   <select phx-change="filter_history" name="year_to"
-                    style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 6px;border-radius:4px;font-size:10px;cursor:pointer">
+                    style="background:#111827;border:1px solid #1e293b;color:#94a3b8;padding:3px 6px;border-radius:4px;font-size:12px;cursor:pointer">
                     <%= for yr <- (Date.utc_today().year - 7)..(Date.utc_today().year) do %>
                       <option value={yr} selected={yr == @history_year_to}><%= yr %></option>
                     <% end %>
@@ -2340,7 +2333,7 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
 
                 <%= if @history_stats do %>
-                  <div style="margin-left:auto;font-size:10px;color:#334155">
+                  <div style="margin-left:auto;font-size:12px;color:#94a3b8">
                     <%= case @history_source do
                       :river   -> "#{@history_stats.river.count} rows"
                       :prices  -> "#{@history_stats.prices.count} rows"
@@ -2352,7 +2345,7 @@ defmodule TradingDesk.ScenarioLive do
               </div>
 
               <%= if is_nil(@history_stats) do %>
-                <div style="text-align:center;padding:40px;color:#475569;font-size:12px">
+                <div style="text-align:center;padding:40px;color:#7b8fa4;font-size:12px">
                   No data loaded yet.
                   <span style="display:block;margin-top:8px;color:#06b6d4">Click Run Full Backfill to seed river history (5 years) and record today's prices and freight rates.</span>
                 </div>
@@ -2361,8 +2354,8 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if @history_source == :river do %>
                 <div style="margin-bottom:20px">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                    <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">RIVER STAGE (USGS)</div>
-                    <div style="font-size:10px;color:#475569">
+                    <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;font-weight:600">RIVER STAGE (USGS)</div>
+                    <div style="font-size:12px;color:#7b8fa4">
                       <%= @history_stats.river.count %> rows
                       <%= if @history_stats.river.min_date do %>
                         &middot; <%= @history_stats.river.min_date %> → <%= @history_stats.river.max_date %>
@@ -2370,17 +2363,17 @@ defmodule TradingDesk.ScenarioLive do
                     </div>
                   </div>
                   <%= if @history_stats.river.count == 0 do %>
-                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
+                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#7b8fa4">
                       No river stage data — backfill will fetch up to 5 years of USGS daily readings for Baton Rouge, Vicksburg, Memphis, and Cairo.
                     </div>
                   <% else %>
                     <table style="width:100%;border-collapse:collapse;font-size:11px">
                       <thead>
                         <tr style="border-bottom:1px solid #1e293b">
-                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Date</th>
-                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Gauge</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Stage (ft)</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Flow (cfs)</th>
+                          <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Date</th>
+                          <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Gauge</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Stage (ft)</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Flow (cfs)</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2391,7 +2384,7 @@ defmodule TradingDesk.ScenarioLive do
                             <td style="padding:5px 8px;text-align:right;color:#06b6d4;font-family:monospace;font-weight:600">
                               <%= if row.stage_ft, do: Float.round(row.stage_ft, 1), else: "—" %>
                             </td>
-                            <td style="padding:5px 8px;text-align:right;color:#475569;font-family:monospace">
+                            <td style="padding:5px 8px;text-align:right;color:#7b8fa4;font-family:monospace">
                               <%= if row.flow_cfs, do: :erlang.float_to_binary(row.flow_cfs / 1.0, decimals: 0), else: "—" %>
                             </td>
                           </tr>
@@ -2406,8 +2399,8 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if @history_source == :prices do %>
                 <div style="margin-bottom:20px">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                    <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">AMMONIA PRICES</div>
-                    <div style="font-size:10px;color:#475569">
+                    <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;font-weight:600">AMMONIA PRICES</div>
+                    <div style="font-size:12px;color:#7b8fa4">
                       <%= @history_stats.prices.count %> rows
                       <%= if @history_stats.prices.min_date do %>
                         &middot; <%= @history_stats.prices.min_date %> → <%= @history_stats.prices.max_date %>
@@ -2415,17 +2408,17 @@ defmodule TradingDesk.ScenarioLive do
                     </div>
                   </div>
                   <%= if @history_stats.prices.count == 0 do %>
-                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
+                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#7b8fa4">
                       No price history — use Snapshot Today to record current benchmarks, or import a CSV from Argus/Fertecon via <code style="color:#06b6d4">Ingester.import_prices/1</code>.
                     </div>
                   <% else %>
                     <table style="width:100%;border-collapse:collapse;font-size:11px">
                       <thead>
                         <tr style="border-bottom:1px solid #1e293b">
-                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Date</th>
-                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Benchmark</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Price</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Source</th>
+                          <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Date</th>
+                          <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Benchmark</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Price</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Source</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2434,9 +2427,9 @@ defmodule TradingDesk.ScenarioLive do
                             <td style="padding:5px 8px;color:#94a3b8;font-family:monospace"><%= row.date %></td>
                             <td style="padding:5px 8px;color:#e2e8f0"><%= row.benchmark_key %></td>
                             <td style="padding:5px 8px;text-align:right;color:#10b981;font-family:monospace;font-weight:600">
-                              $<%= Float.round(row.price_usd, 2) %> <span style="color:#475569;font-size:10px"><%= row.unit %></span>
+                              $<%= Float.round(row.price_usd, 2) %> <span style="color:#7b8fa4;font-size:12px"><%= row.unit %></span>
                             </td>
-                            <td style="padding:5px 8px;text-align:right;color:#475569;font-size:10px"><%= row.source %></td>
+                            <td style="padding:5px 8px;text-align:right;color:#7b8fa4;font-size:12px"><%= row.source %></td>
                           </tr>
                         <% end %>
                       </tbody>
@@ -2449,8 +2442,8 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if @history_source == :freight do %>
                 <div style="margin-bottom:20px">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                    <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">BARGE FREIGHT RATES</div>
-                    <div style="font-size:10px;color:#475569">
+                    <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;font-weight:600">BARGE FREIGHT RATES</div>
+                    <div style="font-size:12px;color:#7b8fa4">
                       <%= @history_stats.freight.count %> rows
                       <%= if @history_stats.freight.min_date do %>
                         &middot; <%= @history_stats.freight.min_date %> → <%= @history_stats.freight.max_date %>
@@ -2458,17 +2451,17 @@ defmodule TradingDesk.ScenarioLive do
                     </div>
                   </div>
                   <%= if @history_stats.freight.count == 0 do %>
-                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
+                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#7b8fa4">
                       No freight history — Snapshot Today will record current broker rates, or import via <code style="color:#06b6d4">Ingester.import_freight/1</code>.
                     </div>
                   <% else %>
                     <table style="width:100%;border-collapse:collapse;font-size:11px">
                       <thead>
                         <tr style="border-bottom:1px solid #1e293b">
-                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Date</th>
-                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Route</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Rate ($/ton)</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Source</th>
+                          <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Date</th>
+                          <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Route</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Rate ($/ton)</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Source</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2479,7 +2472,7 @@ defmodule TradingDesk.ScenarioLive do
                             <td style="padding:5px 8px;text-align:right;color:#f59e0b;font-family:monospace;font-weight:600">
                               $<%= Float.round(row.rate_per_ton, 2) %>
                             </td>
-                            <td style="padding:5px 8px;text-align:right;color:#475569;font-size:10px"><%= row.source %></td>
+                            <td style="padding:5px 8px;text-align:right;color:#7b8fa4;font-size:12px"><%= row.source %></td>
                           </tr>
                         <% end %>
                       </tbody>
@@ -2492,9 +2485,9 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if @history_source == :vessels do %>
                 <div>
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                    <div style="font-size:10px;color:#64748b;letter-spacing:1px;font-weight:600">VESSEL POSITIONS (AIS)</div>
+                    <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;font-weight:600">VESSEL POSITIONS (AIS)</div>
                     <%= if @vessel_data do %>
-                      <div style="font-size:10px;color:#475569">
+                      <div style="font-size:12px;color:#7b8fa4">
                         <%= @vessel_data.fleet_summary.total_vessels %> tracked
                         &middot; <%= @vessel_data.fleet_summary.northbound %> NB
                         &middot; <%= @vessel_data.fleet_summary.southbound %> SB
@@ -2503,39 +2496,39 @@ defmodule TradingDesk.ScenarioLive do
                   </div>
 
                   <%= if is_nil(@vessel_data) do %>
-                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#475569">
+                    <div style="padding:12px;background:#0a0f18;border-radius:6px;font-size:11px;color:#7b8fa4">
                       No AIS data yet.
                       <span style="display:block;margin-top:6px;color:#06b6d4;font-weight:600">
                         Set AISSTREAM_API_KEY (free at aisstream.io) to enable real-time tracking.
                       </span>
-                      <span style="display:block;margin-top:6px;color:#334155;line-height:1.6">
+                      <span style="display:block;margin-top:6px;color:#94a3b8;line-height:1.6">
                         Tracks: Mississippi towboats · ocean ammonia carriers · sulphur/petcoke bulk carriers · ocean-going barges (Class B equipped).<br/>
                         River barges don't carry AIS — tracked via their towboat.<br/>
-                        <span style="color:#475569">For ocean routes add:</span>
+                        <span style="color:#7b8fa4">For ocean routes add:</span>
                         <code style="color:#94a3b8;display:block;margin-top:4px">AISSTREAM_EXTRA_BBOX=lat_tl,lon_tl,lat_br,lon_br</code>
-                        e.g. Black Sea: <code style="color:#475569">48.0,28.0,40.9,41.0</code> · Persian Gulf: <code style="color:#475569">30.0,48.0,22.0,60.0</code>
+                        e.g. Black Sea: <code style="color:#7b8fa4">48.0,28.0,40.9,41.0</code> · Persian Gulf: <code style="color:#7b8fa4">30.0,48.0,22.0,60.0</code>
                       </span>
                     </div>
                   <% else %>
                     <table style="width:100%;border-collapse:collapse;font-size:11px">
                       <thead>
                         <tr style="border-bottom:1px solid #1e293b">
-                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Vessel</th>
-                          <th style="text-align:left;padding:5px 8px;color:#64748b;font-weight:600">Near</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Mile</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Speed (kn)</th>
-                          <th style="text-align:right;padding:5px 8px;color:#64748b;font-weight:600">Status</th>
+                          <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Vessel</th>
+                          <th style="text-align:left;padding:5px 8px;color:#94a3b8;font-weight:600">Near</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Mile</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Speed (kn)</th>
+                          <th style="text-align:right;padding:5px 8px;color:#94a3b8;font-weight:600">Status</th>
                         </tr>
                       </thead>
                       <tbody>
                         <%= for v <- @vessel_data.vessels do %>
                           <tr style="border-bottom:1px solid #0f172a">
                             <td style="padding:5px 8px;color:#e2e8f0;font-weight:500"><%= v.name %></td>
-                            <td style="padding:5px 8px;color:#94a3b8;font-size:10px"><%= v.nearest_waypoint %></td>
+                            <td style="padding:5px 8px;color:#94a3b8;font-size:12px"><%= v.nearest_waypoint %></td>
                             <td style="padding:5px 8px;text-align:right;color:#06b6d4;font-family:monospace"><%= v.river_mile %></td>
                             <td style="padding:5px 8px;text-align:right;color:#94a3b8;font-family:monospace"><%= v.speed || "—" %></td>
                             <td style="padding:5px 8px;text-align:right">
-                              <span style={"font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;#{case v.status do :underway_engine -> "background:#14532d;color:#4ade80"; :moored -> "background:#1e3a5f;color:#60a5fa"; :at_anchor -> "background:#422006;color:#fb923c"; _ -> "background:#1e293b;color:#64748b" end}"}>
+                              <span style={"font-size:11px;font-weight:700;padding:2px 5px;border-radius:3px;#{case v.status do :underway_engine -> "background:#14532d;color:#4ade80"; :moored -> "background:#1e3a5f;color:#60a5fa"; :at_anchor -> "background:#422006;color:#fb923c"; _ -> "background:#1e293b;color:#94a3b8" end}"}>
                                 <%= v.status |> to_string() |> String.replace("_", " ") |> String.upcase() %>
                               </span>
                             </td>
@@ -2557,31 +2550,31 @@ defmodule TradingDesk.ScenarioLive do
                 <div style="font-size:12px;font-weight:700;color:#eab308;letter-spacing:1px">
                   SOLVE HISTORY
                 </div>
-                <div style="font-size:10px;color:#64748b">
+                <div style="font-size:12px;color:#94a3b8">
                   <%= length(@solve_history) %> solve<%= if length(@solve_history) != 1, do: "s" %> recorded
                 </div>
               </div>
 
               <%= if length(@solve_history) == 0 do %>
-                <div style="text-align:center;padding:40px;color:#475569;font-size:12px">
+                <div style="text-align:center;padding:40px;color:#7b8fa4;font-size:12px">
                   No solves recorded yet. Run a solve or wait for the auto-runner.
                 </div>
               <% else %>
                 <table style="width:100%;border-collapse:collapse;font-size:11px">
                   <thead>
                     <tr style="border-bottom:1px solid #1e293b">
-                      <th style="text-align:left;padding:8px;color:#64748b;font-weight:600">Time</th>
-                      <th style="text-align:left;padding:8px;color:#64748b;font-weight:600">Source</th>
-                      <th style="text-align:left;padding:8px;color:#64748b;font-weight:600">Mode</th>
-                      <th style="text-align:right;padding:8px;color:#64748b;font-weight:600">Result</th>
-                      <th style="text-align:left;padding:8px;color:#64748b;font-weight:600">Trigger / Adjustments</th>
+                      <th style="text-align:left;padding:8px;color:#94a3b8;font-weight:600">Time</th>
+                      <th style="text-align:left;padding:8px;color:#94a3b8;font-weight:600">Source</th>
+                      <th style="text-align:left;padding:8px;color:#94a3b8;font-weight:600">Mode</th>
+                      <th style="text-align:right;padding:8px;color:#94a3b8;font-weight:600">Result</th>
+                      <th style="text-align:left;padding:8px;color:#94a3b8;font-weight:600">Trigger / Adjustments</th>
                     </tr>
                   </thead>
                   <tbody>
                     <%= for solve <- @solve_history do %>
                       <tr style={"border-bottom:1px solid #0f172a;background:#{if solve.source == :trader, do: "#0c1629", else: "transparent"}"}>
                         <%!-- Time --%>
-                        <td style="padding:8px;color:#94a3b8;font-family:monospace;font-size:10px;white-space:nowrap">
+                        <td style="padding:8px;color:#94a3b8;font-family:monospace;font-size:12px;white-space:nowrap">
                           <%= format_solve_time(solve.completed_at) %>
                         </td>
 
@@ -2589,17 +2582,17 @@ defmodule TradingDesk.ScenarioLive do
                         <td style="padding:8px">
                           <%= if solve.source == :trader do %>
                             <span style="display:inline-flex;align-items:center;gap:4px">
-                              <span style="background:#1e3a5f;color:#38bdf8;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">MANUAL</span>
-                              <span style="color:#94a3b8;font-size:10px"><%= solve.trader_id || "trader" %></span>
+                              <span style="background:#1e3a5f;color:#38bdf8;font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">MANUAL</span>
+                              <span style="color:#94a3b8;font-size:12px"><%= solve.trader_id || "trader" %></span>
                             </span>
                           <% else %>
-                            <span style="background:#14532d;color:#4ade80;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">AUTO</span>
+                            <span style="background:#14532d;color:#4ade80;font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">AUTO</span>
                           <% end %>
                         </td>
 
                         <%!-- Mode --%>
                         <td style="padding:8px">
-                          <span style={"color:#{if solve.mode == :monte_carlo, do: "#a78bfa", else: "#38bdf8"};font-size:10px;font-weight:600"}>
+                          <span style={"color:#{if solve.mode == :monte_carlo, do: "#a78bfa", else: "#38bdf8"};font-size:12px;font-weight:600"}>
                             <%= if solve.mode == :monte_carlo, do: "Monte Carlo", else: "Solve" %>
                           </span>
                         </td>
@@ -2612,16 +2605,16 @@ defmodule TradingDesk.ScenarioLive do
                                 $<%= format_number(solve.profit) %>
                               </span>
                             <% solve.result_status in [:strong_go, :go, :hold, :no_go] -> %>
-                              <span style={"font-weight:700;font-size:10px;padding:2px 6px;border-radius:3px;#{signal_style(solve.result_status)}"}>
+                              <span style={"font-weight:700;font-size:12px;padding:2px 6px;border-radius:3px;#{signal_style(solve.result_status)}"}>
                                 <%= solve.result_status |> to_string() |> String.upcase() |> String.replace("_", " ") %>
                               </span>
-                              <span style="color:#94a3b8;font-family:monospace;font-size:10px;margin-left:4px">
+                              <span style="color:#94a3b8;font-family:monospace;font-size:12px;margin-left:4px">
                                 $<%= format_number(solve.profit) %>
                               </span>
                             <% solve.result_status == :error -> %>
-                              <span style="color:#ef4444;font-weight:600;font-size:10px">ERROR</span>
+                              <span style="color:#ef4444;font-weight:600;font-size:12px">ERROR</span>
                             <% true -> %>
-                              <span style="color:#64748b;font-size:10px"><%= solve.result_status %></span>
+                              <span style="color:#94a3b8;font-size:12px"><%= solve.result_status %></span>
                           <% end %>
                         </td>
 
@@ -2630,29 +2623,29 @@ defmodule TradingDesk.ScenarioLive do
                           <%= if solve.source == :trader and length(solve.adjustments) > 0 do %>
                             <div style="display:flex;flex-wrap:wrap;gap:3px">
                               <%= for adj <- Enum.take(solve.adjustments, 5) do %>
-                                <span style="background:#1a1400;color:#f59e0b;font-size:9px;padding:1px 5px;border-radius:3px;font-family:monospace">
+                                <span style="background:#1a1400;color:#f59e0b;font-size:11px;padding:1px 5px;border-radius:3px;font-family:monospace">
                                   <%= adj.key %>: <%= adj.from %> &rarr; <%= adj.to %>
                                 </span>
                               <% end %>
                               <%= if length(solve.adjustments) > 5 do %>
-                                <span style="color:#64748b;font-size:9px">+<%= length(solve.adjustments) - 5 %> more</span>
+                                <span style="color:#94a3b8;font-size:11px">+<%= length(solve.adjustments) - 5 %> more</span>
                               <% end %>
                             </div>
                           <% end %>
                           <%= if solve.source == :auto and length(solve.triggers) > 0 do %>
                             <div style="display:flex;flex-wrap:wrap;gap:3px">
                               <%= for trigger <- Enum.take(solve.triggers, 5) do %>
-                                <span style="background:#052e16;color:#4ade80;font-size:9px;padding:1px 5px;border-radius:3px;font-family:monospace">
+                                <span style="background:#052e16;color:#4ade80;font-size:11px;padding:1px 5px;border-radius:3px;font-family:monospace">
                                   <%= trigger.key %> &Delta;<%= format_delta(trigger.delta) %>
                                 </span>
                               <% end %>
                               <%= if length(solve.triggers) > 5 do %>
-                                <span style="color:#64748b;font-size:9px">+<%= length(solve.triggers) - 5 %> more</span>
+                                <span style="color:#94a3b8;font-size:11px">+<%= length(solve.triggers) - 5 %> more</span>
                               <% end %>
                             </div>
                           <% end %>
                           <%= if length(solve.triggers) == 0 and length(solve.adjustments) == 0 do %>
-                            <span style="color:#475569;font-size:10px">
+                            <span style="color:#7b8fa4;font-size:12px">
                               <%= if solve.source == :auto, do: "scheduled", else: "no overrides" %>
                             </span>
                           <% end %>
@@ -2669,16 +2662,16 @@ defmodule TradingDesk.ScenarioLive do
               <div style="background:#111827;border-radius:10px;padding:16px;margin-top:16px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                   <div style="font-size:12px;font-weight:700;color:#eab308;letter-spacing:1px">SAVED SCENARIOS</div>
-                  <div style="font-size:10px;color:#64748b"><%= length(@saved_scenarios) %> saved</div>
+                  <div style="font-size:12px;color:#94a3b8"><%= length(@saved_scenarios) %> saved</div>
                 </div>
                 <table style="width:100%;border-collapse:collapse;font-size:11px">
                   <thead><tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:6px;color:#64748b">Name</th>
-                    <th style="text-align:right;padding:6px;color:#64748b">Profit</th>
-                    <th style="text-align:right;padding:6px;color:#64748b">ROI</th>
-                    <th style="text-align:right;padding:6px;color:#64748b">Tons</th>
-                    <th style="text-align:center;padding:6px;color:#64748b">Note</th>
-                    <th style="text-align:right;padding:6px;color:#64748b">Saved</th>
+                    <th style="text-align:left;padding:6px;color:#94a3b8">Name</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8">Profit</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8">ROI</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8">Tons</th>
+                    <th style="text-align:center;padding:6px;color:#94a3b8">Note</th>
+                    <th style="text-align:right;padding:6px;color:#94a3b8">Saved</th>
                   </tr></thead>
                   <tbody>
                     <%= for sc <- @saved_scenarios do %>
@@ -2691,17 +2684,17 @@ defmodule TradingDesk.ScenarioLive do
                         <td style="text-align:right;padding:6px;font-family:monospace"><%= format_number(sc.result.tons) %></td>
                         <td style="text-align:center;padding:6px">
                           <%= if Map.get(sc.result, :analyst_note) do %>
-                            <span style="font-size:9px;background:#1e1030;color:#a78bfa;padding:2px 6px;border-radius:3px">🧠 has note</span>
+                            <span style="font-size:11px;background:#1e1030;color:#a78bfa;padding:2px 6px;border-radius:3px">🧠 has note</span>
                           <% end %>
                         </td>
-                        <td style="text-align:right;padding:6px;color:#475569;font-size:10px;white-space:nowrap">
+                        <td style="text-align:right;padding:6px;color:#7b8fa4;font-size:12px;white-space:nowrap">
                           <%= if sc.saved_at, do: Calendar.strftime(sc.saved_at, "%m/%d %H:%M"), else: "" %>
                         </td>
                       </tr>
                     <% end %>
                   </tbody>
                 </table>
-                <div style="font-size:10px;color:#334155;margin-top:8px;text-align:center">
+                <div style="font-size:12px;color:#94a3b8;margin-top:8px;text-align:center">
                   Click a row to restore the scenario — switches to Trader tab
                 </div>
               </div>
@@ -2724,16 +2717,16 @@ defmodule TradingDesk.ScenarioLive do
               <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">
                 PRE-SOLVE REVIEW — <%= if @review_mode == :monte_carlo, do: "MONTE CARLO", else: "SOLVE" %>
               </span>
-              <button phx-click="cancel_review" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:16px">X</button>
+              <button phx-click="cancel_review" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
             </div>
 
             <%!-- Trader Scenario — with toggle to show what Claude receives (anonymized) --%>
             <div style="background:#0a0318;border-radius:8px;padding:14px;margin-bottom:14px;border-left:3px solid #a78bfa">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                <div style="font-size:10px;color:#a78bfa;letter-spacing:1.2px;font-weight:700">SCENARIO INPUT</div>
+                <div style="font-size:12px;color:#a78bfa;letter-spacing:1.2px;font-weight:700">SCENARIO INPUT</div>
                 <%= if @anon_model_preview && @anon_model_preview != "" do %>
                   <button phx-click="toggle_anon_preview"
-                    style={"font-size:9px;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:600;letter-spacing:0.5px;border:1px solid #{if @show_anon_preview, do: "#a78bfa", else: "#374151"};background:#{if @show_anon_preview, do: "#2d1057", else: "transparent"};color:#{if @show_anon_preview, do: "#c4b5fd", else: "#64748b"}"}>
+                    style={"font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:600;letter-spacing:0.5px;border:1px solid #{if @show_anon_preview, do: "#a78bfa", else: "#374151"};background:#{if @show_anon_preview, do: "#2d1057", else: "transparent"};color:#{if @show_anon_preview, do: "#c4b5fd", else: "#94a3b8"}"}>
                     <%= if @show_anon_preview, do: "← Show Narrative", else: "🔒 Anonymized (sent to Claude)" %>
                   </button>
                 <% end %>
@@ -2746,37 +2739,37 @@ defmodule TradingDesk.ScenarioLive do
                     |> Enum.take(20)
                   anon_text = Enum.join(anon_lines, "\n")
                 %>
-                <pre style="font-size:10px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:200px;overflow-y:auto"><%= anon_text %></pre>
-                <div style="font-size:9px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
+                <pre style="font-size:12px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:200px;overflow-y:auto"><%= anon_text %></pre>
+                <div style="font-size:11px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
               <% else %>
                 <%-- Show the trader's narrative description prominently --%>
                 <%= if (@scenario_description || "") != "" do %>
                   <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;padding:8px 10px;background:#0d0a20;border-radius:5px;border:1px solid #2d1b69"><%= @scenario_description %></div>
                 <% else %>
-                  <div style="font-size:12px;color:#475569;font-style:italic">No description entered — variable adjustments only</div>
+                  <div style="font-size:12px;color:#7b8fa4;font-style:italic">No description entered — variable adjustments only</div>
                 <% end %>
-                <div style="font-size:9px;color:#475569;margin-top:6px">Full model context (variables, routes, positions) submitted to solver · click <em>Anonymized</em> to preview what Claude sees</div>
+                <div style="font-size:11px;color:#7b8fa4;margin-top:6px">Full model context (variables, routes, positions) submitted to solver · click <em>Anonymized</em> to preview what Claude sees</div>
               <% end %>
             </div>
 
             <%!-- AI Interpretation --%>
             <%= if @intent_loading do %>
-              <div style="font-size:12px;color:#64748b;padding:8px 0;text-align:center">⏳ Mapping intent to variables...</div>
+              <div style="font-size:12px;color:#94a3b8;padding:8px 0;text-align:center">⏳ Mapping intent to variables...</div>
             <% end %>
             <%= if @intent do %>
               <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-                <div style="font-size:10px;color:#38bdf8;letter-spacing:1px;margin-bottom:6px;font-weight:700">AI INTERPRETATION</div>
+                <div style="font-size:12px;color:#38bdf8;letter-spacing:1px;margin-bottom:6px;font-weight:700">AI INTERPRETATION</div>
                 <div style="font-size:12px;color:#c8d6e5;margin-bottom:10px;line-height:1.5"><%= @intent.summary %></div>
 
                 <%!-- Variable changes --%>
                 <%= if map_size(@intent.variable_adjustments) > 0 do %>
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px">VARIABLE CHANGES</div>
+                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:4px">VARIABLE CHANGES</div>
                   <div style="background:#080c14;border-radius:4px;padding:8px;margin-bottom:8px">
                     <%= for {key, val} <- @intent.variable_adjustments do %>
                       <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;font-family:monospace">
                         <span style="color:#94a3b8"><%= key %></span>
                         <span style="color:#94a3b8"><%= Map.get(@current_vars, key) %></span>
-                        <span style="color:#64748b">→</span>
+                        <span style="color:#94a3b8">→</span>
                         <span style="color:#f59e0b;font-weight:700"><%= val %></span>
                       </div>
                     <% end %>
@@ -2785,20 +2778,20 @@ defmodule TradingDesk.ScenarioLive do
 
                 <%!-- Affected contracts --%>
                 <%= if length(@intent.affected_contracts) > 0 do %>
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px">AFFECTED CONTRACTS</div>
+                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:4px">AFFECTED CONTRACTS</div>
                   <%= for ac <- @intent.affected_contracts do %>
                     <div style="font-size:11px;padding:3px 0;border-bottom:1px solid #1e293b22;display:flex;gap:6px">
                       <span style={"font-weight:600;color:#{if ac.direction == "purchase", do: "#60a5fa", else: "#f59e0b"}"}>
                         <%= if ac.direction == "purchase", do: "↓", else: "↑" %> <%= ac.counterparty %>
                       </span>
-                      <span style="color:#64748b;font-size:10px">— <%= ac.impact %></span>
+                      <span style="color:#94a3b8;font-size:12px">— <%= ac.impact %></span>
                     </div>
                   <% end %>
                 <% end %>
 
                 <%!-- Risk alerts --%>
                 <%= if length(@intent.risk_notes) > 0 do %>
-                  <div style="font-size:10px;color:#ef4444;letter-spacing:1px;margin-bottom:4px;margin-top:8px">RISK ALERTS</div>
+                  <div style="font-size:12px;color:#ef4444;letter-spacing:1px;margin-bottom:4px;margin-top:8px">RISK ALERTS</div>
                   <%= for note <- @intent.risk_notes do %>
                     <div style="font-size:11px;color:#fca5a5;padding:2px 0">⚠ <%= note %></div>
                   <% end %>
@@ -2808,17 +2801,17 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if Map.get(@intent, :penalty_exposure, 0) > 0 do %>
                   <div style="background:#1a0a0a;border-radius:6px;padding:10px;margin-top:8px">
                     <div style="display:flex;justify-content:space-between;align-items:baseline">
-                      <span style="font-size:10px;color:#f97316;font-weight:700;letter-spacing:1px">DELIVERY PENALTY AT RISK</span>
+                      <span style="font-size:12px;color:#f97316;font-weight:700;letter-spacing:1px">DELIVERY PENALTY AT RISK</span>
                       <span style="font-size:14px;font-weight:700;font-family:monospace;color:#fdba74">~$<%= format_number(Map.get(@intent, :penalty_exposure, 0)) %></span>
                     </div>
                     <%= if length(Map.get(@intent, :priority_deliveries, [])) > 0 do %>
-                      <div style="font-size:10px;margin-top:6px">
+                      <div style="font-size:12px;margin-top:6px">
                         <span style="color:#4ade80;font-weight:700">SERVE FIRST: </span>
                         <span style="color:#86efac"><%= Enum.join(Map.get(@intent, :priority_deliveries, []), " · ") %></span>
                       </div>
                     <% end %>
                     <%= if length(Map.get(@intent, :deferred_deliveries, [])) > 0 do %>
-                      <div style="font-size:10px;margin-top:3px">
+                      <div style="font-size:12px;margin-top:3px">
                         <span style="color:#f59e0b;font-weight:700">CAN DEFER: </span>
                         <span style="color:#fcd34d"><%= Enum.join(Map.get(@intent, :deferred_deliveries, []), " · ") %></span>
                       </div>
@@ -2830,7 +2823,7 @@ defmodule TradingDesk.ScenarioLive do
 
             <%!-- OBJECTIVE FOR THIS SOLVE — trader sets this, AI suggestion is advisory --%>
             <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-              <div style="font-size:10px;color:#64748b;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE FOR THIS SOLVE</div>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE FOR THIS SOLVE</div>
               <select phx-change="switch_objective" name="objective"
                 style="width:100%;background:#111827;border:1px solid #1e293b;color:#e2e8f0;padding:8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">
                 <%= for {val, label} <- [max_profit: "Maximize Profit", min_cost: "Minimize Cost", max_roi: "Maximize ROI", cvar_adjusted: "CVaR-Adjusted", min_risk: "Minimize Risk"] do %>
@@ -2849,29 +2842,29 @@ defmodule TradingDesk.ScenarioLive do
             <%!-- Open Book Positions --%>
             <%= if @sap_positions do %>
               <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-                <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:6px">OPEN BOOK (SAP)</div>
+                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px">OPEN BOOK (SAP)</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
                   <div style="text-align:center">
-                    <div style="font-size:9px;color:#64748b">Purchase Open</div>
+                    <div style="font-size:11px;color:#94a3b8">Purchase Open</div>
                     <div style="font-size:14px;font-weight:700;color:#60a5fa;font-family:monospace"><%= format_number(@sap_positions.total_purchase_open) %></div>
                   </div>
                   <div style="text-align:center">
-                    <div style="font-size:9px;color:#64748b">Sale Open</div>
+                    <div style="font-size:11px;color:#94a3b8">Sale Open</div>
                     <div style="font-size:14px;font-weight:700;color:#f59e0b;font-family:monospace"><%= format_number(@sap_positions.total_sale_open) %></div>
                   </div>
                   <div style="text-align:center">
-                    <div style="font-size:9px;color:#64748b">Net Position</div>
+                    <div style="font-size:11px;color:#94a3b8">Net Position</div>
                     <div style={"font-size:14px;font-weight:700;font-family:monospace;color:#{if @sap_positions.net_position > 0, do: "#4ade80", else: "#f87171"}"}><%= if @sap_positions.net_position > 0, do: "+", else: "" %><%= format_number(@sap_positions.net_position) %></div>
                   </div>
                 </div>
-                <table style="width:100%;border-collapse:collapse;font-size:10px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px">
                   <thead><tr style="border-bottom:1px solid #1e293b">
-                    <th style="text-align:left;padding:3px 4px;color:#475569">Counterparty</th>
-                    <th style="text-align:center;padding:3px 4px;color:#475569">Dir</th>
-                    <th style="text-align:center;padding:3px 4px;color:#475569">Incoterm</th>
-                    <th style="text-align:right;padding:3px 4px;color:#475569">Contract</th>
-                    <th style="text-align:right;padding:3px 4px;color:#475569">Delivered</th>
-                    <th style="text-align:right;padding:3px 4px;color:#475569">Open</th>
+                    <th style="text-align:left;padding:3px 4px;color:#7b8fa4">Counterparty</th>
+                    <th style="text-align:center;padding:3px 4px;color:#7b8fa4">Dir</th>
+                    <th style="text-align:center;padding:3px 4px;color:#7b8fa4">Incoterm</th>
+                    <th style="text-align:right;padding:3px 4px;color:#7b8fa4">Contract</th>
+                    <th style="text-align:right;padding:3px 4px;color:#7b8fa4">Delivered</th>
+                    <th style="text-align:right;padding:3px 4px;color:#7b8fa4">Open</th>
                   </tr></thead>
                   <tbody>
                     <%= for {name, pos} <- Enum.sort_by(@sap_positions.positions, fn {_k, v} -> v.open_qty_mt end, :desc) do %>
@@ -2880,7 +2873,7 @@ defmodule TradingDesk.ScenarioLive do
                         <td style={"text-align:center;padding:3px 4px;color:#{if pos.direction == :purchase, do: "#60a5fa", else: "#f59e0b"};font-weight:600"}><%= if pos.direction == :purchase, do: "BUY", else: "SELL" %></td>
                         <td style="text-align:center;padding:3px 4px;color:#94a3b8"><%= pos.incoterm |> to_string() |> String.upcase() %></td>
                         <td style="text-align:right;padding:3px 4px;font-family:monospace;color:#94a3b8"><%= format_number(pos.total_qty_mt) %></td>
-                        <td style="text-align:right;padding:3px 4px;font-family:monospace;color:#64748b"><%= format_number(pos.delivered_qty_mt) %></td>
+                        <td style="text-align:right;padding:3px 4px;font-family:monospace;color:#94a3b8"><%= format_number(pos.delivered_qty_mt) %></td>
                         <td style="text-align:right;padding:3px 4px;font-family:monospace;color:#e2e8f0;font-weight:600"><%= format_number(pos.open_qty_mt) %></td>
                       </tr>
                     <% end %>
@@ -2891,12 +2884,12 @@ defmodule TradingDesk.ScenarioLive do
 
             <%!-- Key Variables Summary --%>
             <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:16px">
-              <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:6px">CURRENT VARIABLES</div>
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px">CURRENT VARIABLES</div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px">
                 <%= for meta <- Enum.take(Enum.filter(@metadata, & Map.get(&1, :type) != :boolean), 12) do %>
                   <div style="display:flex;justify-content:space-between;padding:2px 4px">
-                    <span style="color:#64748b;font-size:10px"><%= meta.label %></span>
-                    <span style={"color:#{if MapSet.member?(@overrides, meta.key), do: "#f59e0b", else: "#94a3b8"};font-family:monospace;font-size:10px"}><%= format_var(meta, Map.get(@current_vars, meta.key)) %></span>
+                    <span style="color:#94a3b8;font-size:12px"><%= meta.label %></span>
+                    <span style={"color:#{if MapSet.member?(@overrides, meta.key), do: "#f59e0b", else: "#94a3b8"};font-family:monospace;font-size:12px"}><%= format_var(meta, Map.get(@current_vars, meta.key)) %></span>
                   </div>
                 <% end %>
               </div>
@@ -2951,7 +2944,7 @@ defmodule TradingDesk.ScenarioLive do
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
                   <span style="font-size:11px;color:#8b5cf6;font-weight:700;letter-spacing:1px">MARKET ANALYSIS</span>
                   <%= if @explaining do %>
-                    <span style="font-size:10px;color:#475569;font-style:italic">generating analysis...</span>
+                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating analysis...</span>
                   <% end %>
                 </div>
                 <%= case @explanation do %>
@@ -2960,42 +2953,42 @@ defmodule TradingDesk.ScenarioLive do
                   <% text when is_binary(text) -> %>
                     <div style="font-size:14px;color:#e2e8f0;line-height:1.8;white-space:pre-wrap"><%= text %></div>
                   <% _ -> %>
-                    <div style="font-size:13px;color:#475569;font-style:italic">Analysis not yet available — run SOLVE first</div>
+                    <div style="font-size:13px;color:#7b8fa4;font-style:italic">Analysis not yet available — run SOLVE first</div>
                 <% end %>
               </div>
 
               <%!-- Result summary grid --%>
               <%= if @result && @result.status == :optimal do %>
                 <div style="background:#0a0f18;border:1px solid #1e293b;border-radius:10px;padding:16px;margin-bottom:20px">
-                  <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:12px">SOLVER RESULT DETAIL</div>
+                  <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:12px">SOLVER RESULT DETAIL</div>
                   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
                     <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:9px;color:#64748b">Profit</div>
+                      <div style="font-size:11px;color:#94a3b8">Profit</div>
                       <div style="font-size:16px;font-weight:800;color:#10b981;font-family:monospace">$<%= format_number(@result.profit) %></div>
                     </div>
                     <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:9px;color:#64748b">Tons</div>
+                      <div style="font-size:11px;color:#94a3b8">Tons</div>
                       <div style="font-size:16px;font-weight:700;font-family:monospace"><%= format_number(@result.tons) %></div>
                     </div>
                     <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:9px;color:#64748b">Barges</div>
+                      <div style="font-size:11px;color:#94a3b8">Barges</div>
                       <div style="font-size:16px;font-weight:700;font-family:monospace"><%= Float.round(@result.barges, 1) %></div>
                     </div>
                     <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:9px;color:#64748b">ROI</div>
+                      <div style="font-size:11px;color:#94a3b8">ROI</div>
                       <div style="font-size:16px;font-weight:700;font-family:monospace"><%= Float.round(@result.roi, 1) %>%</div>
                     </div>
                     <div style="background:#060c16;padding:10px;border-radius:6px;text-align:center">
-                      <div style="font-size:9px;color:#64748b">Capital</div>
+                      <div style="font-size:11px;color:#94a3b8">Capital</div>
                       <div style="font-size:14px;font-weight:700;font-family:monospace;color:#94a3b8">$<%= format_number(@result.cost) %></div>
                     </div>
                   </div>
                   <table style="width:100%;border-collapse:collapse;font-size:12px">
                     <thead><tr style="border-bottom:1px solid #1e293b">
-                      <th style="text-align:left;padding:6px;color:#475569;font-size:10px">Route</th>
-                      <th style="text-align:right;padding:6px;color:#475569;font-size:10px">Tons</th>
-                      <th style="text-align:right;padding:6px;color:#475569;font-size:10px">Margin</th>
-                      <th style="text-align:right;padding:6px;color:#475569;font-size:10px">Profit</th>
+                      <th style="text-align:left;padding:6px;color:#7b8fa4;font-size:12px">Route</th>
+                      <th style="text-align:right;padding:6px;color:#7b8fa4;font-size:12px">Tons</th>
+                      <th style="text-align:right;padding:6px;color:#7b8fa4;font-size:12px">Margin</th>
+                      <th style="text-align:right;padding:6px;color:#7b8fa4;font-size:12px">Profit</th>
                     </tr></thead>
                     <tbody>
                       <%= for {name, idx} <- Enum.with_index(@route_names) do %>
@@ -3017,22 +3010,22 @@ defmodule TradingDesk.ScenarioLive do
               <%!-- Position impact --%>
               <%= if @post_solve_impact do %>
                 <div style="background:#0d1a0d;border:1px solid #166534;border-radius:10px;padding:16px">
-                  <div style="font-size:10px;color:#4ade80;letter-spacing:1px;margin-bottom:6px">POSITION IMPACT</div>
+                  <div style="font-size:12px;color:#4ade80;letter-spacing:1px;margin-bottom:6px">POSITION IMPACT</div>
                   <div style="font-size:12px;color:#86efac;margin-bottom:10px"><%= @post_solve_impact.summary %></div>
                   <table style="width:100%;border-collapse:collapse;font-size:11px">
                     <thead><tr style="border-bottom:1px solid #166534">
-                      <th style="text-align:left;padding:4px;color:#4ade80;font-size:10px">Counterparty</th>
-                      <th style="text-align:center;padding:4px;color:#4ade80;font-size:10px">Dir</th>
-                      <th style="text-align:right;padding:4px;color:#4ade80;font-size:10px">Open MT</th>
-                      <th style="text-align:left;padding:4px;color:#4ade80;font-size:10px">Impact</th>
+                      <th style="text-align:left;padding:4px;color:#4ade80;font-size:12px">Counterparty</th>
+                      <th style="text-align:center;padding:4px;color:#4ade80;font-size:12px">Dir</th>
+                      <th style="text-align:right;padding:4px;color:#4ade80;font-size:12px">Open MT</th>
+                      <th style="text-align:left;padding:4px;color:#4ade80;font-size:12px">Impact</th>
                     </tr></thead>
                     <tbody>
                       <%= for c <- @post_solve_impact.by_contract do %>
                         <tr style="border-bottom:1px solid #14532d22">
                           <td style="padding:4px;color:#d1fae5;font-weight:600"><%= c.counterparty %></td>
-                          <td style={"text-align:center;padding:4px;color:#{if c.direction == "purchase", do: "#60a5fa", else: "#f59e0b"};font-weight:600;font-size:10px"}><%= if c.direction == "purchase", do: "BUY", else: "SELL" %></td>
+                          <td style={"text-align:center;padding:4px;color:#{if c.direction == "purchase", do: "#60a5fa", else: "#f59e0b"};font-weight:600;font-size:12px"}><%= if c.direction == "purchase", do: "BUY", else: "SELL" %></td>
                           <td style="text-align:right;padding:4px;font-family:monospace;color:#94a3b8"><%= format_number(c.open_qty) %></td>
-                          <td style="padding:4px;color:#6ee7b7;font-size:10px"><%= c.impact %></td>
+                          <td style="padding:4px;color:#6ee7b7;font-size:12px"><%= c.impact %></td>
                         </tr>
                       <% end %>
                     </tbody>
@@ -3112,7 +3105,7 @@ defmodule TradingDesk.ScenarioLive do
   defp signal_color(:cautious), do: "#fbbf24"
   defp signal_color(:weak), do: "#f87171"
   defp signal_color(:no_go), do: "#ef4444"
-  defp signal_color(_), do: "#64748b"
+  defp signal_color(_), do: "#94a3b8"
 
   defp signal_text(:strong_go), do: "STRONG GO"
   defp signal_text(:go), do: "GO"
@@ -3405,7 +3398,7 @@ defmodule TradingDesk.ScenarioLive do
   defp signal_style(:go), do: "background:#052e16;color:#86efac"
   defp signal_style(:hold), do: "background:#1a1400;color:#fbbf24"
   defp signal_style(:no_go), do: "background:#1c0a0a;color:#f87171"
-  defp signal_style(_), do: "background:#0f172a;color:#64748b"
+  defp signal_style(_), do: "background:#0f172a;color:#94a3b8"
 
   # ── Threshold display helpers ─────────────────────────────
 
@@ -3552,7 +3545,7 @@ defmodule TradingDesk.ScenarioLive do
   defp pipeline_dot(:checking_contracts), do: "#38bdf8"
   defp pipeline_dot(:ingesting), do: "#f59e0b"
   defp pipeline_dot(:solving), do: "#10b981"
-  defp pipeline_dot(_), do: "#64748b"
+  defp pipeline_dot(_), do: "#94a3b8"
 
   # --- Vessel tracking helpers ---
 
@@ -3566,7 +3559,7 @@ defmodule TradingDesk.ScenarioLive do
   defp vessel_status_color(:moored), do: "#60a5fa"
   defp vessel_status_color(:not_under_command), do: "#ef4444"
   defp vessel_status_color(:restricted_maneuverability), do: "#fbbf24"
-  defp vessel_status_color(_), do: "#64748b"
+  defp vessel_status_color(_), do: "#94a3b8"
 
   defp vessel_status_text(:underway_engine), do: "UNDERWAY"
   defp vessel_status_text(:underway_sailing), do: "SAILING"
@@ -3680,7 +3673,7 @@ defmodule TradingDesk.ScenarioLive do
             :underway_engine -> "#10b981"
             :at_anchor -> "#f59e0b"
             :moored -> "#60a5fa"
-            _ -> "#64748b"
+            _ -> "#94a3b8"
           end
           [%{lat: lat, lon: lon, name: v[:name] || "Barge", status: to_string(v[:status] || "unknown"), color: color}]
         _ -> []
@@ -3698,7 +3691,7 @@ defmodule TradingDesk.ScenarioLive do
           :underway_engine -> "#10b981"
           :at_anchor -> "#f59e0b"
           :moored -> "#60a5fa"
-          _ -> "#64748b"
+          _ -> "#94a3b8"
         end
         [%{lat: lat, lon: lon, name: v[:name] || "Vessel", status: to_string(v[:status] || "unknown"), color: color}]
       else
@@ -3789,9 +3782,9 @@ defmodule TradingDesk.ScenarioLive do
   defp delivery_impact_style(:deferred),       do: "color:#fca5a5"
   defp delivery_impact_style(:priority),       do: "color:#4ade80"
   defp delivery_impact_style(:supplier),       do: "color:#60a5fa"
-  defp delivery_impact_style(:future_window),  do: "color:#64748b"
-  defp delivery_impact_style(:open_unaffected), do: "color:#64748b"
-  defp delivery_impact_style(_),               do: "color:#64748b"
+  defp delivery_impact_style(:future_window),  do: "color:#94a3b8"
+  defp delivery_impact_style(:open_unaffected), do: "color:#94a3b8"
+  defp delivery_impact_style(_),               do: "color:#94a3b8"
 
   defp delivery_impact_note(:priority),       do: "serve first"
   defp delivery_impact_note(:supplier),       do: "supplier delivery"
