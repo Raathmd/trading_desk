@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Trading Desk — Executive Overview</title>
+<style>
+  /* ── Reset & base ─────────────────────────────────── */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 10.5pt;
+    color: #1a2332;
+    background: #ffffff;
+    line-height: 1.55;
+  }
+
+  /* ── Page layout ─────────────────────────────────── */
+  .page { max-width: 780px; margin: 0 auto; padding: 40px 48px 56px; }
+
+  /* ── Cover ───────────────────────────────────────── */
+  .cover {
+    background: #0f2044;
+    color: #ffffff;
+    padding: 64px 56px 56px;
+    margin-bottom: 0;
+    page-break-after: always;
+  }
+  .cover-label {
+    font-size: 9pt;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #64b5f6;
+    margin-bottom: 18px;
+    font-weight: 600;
+  }
+  .cover h1 {
+    font-size: 32pt;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.15;
+    margin-bottom: 14px;
+  }
+  .cover-sub {
+    font-size: 14pt;
+    color: #90caf9;
+    margin-bottom: 32px;
+  }
+  .cover-desc {
+    font-size: 11pt;
+    color: #b0c4de;
+    max-width: 560px;
+    line-height: 1.65;
+    margin-bottom: 48px;
+  }
+  .cover-meta {
+    font-size: 9pt;
+    color: #607d8b;
+    border-top: 1px solid #1e3a5f;
+    padding-top: 18px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .cover-product-tags {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 36px;
+  }
+  .tag {
+    background: #1a3a6b;
+    color: #64b5f6;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 9pt;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    border: 1px solid #2e5ba0;
+  }
+
+  /* ── TOC ─────────────────────────────────────────── */
+  .toc {
+    padding: 40px 48px;
+    page-break-after: always;
+  }
+  .toc h2 { font-size: 15pt; color: #0f2044; margin-bottom: 24px; font-weight: 700; }
+  .toc-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 7px 0;
+    border-bottom: 1px dotted #cfd8dc;
+    font-size: 10.5pt;
+  }
+  .toc-item a { color: #1a2332; text-decoration: none; }
+  .toc-section { font-weight: 700; color: #0d47a1; font-size: 11pt; margin-top: 12px; }
+  .toc-num { color: #607d8b; font-size: 9.5pt; }
+
+  /* ── Section headers ─────────────────────────────── */
+  .section {
+    padding: 40px 48px;
+    page-break-before: always;
+  }
+  .section:first-of-type { page-break-before: avoid; }
+
+  .section-label {
+    font-size: 8.5pt;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #1976d2;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  h2.section-title {
+    font-size: 19pt;
+    font-weight: 700;
+    color: #0f2044;
+    margin-bottom: 6px;
+    line-height: 1.2;
+  }
+  .section-intro {
+    font-size: 10.5pt;
+    color: #455a64;
+    margin-bottom: 28px;
+    max-width: 660px;
+    line-height: 1.65;
+    border-bottom: 2px solid #1976d2;
+    padding-bottom: 18px;
+  }
+  h3 {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #0d47a1;
+    margin: 26px 0 10px;
+  }
+  h4 {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: #1a2332;
+    margin: 18px 0 8px;
+  }
+  p { margin-bottom: 10px; }
+
+  /* ── Callout boxes ───────────────────────────────── */
+  .callout {
+    border-left: 4px solid #1976d2;
+    background: #e3f2fd;
+    padding: 12px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 16px 0;
+    font-size: 10pt;
+    color: #0d47a1;
+  }
+  .callout-green {
+    border-left-color: #2e7d32;
+    background: #e8f5e9;
+    color: #1b5e20;
+  }
+  .callout-amber {
+    border-left-color: #e65100;
+    background: #fff3e0;
+    color: #bf360c;
+  }
+  .callout-purple {
+    border-left-color: #6a1b9a;
+    background: #f3e5f5;
+    color: #4a148c;
+  }
+  .callout strong { font-weight: 700; }
+
+  /* ── Flowchart ───────────────────────────────────── */
+  .flow-wrapper {
+    margin: 28px 0;
+    overflow: visible;
+  }
+
+  /* Horizontal pipeline row */
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 6px;
+  }
+  .flow-box {
+    border: 2px solid #1976d2;
+    border-radius: 8px;
+    padding: 10px 14px;
+    text-align: center;
+    background: #e3f2fd;
+    color: #0d47a1;
+    font-size: 9pt;
+    font-weight: 700;
+    flex-shrink: 0;
+    min-width: 100px;
+  }
+  .flow-box.green  { border-color: #2e7d32; background: #e8f5e9; color: #1b5e20; }
+  .flow-box.amber  { border-color: #e65100; background: #fff3e0; color: #bf360c; }
+  .flow-box.purple { border-color: #6a1b9a; background: #f3e5f5; color: #4a148c; }
+  .flow-box.dark   { border-color: #0f2044; background: #0f2044; color: #e3f2fd; }
+  .flow-box.teal   { border-color: #00695c; background: #e0f2f1; color: #004d40; }
+  .flow-box-sub {
+    font-size: 7.5pt;
+    font-weight: 400;
+    color: inherit;
+    opacity: 0.85;
+    margin-top: 3px;
+  }
+  .flow-arrow {
+    font-size: 16pt;
+    color: #607d8b;
+    padding: 0 4px;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .flow-arrow-down {
+    text-align: center;
+    font-size: 14pt;
+    color: #607d8b;
+    line-height: 1;
+    margin: 2px 0;
+  }
+
+  /* Source grid at top of flow */
+  .source-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .source-card {
+    border: 1.5px solid #b0bec5;
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: #f5f7fa;
+    font-size: 8.5pt;
+  }
+  .source-card .src-name {
+    font-weight: 700;
+    color: #37474f;
+    font-size: 9pt;
+  }
+  .source-card .src-data {
+    color: #607d8b;
+    font-size: 8pt;
+    margin-top: 2px;
+  }
+  .source-card .src-freq {
+    font-size: 7.5pt;
+    color: #90a4ae;
+    margin-top: 3px;
+  }
+
+  /* Convergence arrows from sources to center box */
+  .converge-arrow {
+    text-align: center;
+    font-size: 20pt;
+    color: #1976d2;
+    margin: 4px 0;
+    letter-spacing: -4px;
+  }
+
+  /* ── Data table ──────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 9.5pt;
+  }
+  th {
+    background: #0f2044;
+    color: #e3f2fd;
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 8.5pt;
+    letter-spacing: 0.3px;
+  }
+  td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #eceff1;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f9fafb; }
+  td strong { color: #0d47a1; }
+
+  /* ── Variable group cards ────────────────────────── */
+  .var-group {
+    border: 1.5px solid #b0bec5;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+  .var-group-title {
+    font-weight: 700;
+    font-size: 10pt;
+    color: #0d47a1;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  .var-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .var-chip {
+    background: #e3f2fd;
+    color: #0d47a1;
+    border: 1px solid #90caf9;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 8.5pt;
+    font-family: "Consolas", monospace;
+  }
+  .var-chip.green  { background: #e8f5e9; color: #1b5e20; border-color: #a5d6a7; }
+  .var-chip.amber  { background: #fff8e1; color: #e65100; border-color: #ffe082; }
+
+  /* ── Step list ───────────────────────────────────── */
+  .step-list { margin: 12px 0 12px 0; }
+  .step {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 14px;
+    align-items: flex-start;
+  }
+  .step-num {
+    background: #0f2044;
+    color: #ffffff;
+    border-radius: 50%;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9pt;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step-num.green  { background: #2e7d32; }
+  .step-num.blue   { background: #1565c0; }
+  .step-num.purple { background: #6a1b9a; }
+  .step-num.amber  { background: #e65100; }
+  .step-body { flex: 1; }
+  .step-title { font-weight: 700; color: #1a2332; margin-bottom: 3px; }
+  .step-desc  { font-size: 9.5pt; color: #455a64; }
+
+  /* ── Threshold card ──────────────────────────────── */
+  .threshold-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .threshold-card {
+    border: 1.5px solid #b0bec5;
+    border-radius: 8px;
+    padding: 12px 14px;
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+  }
+  .tc-signal {
+    font-size: 10pt;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .tc-desc { font-size: 8.5pt; color: #607d8b; }
+
+  /* ── Signal badges ───────────────────────────────── */
+  .sig-strong { color: #1b5e20; background: #c8e6c9; border-color: #a5d6a7; }
+  .sig-go     { color: #2e7d32; background: #dcedc8; border-color: #c5e1a5; }
+  .sig-caut   { color: #e65100; background: #ffe0b2; border-color: #ffcc80; }
+  .sig-weak   { color: #bf360c; background: #ffccbc; border-color: #ffab91; }
+  .sig-nogo   { color: #b71c1c; background: #ffcdd2; border-color: #ef9a9a; }
+
+  /* ── Two-column layout ───────────────────────────── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 14px 0;
+  }
+  .two-col-wide {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin: 14px 0;
+  }
+  .col-box {
+    border: 1.5px solid #b0bec5;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .col-box h4 { margin-top: 0; }
+
+  /* ── Footer on each page ─────────────────────────── */
+  .doc-footer {
+    margin-top: 40px;
+    padding-top: 14px;
+    border-top: 1px solid #cfd8dc;
+    font-size: 8pt;
+    color: #90a4ae;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* ── Print / PDF tweaks ──────────────────────────── */
+  @media print {
+    .cover { page-break-after: always; }
+    .section { page-break-before: always; }
+    .no-break { page-break-inside: avoid; }
+    a { color: inherit; text-decoration: none; }
+    .source-grid { grid-template-columns: repeat(4, 1fr); }
+    .two-col { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     COVER PAGE
+════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-label">Trammo Trading Technology</div>
+  <h1>Trading Desk<br/>Executive Overview</h1>
+  <div class="cover-sub">Decision Support Platform for Commodity Trading</div>
+  <div class="cover-desc">
+    This document explains how the Trammo Trading Desk platform integrates real-time market data,
+    contractual obligations, and supply chain constraints to identify and record optimal trading
+    decisions — and how it keeps traders informed when conditions shift.
+  </div>
+  <div class="cover-product-tags">
+    <span class="tag">NH3 Domestic Barge</span>
+    <span class="tag">NH3 International</span>
+    <span class="tag">Sulphur International</span>
+    <span class="tag">Petcoke</span>
+  </div>
+  <div class="cover-meta">
+    <span>Confidential — Internal Use Only</span>
+    <span>February 2026</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TABLE OF CONTENTS
+════════════════════════════════════════════════════════════ -->
+<div class="toc">
+  <h2>Contents</h2>
+
+  <div class="toc-item toc-section"><span>1&nbsp;&nbsp; What the Platform Does</span><span class="toc-num">3</span></div>
+  <div class="toc-item"><span>&nbsp;&nbsp;&nbsp;&nbsp;How it supports each product group</span><span class="toc-num"></span></div>
+
+  <div class="toc-item toc-section"><span>2&nbsp;&nbsp; Data Ingestion &amp; the Live Model</span><span class="toc-num">4</span></div>
+  <div class="toc-item"><span>&nbsp;&nbsp;&nbsp;&nbsp;Nine live data sources, polling schedule, variable assembly</span><span class="toc-num"></span></div>
+
+  <div class="toc-item toc-section"><span>3&nbsp;&nbsp; How the Operational Model is Formed</span><span class="toc-num">6</span></div>
+  <div class="toc-item"><span>&nbsp;&nbsp;&nbsp;&nbsp;From raw data to a mathematical representation of the business</span><span class="toc-num"></span></div>
+
+  <div class="toc-item toc-section"><span>4&nbsp;&nbsp; Contract Ingestion &amp; SAP Integration</span><span class="toc-num">7</span></div>
+  <div class="toc-item"><span>&nbsp;&nbsp;&nbsp;&nbsp;Contractual constraints, SAP validation, open-position sync</span><span class="toc-num"></span></div>
+
+  <div class="toc-item toc-section"><span>5&nbsp;&nbsp; How the Solver Finds the Optimal Solution</span><span class="toc-num">9</span></div>
+  <div class="toc-item"><span>&nbsp;&nbsp;&nbsp;&nbsp;Linear programming, Monte Carlo, shadow prices, decision signals</span><span class="toc-num"></span></div>
+
+  <div class="toc-item toc-section"><span>6&nbsp;&nbsp; The Auto Trader</span><span class="toc-num">11</span></div>
+  <div class="toc-item"><span>&nbsp;&nbsp;&nbsp;&nbsp;Continuous monitoring, delta detection, automatic re-optimisation</span><span class="toc-num"></span></div>
+
+  <div class="toc-item toc-section"><span>7&nbsp;&nbsp; Trader Notifications &amp; Threshold Alerts</span><span class="toc-num">12</span></div>
+  <div class="toc-item"><span>&nbsp;&nbsp;&nbsp;&nbsp;Email, Slack, Teams — what triggers an alert and what it contains</span><span class="toc-num"></span></div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 1 — WHAT THE PLATFORM DOES
+════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-label">Section 1</div>
+  <h2 class="section-title">What the Platform Does</h2>
+  <p class="section-intro">
+    The Trading Desk is a real-time decision-support system that continuously ingests live market,
+    operational, and environmental data to calculate the optimal trade allocation across every
+    active route — and tells traders what to do, why, and when conditions change.
+  </p>
+
+  <h3>Core Capability</h3>
+  <p>
+    At any moment, the platform holds a precise mathematical picture of the current operating
+    environment — river depth, freight rates, inventory, commodity prices, barge availability,
+    weather, lock delays, and working capital — all drawn from live APIs. It applies every active
+    contractual obligation on top of that picture and solves a linear programme to find the
+    allocation of product to routes that maximises profit (or minimises cost, or maximises
+    risk-adjusted return, depending on the objective chosen).
+  </p>
+  <p>
+    This is not a reporting tool. It is an optimisation engine that runs continuously and tells
+    traders what the best trade looks like <em>right now</em>, given everything that is true about
+    the business at this moment.
+  </p>
+
+  <h3>How Each Product Group Benefits</h3>
+  <table>
+    <tr>
+      <th>Product Group</th>
+      <th>Key Decision Supported</th>
+      <th>Critical Variables</th>
+    </tr>
+    <tr>
+      <td><strong>NH3 Domestic Barge</strong></td>
+      <td>Which terminals to load from, which destinations to serve, how many barges to commit</td>
+      <td>River stage, barge count, NOLA spot price, freight rates, lock delays</td>
+    </tr>
+    <tr>
+      <td><strong>NH3 International</strong></td>
+      <td>Vessel scheduling, NOLA vs export arbitrage, vessel routing optimisation</td>
+      <td>Vessel positions, ocean freight, FOB/CIF spread, terminal inventory</td>
+    </tr>
+    <tr>
+      <td><strong>Sulphur International</strong></td>
+      <td>Export volume allocation, vessel nomination, penalty exposure management</td>
+      <td>Refinery run rates, vessel capacity, contract penalty clauses, spot premiums</td>
+    </tr>
+    <tr>
+      <td><strong>Petcoke</strong></td>
+      <td>Destination market allocation, freight arbitrage, inventory drawdown optimisation</td>
+      <td>Refinery availability, port draft, ocean freight, quality differentials</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-green">
+    <strong>Key principle:</strong> Every solve incorporates the current contractual position from
+    SAP and the live market environment simultaneously — so the recommended trade always reflects
+    both what the market offers and what the contracts require.
+  </div>
+
+  <h3>Two Modes of Use</h3>
+  <div class="two-col">
+    <div class="col-box">
+      <h4>Trader Mode — Scenario Exploration</h4>
+      <p style="font-size:9.5pt;color:#455a64;">
+        A trader opens the dashboard and sees all 20 live variables pre-populated from APIs.
+        They can adjust any variable with a slider to explore "what if" scenarios, choose an
+        optimisation objective, and click Solve. The platform returns route allocations,
+        margins, shadow prices, and a plain-English explanation of the result in seconds.
+      </p>
+    </div>
+    <div class="col-box">
+      <h4>Agent Mode — Continuous Optimisation</h4>
+      <p style="font-size:9.5pt;color:#455a64;">
+        The auto-runner monitors all 20 variables continuously. When any variable moves
+        beyond its configured threshold, it automatically re-solves with 1,000 Monte Carlo
+        scenarios, records the optimal outcome, commits it to an immutable audit trail, and
+        notifies the relevant trader. No manual intervention required.
+      </p>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Trammo Trading Desk — Executive Overview</span>
+    <span>Section 1: What the Platform Does</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 2 — DATA INGESTION
+════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-label">Section 2</div>
+  <h2 class="section-title">Data Ingestion &amp; the Live Model</h2>
+  <p class="section-intro">
+    Nine external data sources feed the platform continuously. Each source is polled on a schedule,
+    validated on arrival, and written into a live state store that the solver reads from at the
+    moment it is called.
+  </p>
+
+  <h3>Data Flow Architecture</h3>
+
+  <!-- SOURCE GRID -->
+  <div class="flow-wrapper no-break">
+    <p style="font-size:8.5pt;color:#607d8b;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Live Data Sources (9 APIs)</p>
+    <div class="source-grid">
+      <div class="source-card">
+        <div class="src-name">USGS Gauges</div>
+        <div class="src-data">River stage (ft), flow (cfs) — 4 gauges from Cairo IL to Baton Rouge LA</div>
+        <div class="src-freq">Every 15 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">NOAA Weather</div>
+        <div class="src-data">Temp, wind, visibility, 3-day precipitation — 4 stations along route</div>
+        <div class="src-freq">Every 30 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">USACE Lock Status</div>
+        <div class="src-data">Cumulative lock delay hours on Lower Mississippi</div>
+        <div class="src-freq">Every 30 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">EIA — Henry Hub</div>
+        <div class="src-data">Natural gas price ($/MMBtu) — affects NH3 production economics</div>
+        <div class="src-freq">Every 60 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">Market Feeds</div>
+        <div class="src-data">NOLA buy price, St. Louis delivered, Memphis delivered ($/ton)</div>
+        <div class="src-freq">Every 30 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">Freight Broker</div>
+        <div class="src-data">4 route rates: Don→StL, Don→Mem, Geis→StL, Geis→Mem ($/ton)</div>
+        <div class="src-freq">Every 60 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">Internal Systems</div>
+        <div class="src-data">Terminal inventory, barge count, dock outages, working capital</div>
+        <div class="src-freq">Every 5 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">Vessel Tracking</div>
+        <div class="src-data">Fleet GPS, ETA, weather at vessel position, carrying stock</div>
+        <div class="src-freq">Every 10 min</div>
+      </div>
+    </div>
+
+    <!-- Converge arrows -->
+    <div style="text-align:center;font-size:22pt;color:#1976d2;margin:6px 0;letter-spacing:-8px;">↓↓↓↓↓↓↓↓</div>
+
+    <!-- Central collection box -->
+    <div style="display:flex;justify-content:center;margin-bottom:6px;">
+      <div class="flow-box dark" style="padding:14px 32px;font-size:10pt;min-width:340px;">
+        Live State Store (ETS in-memory)
+        <div class="flow-box-sub" style="color:#90caf9;">All 20 variables — always current, sub-second reads</div>
+      </div>
+    </div>
+
+    <div class="flow-arrow-down">↓</div>
+
+    <!-- Variable assembly + constraint bridge side by side -->
+    <div style="display:flex;gap:10px;justify-content:center;margin-bottom:6px;align-items:flex-start;">
+      <div style="display:flex;flex-direction:column;align-items:center;">
+        <div class="flow-box" style="min-width:180px;">
+          Variable Assembly
+          <div class="flow-box-sub">20 variables packed<br/>to binary for solver</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;">
+        <div class="flow-box purple" style="min-width:180px;">
+          Contract Constraint Bridge
+          <div class="flow-box-sub">Active clauses tighten<br/>variable bounds</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;">
+        <div class="flow-box amber" style="min-width:160px;">
+          SAP Open Positions
+          <div class="flow-box-sub">Current undelivered<br/>qty per contract</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-arrow-down">↓</div>
+
+    <!-- Model descriptor -->
+    <div style="display:flex;justify-content:center;margin-bottom:6px;">
+      <div class="flow-box teal" style="padding:12px 28px;min-width:340px;font-size:10pt;">
+        Model Descriptor
+        <div class="flow-box-sub">Routes + constraints + objective mode — encoded to binary</div>
+      </div>
+    </div>
+
+    <div class="flow-arrow-down">↓</div>
+
+    <!-- Solver -->
+    <div style="display:flex;justify-content:center;margin-bottom:6px;">
+      <div class="flow-box dark" style="padding:14px 32px;min-width:340px;font-size:10.5pt;border-color:#1976d2;">
+        Zig LP Solver (HiGHS engine)
+        <div class="flow-box-sub" style="color:#90caf9;">Linear programme + Monte Carlo 1,000 scenarios</div>
+      </div>
+    </div>
+
+    <div class="flow-arrow-down">↓</div>
+
+    <!-- Outputs -->
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:4px;">
+      <div class="flow-box green" style="min-width:140px;">
+        Route Allocations
+        <div class="flow-box-sub">Tons per route,<br/>barges required</div>
+      </div>
+      <div class="flow-box green" style="min-width:140px;">
+        Profit &amp; Margins
+        <div class="flow-box-sub">Total P&amp;L, $/ton<br/>per route</div>
+      </div>
+      <div class="flow-box green" style="min-width:140px;">
+        Risk Distribution
+        <div class="flow-box-sub">P5/P50/P95,<br/>VaR, signal</div>
+      </div>
+      <div class="flow-box green" style="min-width:140px;">
+        Shadow Prices
+        <div class="flow-box-sub">Value of relaxing<br/>each constraint</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>The 20 Variables and Their Sources</h3>
+  <div class="var-group no-break">
+    <div class="var-group-title">Environment (6) — drawn from USGS, NOAA, USACE</div>
+    <div class="var-chips">
+      <span class="var-chip">river_stage (ft)</span>
+      <span class="var-chip">lock_hrs (delay hrs)</span>
+      <span class="var-chip">temp_f (°F)</span>
+      <span class="var-chip">wind_mph</span>
+      <span class="var-chip">vis_mi (visibility)</span>
+      <span class="var-chip">precip_in (3-day rain)</span>
+    </div>
+  </div>
+  <div class="var-group no-break">
+    <div class="var-group-title">Operations (5) — drawn from internal ERP, fleet tracking</div>
+    <div class="var-chips">
+      <span class="var-chip green">inv_don (tons, Donaldsonville)</span>
+      <span class="var-chip green">inv_geis (tons, Geismar)</span>
+      <span class="var-chip green">barge_count (available fleet)</span>
+      <span class="var-chip green">stl_outage (dock status)</span>
+      <span class="var-chip green">mem_outage (dock status)</span>
+    </div>
+  </div>
+  <div class="var-group no-break">
+    <div class="var-group-title">Commercial (9) — drawn from market feeds, freight brokers, EIA</div>
+    <div class="var-chips">
+      <span class="var-chip amber">nola_buy ($/t)</span>
+      <span class="var-chip amber">sell_stl ($/t)</span>
+      <span class="var-chip amber">sell_mem ($/t)</span>
+      <span class="var-chip amber">fr_don_stl ($/t)</span>
+      <span class="var-chip amber">fr_don_mem ($/t)</span>
+      <span class="var-chip amber">fr_geis_stl ($/t)</span>
+      <span class="var-chip amber">fr_geis_mem ($/t)</span>
+      <span class="var-chip amber">nat_gas ($/MMBtu)</span>
+      <span class="var-chip amber">working_cap ($)</span>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Delta detection:</strong> Each variable carries a configured sensitivity threshold
+    (e.g., river_stage ±0.5 ft, nola_buy ±$2/ton). The auto-runner only re-solves when at
+    least one variable moves beyond its threshold from the last solve's centre point — avoiding
+    unnecessary computation while still reacting promptly to material changes.
+  </div>
+
+  <div class="doc-footer">
+    <span>Trammo Trading Desk — Executive Overview</span>
+    <span>Section 2: Data Ingestion &amp; the Live Model</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 3 — HOW THE MODEL IS FORMED
+════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-label">Section 3</div>
+  <h2 class="section-title">How the Operational Model Is Formed</h2>
+  <p class="section-intro">
+    The 20 live variables are not passed directly into a spreadsheet formula.
+    They are assembled into a structured mathematical model — a linear programme — that
+    represents the real physical and commercial constraints of the business.
+  </p>
+
+  <h3>From Raw Numbers to a Model of the Business</h3>
+  <p>
+    The <em>model descriptor</em> defines the skeleton of the optimisation problem: which routes
+    exist, what each route costs, how inventory and capital constrain total throughput, and which
+    contractual obligations must be satisfied. The live variables then <em>parameterise</em>
+    that skeleton with today's actual numbers.
+  </p>
+
+  <h3>What the Model Encodes (NH3 Domestic Barge example)</h3>
+  <table>
+    <tr>
+      <th>Model Component</th>
+      <th>What It Represents</th>
+      <th>How Variables Shape It</th>
+    </tr>
+    <tr>
+      <td><strong>Routes (4)</strong></td>
+      <td>Don→StL, Don→Mem, Geis→StL, Geis→Mem — each a physical path from terminal to customer</td>
+      <td>Freight rates, sell prices, and buy price determine the margin per ton on each route</td>
+    </tr>
+    <tr>
+      <td><strong>Barge Capacity</strong></td>
+      <td>Effective tons per barge — reduced when river stage is low</td>
+      <td>river_stage &lt;12 ft → 75% capacity; 12–18 ft → 90%; ≥18 ft → 100% (1,500 MT base)</td>
+    </tr>
+    <tr>
+      <td><strong>Fleet Constraint</strong></td>
+      <td>Total barges committed across all routes cannot exceed available fleet</td>
+      <td>barge_count sets the hard upper bound; effective capacity scales with river stage</td>
+    </tr>
+    <tr>
+      <td><strong>Inventory Constraints</strong></td>
+      <td>Cannot load more from a terminal than it holds</td>
+      <td>inv_don and inv_geis are the supply caps for Donaldsonville and Geismar routes respectively</td>
+    </tr>
+    <tr>
+      <td><strong>Capital Constraint</strong></td>
+      <td>Total product purchased (tons × buy price) cannot exceed available working capital</td>
+      <td>working_cap sets the liquidity ceiling; nola_buy determines cost per ton purchased</td>
+    </tr>
+    <tr>
+      <td><strong>Outage Flags</strong></td>
+      <td>If a destination dock is out of service, that route's allocation is forced to zero</td>
+      <td>stl_outage / mem_outage set the upper bound on relevant route variables to zero</td>
+    </tr>
+    <tr>
+      <td><strong>Weather Operability</strong></td>
+      <td>Low visibility or high wind can close routes or constrain loading rate</td>
+      <td>vis_mi and wind_mph adjust effective transit speed and loading-hour costs</td>
+    </tr>
+    <tr>
+      <td><strong>Nat Gas Cost</strong></td>
+      <td>Natural gas is a significant input cost at ammonia production terminals</td>
+      <td>nat_gas adjusts the effective buy-side cost per ton, compressing or expanding margin</td>
+    </tr>
+  </table>
+
+  <h3>The Model Represents the State of the Operational Environment</h3>
+  <p>
+    When a trader looks at a solve result, they are seeing the optimal decision given
+    <em>this precise combination</em> of market prices, physical conditions, fleet state,
+    and contractual obligations — not a scenario built on yesterday's assumptions. The model
+    is re-parameterised from live data every time the solver is called.
+  </p>
+
+  <div class="callout callout-amber">
+    <strong>Example:</strong> River stage drops from 18 ft to 10 ft overnight. The model
+    immediately reflects this: effective barge capacity falls from 1,500 MT to 1,125 MT per
+    barge. The fleet constraint tightens. The optimal solution may shift — fewer tons to
+    distant destinations, more focus on shorter routes. The auto-runner detects the 8 ft
+    drop (threshold: 0.5 ft), triggers a re-solve, and notifies the trader with the updated
+    allocation and the new P&amp;L figure.
+  </div>
+
+  <h3>Objective Modes</h3>
+  <p>The trader (or auto-runner) can choose how the model is solved:</p>
+  <div class="two-col no-break">
+    <div class="col-box">
+      <h4>Max Profit</h4>
+      <p style="font-size:9.5pt;color:#455a64;">Maximise total gross profit across all routes. Standard mode for most commercial decisions.</p>
+    </div>
+    <div class="col-box">
+      <h4>Min Cost</h4>
+      <p style="font-size:9.5pt;color:#455a64;">Minimise total capital deployed while meeting delivery obligations. Used under capital constraints.</p>
+    </div>
+    <div class="col-box">
+      <h4>Max ROI</h4>
+      <p style="font-size:9.5pt;color:#455a64;">Maximise return on capital deployed — useful when competing with other product group opportunities.</p>
+    </div>
+    <div class="col-box">
+      <h4>CVaR-Adjusted</h4>
+      <p style="font-size:9.5pt;color:#455a64;">Maximise expected profit while penalising tail risk. The Monte Carlo distribution informs this objective.</p>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Trammo Trading Desk — Executive Overview</span>
+    <span>Section 3: How the Operational Model Is Formed</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 4 — CONTRACT INGESTION & SAP
+════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-label">Section 4</div>
+  <h2 class="section-title">Contract Ingestion &amp; SAP Integration</h2>
+  <p class="section-intro">
+    Before the solver can run, the platform must know what the business is contractually
+    obligated to deliver — and what SAP records as the current open position against each
+    contract. Contracts are the source of truth for constraints; SAP is the source of truth
+    for positions.
+  </p>
+
+  <h3>Contract Ingestion Pipeline</h3>
+  <p>
+    Contracts live as PDF or DOCX files in SharePoint. The platform monitors these files for
+    changes, extracts and validates their terms automatically, and — once legal has approved —
+    activates the contract's clauses as hard constraints on the solver.
+  </p>
+
+  <div class="step-list no-break">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Document Detection</div>
+        <div class="step-desc">The platform computes a SHA-256 hash of each contract file in SharePoint via the Graph API.
+        When a hash changes (new version uploaded), ingestion is triggered automatically.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num blue">2</div>
+      <div class="step-body">
+        <div class="step-title">AI Clause Extraction</div>
+        <div class="step-desc">A Copilot/LLM pipeline parses the document and extracts structured clause objects:
+        quantity tolerances, delivery windows, penalty rates, price terms, incoterms, force majeure,
+        and grace periods. A second LLM pass validates completeness against the product group's
+        template registry.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num purple">3</div>
+      <div class="step-body">
+        <div class="step-title">SAP Cross-Validation</div>
+        <div class="step-desc">The platform fetches the matching contract record from SAP (OData API) and compares
+        extracted clause values against SAP fields — quantities, dates, conditions. Discrepancies
+        are flagged for operations review. The contract is marked <em>SAP-validated</em> only when
+        the two sources agree.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num amber">4</div>
+      <div class="step-body">
+        <div class="step-title">Legal Review &amp; Approval</div>
+        <div class="step-desc">The legal team reviews the extracted clauses in the Contracts dashboard, confirms
+        accuracy, and approves or rejects. Only approved, SAP-validated contracts with non-stale
+        open positions become active constraints on the solver.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num green">5</div>
+      <div class="step-body">
+        <div class="step-title">Activation as Solver Constraints</div>
+        <div class="step-desc">Active clauses flow through the Constraint Bridge into the solver. Quantity minimums
+        become floor constraints on route allocations. Penalty clauses reduce effective margin.
+        Price overrides replace spot prices on constrained routes. The solver is <em>never</em>
+        called with a looser set of constraints than the contracts allow.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>How SAP Represents the Current System-of-Record Position</h3>
+  <p>
+    SAP holds the authoritative open position for every contract — the difference between
+    what was contractually agreed and what has been delivered to date. This is the
+    <em>remaining obligation</em> the solver must plan around.
+  </p>
+
+  <table class="no-break">
+    <tr>
+      <th>SAP Field</th>
+      <th>Meaning</th>
+      <th>How the Solver Uses It</th>
+    </tr>
+    <tr>
+      <td><strong>ContractQuantity</strong></td>
+      <td>Total quantity agreed in the contract</td>
+      <td>Sets the maximum volume ceiling the constraint can impose</td>
+    </tr>
+    <tr>
+      <td><strong>OpenQuantity</strong></td>
+      <td>Remaining undelivered quantity</td>
+      <td>Sets the minimum allocation floor — the solver must cover at least this much</td>
+    </tr>
+    <tr>
+      <td><strong>DeliveredQuantity</strong></td>
+      <td>Confirmed deliveries to date</td>
+      <td>Used to verify the open position is consistent with extraction</td>
+    </tr>
+    <tr>
+      <td><strong>Incoterms</strong></td>
+      <td>Delivery terms (FOB, CIF, DAP, etc.)</td>
+      <td>Determines which cost elements the seller bears — affects margin calculation</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-purple">
+    <strong>Readiness Gate:</strong> The solver will not run unless all contracts are approved,
+    SAP-validated, have non-stale open positions (refreshed within 30 minutes), and all external
+    API data is within its polling interval. This gate prevents the solver from optimising against
+    an incomplete picture of obligations.
+  </div>
+
+  <h3>What "Constraint Bridge" Means in Practice</h3>
+  <div class="two-col no-break">
+    <div class="col-box">
+      <h4>Clause Type: Quantity Floor</h4>
+      <p style="font-size:9.5pt;color:#455a64;">
+        A long-term supply contract requires minimum monthly delivery of 5,000 MT to St. Louis.
+        The Constraint Bridge sets a lower bound of 5,000 on the Don→StL + Geis→StL route
+        variables combined. The solver cannot recommend less.
+      </p>
+    </div>
+    <div class="col-box">
+      <h4>Clause Type: Penalty Margin Reduction</h4>
+      <p style="font-size:9.5pt;color:#455a64;">
+        A contract carries a $15/ton shortfall penalty if volume falls below 80% of
+        nominated quantity. The Constraint Bridge reduces the effective sell price on that
+        route by the probability-weighted penalty — the solver factors in the cost of
+        under-delivery automatically.
+      </p>
+    </div>
+    <div class="col-box">
+      <h4>Clause Type: Price Override</h4>
+      <p style="font-size:9.5pt;color:#455a64;">
+        A fixed-price sale contract locks delivery to St. Louis at $400/ton regardless of
+        spot. The Constraint Bridge replaces sell_stl with $400 for the tonnage covered
+        by that contract — the solver sees the actual contractual economics.
+      </p>
+    </div>
+    <div class="col-box">
+      <h4>Clause Type: Delivery Window</h4>
+      <p style="font-size:9.5pt;color:#455a64;">
+        A contract specifies delivery must occur between the 15th and 25th of the month.
+        The Delivery Scheduler tracks this deadline. If the window is approaching, the
+        Constraint Bridge elevates the minimum allocation to ensure on-time commitment.
+      </p>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Trammo Trading Desk — Executive Overview</span>
+    <span>Section 4: Contract Ingestion &amp; SAP Integration</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 5 — HOW THE SOLVER FINDS THE OPTIMAL SOLUTION
+════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-label">Section 5</div>
+  <h2 class="section-title">How the Solver Finds the Optimal Solution</h2>
+  <p class="section-intro">
+    The solver uses the HiGHS linear programming engine — one of the fastest open-source LP
+    solvers available — to find the exact allocation of product to routes that optimises
+    the chosen objective while satisfying every constraint simultaneously.
+  </p>
+
+  <h3>Linear Programming: Finding the Best Allocation</h3>
+  <p>
+    A linear programme is a mathematical framework for allocating limited resources across
+    competing options to maximise or minimise an objective. In the Trading Desk, the
+    <em>decision variables</em> are the tons allocated to each route. The <em>objective</em>
+    is to maximise total gross profit. The <em>constraints</em> are the physical, financial,
+    and contractual limits described in the model.
+  </p>
+
+  <div class="callout no-break">
+    <strong>Simplified example for NH3 Domestic Barge:</strong><br/><br/>
+    <em>Maximise:</em> &nbsp;profit(Don→StL) × x₁ + profit(Don→Mem) × x₂ + profit(Geis→StL) × x₃ + profit(Geis→Mem) × x₄<br/><br/>
+    <em>Subject to:</em><br/>
+    &nbsp;&nbsp;x₁ + x₂ ≤ inv_don &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Donaldsonville inventory)<br/>
+    &nbsp;&nbsp;x₃ + x₄ ≤ inv_geis &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Geismar inventory)<br/>
+    &nbsp;&nbsp;(x₁+x₂+x₃+x₄)/eff_barge ≤ barge_count &nbsp;&nbsp;&nbsp; (fleet capacity)<br/>
+    &nbsp;&nbsp;(x₁+x₂+x₃+x₄) × nola_buy ≤ working_cap &nbsp;&nbsp;(capital)<br/>
+    &nbsp;&nbsp;x₁ + x₃ ≥ contract_floor_stl &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (contract minimum)<br/>
+    &nbsp;&nbsp;x₂ = 0 &nbsp;if mem_outage = true &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (dock outage)<br/>
+    &nbsp;&nbsp;xᵢ ≥ 0 &nbsp;for all routes
+  </div>
+
+  <p style="margin-top:12px;">
+    HiGHS solves this in milliseconds, even with dozens of constraints. The result is provably
+    optimal — there is no allocation that can do better given the constraints. If the problem is
+    infeasible (no allocation satisfies all constraints simultaneously), the solver says so
+    explicitly and the shadow prices reveal which constraints are in conflict.
+  </p>
+
+  <h3>Monte Carlo: Quantifying Risk Across 1,000 Scenarios</h3>
+  <p>
+    A deterministic solve answers: <em>"What is the best trade right now?"</em>
+    Monte Carlo answers: <em>"How confident should I be in that answer?"</em>
+  </p>
+  <p>
+    The platform perturbs all 20 variables simultaneously across 1,000 scenarios, sampling
+    from calibrated distributions around the current centre point (e.g., river stage ±2 ft,
+    NOLA buy ±$10/ton, freight ±$8/ton). Each scenario is solved independently. The result
+    is a full probability distribution of outcomes.
+  </p>
+
+  <div class="threshold-row no-break">
+    <div class="threshold-card sig-strong">
+      <div class="tc-signal">STRONG GO</div>
+      <div class="tc-desc">5th percentile profit positive. Even worst-case scenarios are profitable.</div>
+    </div>
+    <div class="threshold-card sig-go">
+      <div class="tc-signal">GO</div>
+      <div class="tc-desc">25th percentile positive. Good probability of solid outcome.</div>
+    </div>
+    <div class="threshold-card sig-caut">
+      <div class="tc-signal">CAUTIOUS</div>
+      <div class="tc-desc">Median positive but downside scenarios could be negative.</div>
+    </div>
+    <div class="threshold-card sig-weak">
+      <div class="tc-signal">WEAK</div>
+      <div class="tc-desc">Median positive but narrow. High sensitivity to variable moves.</div>
+    </div>
+    <div class="threshold-card sig-nogo">
+      <div class="tc-signal">NO GO</div>
+      <div class="tc-desc">Median negative or infeasible in most scenarios.</div>
+    </div>
+  </div>
+
+  <h3>Shadow Prices: Knowing What to Negotiate</h3>
+  <p>
+    For every binding constraint, the solver computes a <em>shadow price</em> — the dollar
+    improvement in profit per unit of relaxation. This tells traders where the value lies:
+  </p>
+  <table class="no-break">
+    <tr>
+      <th>Constraint</th>
+      <th>Shadow Price Meaning</th>
+      <th>Trader Action</th>
+    </tr>
+    <tr>
+      <td>Barge fleet is the binding constraint</td>
+      <td>$X additional profit per extra barge available</td>
+      <td>Charter a spot barge if the shadow price exceeds the charter rate</td>
+    </tr>
+    <tr>
+      <td>Working capital is binding</td>
+      <td>$Y additional profit per $1,000 of extra capital</td>
+      <td>Assess whether short-term credit is worth the finance cost</td>
+    </tr>
+    <tr>
+      <td>Inventory at Don is binding</td>
+      <td>$Z additional profit per extra ton at Donaldsonville</td>
+      <td>Evaluate an opportunistic spot purchase to build inventory</td>
+    </tr>
+    <tr>
+      <td>Contract minimum is binding</td>
+      <td>Negative shadow price (constraint is costly)</td>
+      <td>Escalate to commercial — the contract obligation is destroying margin</td>
+    </tr>
+  </table>
+
+  <h3>Sensitivity Analysis</h3>
+  <p>
+    After Monte Carlo, the platform reports which variables most strongly correlate with
+    profit outcomes. A trader instantly sees: "Freight rates explain 42% of variance in
+    this trade's profitability" — or "River stage is not material at current levels."
+    This focuses negotiation and risk management effort where it matters most.
+  </p>
+
+  <div class="doc-footer">
+    <span>Trammo Trading Desk — Executive Overview</span>
+    <span>Section 5: How the Solver Finds the Optimal Solution</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 6 — THE AUTO TRADER
+════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-label">Section 6</div>
+  <h2 class="section-title">The Auto Trader</h2>
+  <p class="section-intro">
+    The auto-runner is a continuous monitoring process that watches all 20 live variables
+    and automatically re-optimises whenever the market or operating environment moves
+    beyond a configured sensitivity threshold. It records every optimal outcome to an
+    immutable audit trail — so traders always have a current, evidence-based recommendation
+    and a verifiable history of how conditions evolved.
+  </p>
+
+  <h3>The Centre-Point Approach</h3>
+  <p>
+    Every time the auto-runner solves, it records the current values of all 20 variables
+    as the <em>centre point</em> — the baseline against which future changes are measured.
+    This means the system is always asking: <em>"Have conditions moved enough from the last
+    solve to warrant a new recommendation?"</em> — not from an arbitrary baseline, but from
+    the exact state when the last optimal decision was computed.
+  </p>
+
+  <div class="flow-wrapper no-break">
+    <div style="display:flex;align-items:center;gap:0;justify-content:center;">
+      <div class="flow-box" style="min-width:130px;">
+        Live Variables
+        <div class="flow-box-sub">Continuous API updates</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box amber" style="min-width:150px;">
+        Delta Detector
+        <div class="flow-box-sub">|current − centre| ≥ threshold?</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box dark" style="min-width:130px;">
+        LP + Monte Carlo
+        <div class="flow-box-sub">1,000 scenarios</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box green" style="min-width:130px;">
+        Optimal Outcome
+        <div class="flow-box-sub">New centre point saved</div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:6px;padding-right:60px;">
+      <div style="font-size:9pt;color:#607d8b;font-style:italic;">↑ Also: trader notification + audit trail commit</div>
+    </div>
+  </div>
+
+  <h3>What Triggers a Re-Solve</h3>
+  <p>Any variable moving beyond its sensitivity threshold triggers the auto-runner.
+  Example thresholds for NH3 Domestic Barge:</p>
+  <table class="no-break">
+    <tr><th>Variable</th><th>Threshold</th><th>Why This Level</th></tr>
+    <tr><td>river_stage</td><td>±0.5 ft</td><td>Half a foot can shift the barge capacity tier and materially change fleet requirements</td></tr>
+    <tr><td>nola_buy</td><td>±$2/ton</td><td>NH3 buy price moves in $2 increments; smaller moves are noise</td></tr>
+    <tr><td>lock_hrs</td><td>±2 hrs</td><td>Two hours of additional lock delay affects transit economics and delivery timing</td></tr>
+    <tr><td>fr_don_stl</td><td>±$3/ton</td><td>Freight moves in $1–3 clips; $3 represents a decision-relevant shift</td></tr>
+    <tr><td>barge_count</td><td>±1 barge</td><td>Any change in available fleet directly changes the maximum allocation</td></tr>
+    <tr><td>inv_don</td><td>±500 tons</td><td>500-ton swing represents roughly one-third of a barge load</td></tr>
+  </table>
+
+  <h3>What Happens After a Re-Solve</h3>
+  <div class="step-list no-break">
+    <div class="step">
+      <div class="step-num green">1</div>
+      <div class="step-body">
+        <div class="step-title">Optimal Outcome Recorded</div>
+        <div class="step-desc">Route allocations, profit, margins, MC distribution, and the trigger details
+        (which variable moved, by how much, from what baseline) are saved to three stores:
+        in-memory ETS (real-time queries), Postgres (durable multi-node audit), and
+        SQLite (portable trade history).</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num blue">2</div>
+      <div class="step-body">
+        <div class="step-title">Immutable Chain Commit</div>
+        <div class="step-desc">The solve payload is hashed (SHA-256), signed (ECDSA), encrypted (AES-256-GCM),
+        and written to the BSV blockchain as an OP_RETURN transaction. This creates a
+        tamper-proof, timestamped record that the optimal decision was computed with
+        these exact inputs at this exact moment — useful for compliance and dispute resolution.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num purple">3</div>
+      <div class="step-body">
+        <div class="step-title">AI Analyst Explanation</div>
+        <div class="step-desc">The platform generates a plain-English explanation of why the auto-runner
+        triggered and what changed in the recommendation. This explanation is shown
+        in the Agent tab and included in the trader notification.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num amber">4</div>
+      <div class="step-body">
+        <div class="step-title">Trader Notification</div>
+        <div class="step-desc">If the profit change exceeds the trader's configured notification threshold
+        (see Section 7), an alert is sent via their preferred channels.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-green">
+    <strong>Minimum cooldown:</strong> The auto-runner enforces a minimum 5-minute interval
+    between solves (configurable). This prevents runaway compute from high-frequency noise
+    while still reacting promptly to genuine market moves. A fallback scheduled solve
+    runs every 60 minutes regardless of delta, ensuring the recommendation stays fresh
+    even in quiet markets.
+  </div>
+
+  <div class="doc-footer">
+    <span>Trammo Trading Desk — Executive Overview</span>
+    <span>Section 6: The Auto Trader</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 7 — TRADER NOTIFICATIONS
+════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-label">Section 7</div>
+  <h2 class="section-title">Trader Notifications &amp; Threshold Alerts</h2>
+  <p class="section-intro">
+    Traders should not need to watch a screen all day. The notification system ensures that
+    when conditions shift enough to change the optimal decision materially, the right trader
+    is told — on their preferred channel — with enough context to act immediately.
+  </p>
+
+  <h3>What Triggers a Notification</h3>
+  <p>A notification is sent when <em>all three conditions</em> are true:</p>
+  <div class="two-col-wide no-break">
+    <div class="col-box">
+      <h4>Condition 1 — Auto-solve triggered</h4>
+      <p style="font-size:9.5pt;color:#455a64;">The auto-runner has solved because a variable moved beyond its delta threshold. A scheduled fallback solve alone does not trigger a notification unless the profit also changed materially.</p>
+
+      <h4>Condition 2 — Profit delta exceeds trader threshold</h4>
+      <p style="font-size:9.5pt;color:#455a64;">The difference between the new expected profit and the previous solve's profit exceeds the trader's configured <em>notify_threshold_profit</em> (e.g., $5,000 by default). Small fluctuations don't generate noise.</p>
+
+      <h4>Condition 3 — Cooldown has elapsed</h4>
+      <p style="font-size:9.5pt;color:#455a64;">At least <em>notify_cooldown_minutes</em> (default 30 min) have passed since the last notification to this trader. Back-to-back alerts during volatile periods are suppressed.</p>
+    </div>
+    <div class="col-box">
+      <h4>Event Types</h4>
+      <table style="margin:0;">
+        <tr><th>Event</th><th>Meaning</th></tr>
+        <tr><td><strong>auto_solve</strong></td><td>Delta threshold crossed; new optimum found</td></tr>
+        <tr><td><strong>delta_trigger</strong></td><td>Specific variable identified as primary cause</td></tr>
+        <tr><td><strong>infeasible</strong></td><td>No feasible trade exists given current constraints — immediate attention required</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>What a Notification Contains</h3>
+  <div class="callout no-break" style="font-family:monospace;font-size:9pt;line-height:1.7;">
+    <strong>Subject:</strong> NH3 Domestic — Auto Solve: $142,500 (▲ $18,200)<br/><br/>
+    Hi Sarah,<br/><br/>
+    The Trammo NH3 Domestic Trading Desk has triggered an auto-solve.<br/><br/>
+    <strong>Current Expected Profit:</strong> $142,500<br/>
+    <strong>Change from Last Solve:</strong> ▲ $18,200<br/>
+    <strong>Triggered by:</strong> river_stage (was 11.8 ft → now 18.3 ft, threshold ±0.5 ft)<br/><br/>
+    <strong>Monte Carlo (1,000 scenarios):</strong><br/>
+    &nbsp;&nbsp;Mean: &nbsp;$138,900 &nbsp;&nbsp;VaR₅: &nbsp;$62,400 &nbsp;&nbsp;P95: $210,500<br/>
+    &nbsp;&nbsp;Signal: STRONG GO — 97% of scenarios profitable<br/><br/>
+    <strong>Analyst Note:</strong> River stage recovered to 18.3 ft, restoring full barge capacity
+    (1,500 MT/barge). The binding constraint shifted from fleet capacity back to working capital.
+    Recommend committing to Don→StL at full allocation before freight rates respond to
+    the gauge reading.<br/><br/>
+    [View in Trading Desk →]
+  </div>
+
+  <h3>Notification Channels</h3>
+  <table class="no-break">
+    <tr><th>Channel</th><th>Configuration</th><th>Best For</th></tr>
+    <tr>
+      <td><strong>Email</strong></td>
+      <td>Set on trader profile — delivered to corporate email</td>
+      <td>Full detail; useful when away from desk or for record-keeping</td>
+    </tr>
+    <tr>
+      <td><strong>Slack</strong></td>
+      <td>Webhook URL configured per trader or channel</td>
+      <td>Real-time team visibility; multiple traders can see the same alert</td>
+    </tr>
+    <tr>
+      <td><strong>MS Teams</strong></td>
+      <td>Webhook URL configured per trader or channel</td>
+      <td>Preferred for organisations running Teams as primary collaboration platform</td>
+    </tr>
+  </table>
+
+  <h3>Trader-Configurable Settings</h3>
+  <table class="no-break">
+    <tr><th>Setting</th><th>Default</th><th>Effect</th></tr>
+    <tr>
+      <td>notify_threshold_profit</td>
+      <td>$5,000</td>
+      <td>Minimum profit change to trigger notification — raise to reduce volume, lower for more sensitivity</td>
+    </tr>
+    <tr>
+      <td>notify_cooldown_minutes</td>
+      <td>30 min</td>
+      <td>Minimum time between notifications — prevents alert fatigue during volatile sessions</td>
+    </tr>
+    <tr>
+      <td>notifications_paused</td>
+      <td>false</td>
+      <td>One-click pause during meetings, calls, or non-trading hours; auto-runner continues solving</td>
+    </tr>
+  </table>
+
+  <div class="callout callout-amber" style="margin-top:20px;">
+    <strong>Infeasible alerts are always sent immediately</strong>, bypassing cooldown, because
+    they indicate that no trade is currently possible given the combination of contractual
+    obligations, physical constraints, and market prices. This requires immediate trader
+    intervention — and the notification explains exactly which constraints are in conflict.
+  </div>
+
+  <h3>The Trader's Optimisation Loop</h3>
+  <p>With notifications active, the workflow becomes:</p>
+  <div class="step-list no-break">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-title">Receive notification</div>
+        <div class="step-desc">Alert arrives on Slack/Teams/Email with current optimal outcome, what changed, and the analyst's plain-English interpretation.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num blue">2</div>
+      <div class="step-body">
+        <div class="step-title">Open Trader Mode to explore</div>
+        <div class="step-desc">Use the dashboard's sliders to test variations: "What if freight rises another $5? What if I can source an extra barge?" The solver responds in under a second to each adjustment.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num green">3</div>
+      <div class="step-body">
+        <div class="step-title">Review shadow prices to find leverage</div>
+        <div class="step-desc">Shadow prices show where negotiations or operational actions deliver the most value. The trader knows exactly what to call their freight broker about.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num amber">4</div>
+      <div class="step-body">
+        <div class="step-title">Commit the trade</div>
+        <div class="step-desc">Execute in the market. The solve result is recorded as the basis for the decision. The auto-runner picks up the new centre point and resumes monitoring.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Trammo Trading Desk — Executive Overview</span>
+    <span>Section 7: Trader Notifications &amp; Threshold Alerts</span>
+  </div>
+</div>
+
+</body>
+</html>
