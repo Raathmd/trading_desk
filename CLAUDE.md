@@ -10,8 +10,10 @@ mix ecto.migrate
 
 ## Running the app
 
+Always use the start script to run the app (it loads `.env` variables first):
+
 ```bash
-mix phx.server
+bash start.sh
 # App runs at http://localhost:4111
 ```
 
