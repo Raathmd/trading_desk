@@ -24,10 +24,10 @@ const highs = @cImport({
 //     status 0 = ok, 1 = infeasible, 2 = error
 // ============================================================
 
-pub const MAX_VARS: usize = 64;
-pub const MAX_ROUTES: usize = 16;
-pub const MAX_CONSTRAINTS: usize = 32;
-pub const MAX_CORRELATIONS: usize = 8;
+pub const MAX_VARS: usize = 256;
+pub const MAX_ROUTES: usize = 128;
+pub const MAX_CONSTRAINTS: usize = 256;
+pub const MAX_CORRELATIONS: usize = 32;
 pub const MAX_SCENARIOS: usize = 10000;
 
 // ── Objective modes ──
@@ -304,6 +304,11 @@ pub fn solve_one(model: *const Model, vars: []const f64) SolveResult {
 // ============================================================
 var prng_state: [4]u64 = .{ 0x853c49e6748fea9b, 0xda3e39cb94b95bdb, 0x5b5ad4a5bb4d05b8, 0x515ad4a5bb4d05b8 };
 
+// BSS-allocated buffers for Monte Carlo — too large for the stack at expanded limits
+// (MAX_VARS × MAX_SCENARIOS × 8 bytes = 256 × 10000 × 8 = 20 MB)
+var g_mc_profits: [MAX_SCENARIOS]f64 = undefined;
+var g_mc_var_buf: [MAX_VARS][MAX_SCENARIOS]f64 = undefined;
+
 fn prng_next() u64 {
     const result = std.math.rotl(u64, prng_state[1] *% 5, 7) *% 9;
     const t = prng_state[1] << 17;
@@ -404,9 +409,9 @@ pub fn run_monte_carlo(model: *const Model, center: []const f64, n: u32) MonteCa
     if (nv > 0) prng_state[0] = @bitCast(center[0]);
     if (nv > 1) prng_state[1] = @bitCast(center[1]);
 
-    var profits: [MAX_SCENARIOS]f64 = undefined;
-    // Store per-variable values for sensitivity (ring buffer of feasible scenarios)
-    var var_buf: [MAX_VARS][MAX_SCENARIOS]f64 = undefined;
+    // Use BSS globals — stack equivalents would be 20 MB+ with expanded limits
+    const profits = &g_mc_profits;
+    const var_buf = &g_mc_var_buf;
     var scenario_vars: [MAX_VARS]f64 = undefined;
 
     const count = if (n > MAX_SCENARIOS) @as(u32, MAX_SCENARIOS) else n;
