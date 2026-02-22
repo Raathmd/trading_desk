@@ -24,11 +24,11 @@ const highs = @cImport({
 //     status 0 = ok, 1 = infeasible, 2 = error
 // ============================================================
 
-const MAX_VARS: usize = 64;
-const MAX_ROUTES: usize = 16;
-const MAX_CONSTRAINTS: usize = 32;
-const MAX_CORRELATIONS: usize = 8;
-const MAX_SCENARIOS: usize = 10000;
+pub const MAX_VARS: usize = 64;
+pub const MAX_ROUTES: usize = 16;
+pub const MAX_CONSTRAINTS: usize = 32;
+pub const MAX_CORRELATIONS: usize = 8;
+pub const MAX_SCENARIOS: usize = 10000;
 
 // ── Objective modes ──
 const OBJ_MAX_PROFIT: u8 = 0;
@@ -45,12 +45,12 @@ const CT_CAPITAL: u8 = 3;  // Σ(cost_per_ton × route_tons) ≤ bound_var
 const CT_CUSTOM: u8 = 4;   // custom coefficients
 
 // ── Model descriptor (parsed from binary) ──
-const Correlation = struct {
+pub const Correlation = struct {
     var_idx: u8,
     coefficient: f64,
 };
 
-const Perturbation = struct {
+pub const Perturbation = struct {
     stddev: f64,
     lo: f64,
     hi: f64,
@@ -58,7 +58,7 @@ const Perturbation = struct {
     corr: [MAX_CORRELATIONS]Correlation,
 };
 
-const Route = struct {
+pub const Route = struct {
     sell_var_idx: u8,
     buy_var_idx: u8,
     freight_var_idx: u8,
@@ -67,7 +67,7 @@ const Route = struct {
     unit_capacity: f64,
 };
 
-const Constraint = struct {
+pub const Constraint = struct {
     ctype: u8,
     bound_var_idx: u8,
     bound_min_var_idx: u8,     // 0xFF = no minimum
@@ -78,7 +78,7 @@ const Constraint = struct {
     coefficients: [MAX_ROUTES]f64, // for CT_CUSTOM
 };
 
-const Model = struct {
+pub const Model = struct {
     n_vars: u16,
     n_routes: u8,
     n_constraints: u8,
@@ -90,7 +90,7 @@ const Model = struct {
     perturbations: [MAX_VARS]Perturbation,
 };
 
-const SolveResult = struct {
+pub const SolveResult = struct {
     status: u8,
     profit: f64,
     tons: f64,
@@ -104,7 +104,7 @@ const SolveResult = struct {
     n_constraints: u8,
 };
 
-const MonteCarloResult = struct {
+pub const MonteCarloResult = struct {
     n_scenarios: u32,
     n_feasible: u32,
     n_infeasible: u32,
@@ -124,7 +124,7 @@ const MonteCarloResult = struct {
 // ============================================================
 // LP Solve — builds the model from descriptor
 // ============================================================
-fn solve_one(model: *const Model, vars: []const f64) SolveResult {
+pub fn solve_one(model: *const Model, vars: []const f64) SolveResult {
     const nr = model.n_routes;
     const nc = model.n_constraints;
 
@@ -397,7 +397,7 @@ fn sort_f64(arr: []f64) void {
     }
 }
 
-fn run_monte_carlo(model: *const Model, center: []const f64, n: u32) MonteCarloResult {
+pub fn run_monte_carlo(model: *const Model, center: []const f64, n: u32) MonteCarloResult {
     const nv = model.n_vars;
 
     // Seed PRNG
@@ -519,7 +519,7 @@ fn read_f64(data: []const u8, off: *usize) f64 {
     return @bitCast(buf);
 }
 
-fn parse_model(data: []const u8, off: *usize) Model {
+pub fn parse_model(data: []const u8, off: *usize) Model {
     var m = Model{
         .n_vars = 0,
         .n_routes = 0,

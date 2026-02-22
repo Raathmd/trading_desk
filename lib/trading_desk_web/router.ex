@@ -44,4 +44,24 @@ defmodule TradingDesk.Router do
     post "/ping",   SapWebhookController, :ping
     get  "/status", SapWebhookController, :status
   end
+
+  # ── Mobile app API (Bearer token auth) ───────────────────────────────────
+  pipeline :mobile_api do
+    plug :accepts, ["json"]
+    plug TradingDeskWeb.Plugs.MobileAuth
+  end
+
+  scope "/api/v1/mobile", TradingDeskWeb do
+    pipe_through :mobile_api
+
+    # Model: fetch the full model payload (variables + metadata + binary descriptor)
+    get  "/model",            MobileApiController, :get_model
+    get  "/model/descriptor", MobileApiController, :get_descriptor
+
+    # Thresholds: fetch delta thresholds for a product group
+    get  "/thresholds",       MobileApiController, :get_thresholds
+
+    # Solves: save a device-side solve result back to the server
+    post "/solves",           MobileApiController, :save_solve
+  end
 end

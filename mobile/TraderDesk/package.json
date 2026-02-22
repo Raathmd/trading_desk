@@ -1,0 +1,43 @@
+{
+  "name": "TraderDesk",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "test": "jest",
+    "lint": "eslint .",
+    "build:solver:ios": "zig build --build-file ../../native/build_mobile.zig ios -Dtarget=aarch64-macos -Doptimize=ReleaseFast",
+    "build:solver:android-arm64": "zig build --build-file ../../native/build_mobile.zig android -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast",
+    "build:solver:android-x86": "zig build --build-file ../../native/build_mobile.zig android -Dtarget=x86_64-linux-android -Doptimize=ReleaseFast"
+  },
+  "dependencies": {
+    "@react-navigation/bottom-tabs": "^6.5.11",
+    "@react-navigation/native": "^6.1.9",
+    "@react-navigation/native-stack": "^6.9.17",
+    "@reduxjs/toolkit": "^2.0.1",
+    "react": "18.2.0",
+    "react-native": "0.73.2",
+    "react-native-mmkv": "^2.11.0",
+    "react-native-safe-area-context": "^4.8.2",
+    "react-native-screens": "^3.29.0",
+    "react-native-vector-icons": "^10.0.3",
+    "react-redux": "^9.0.4"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@babel/preset-env": "^7.20.0",
+    "@babel/runtime": "^7.20.0",
+    "@react-native/eslint-config": "^0.73.2",
+    "@react-native/metro-config": "^0.73.3",
+    "@types/react": "^18.2.6",
+    "@types/react-native": "^0.73.0",
+    "eslint": "^8.19.0",
+    "jest": "^29.6.3",
+    "typescript": "5.0.4"
+  },
+  "jest": {
+    "preset": "react-native"
+  }
+}
