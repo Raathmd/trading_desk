@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Trading Desk — System Architecture</title>
+<style>
+/* ── Reset & base ──────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 10.5pt;
+  color: #1a2332;
+  background: #ffffff;
+  line-height: 1.55;
+}
+.page { max-width: 820px; margin: 0 auto; padding: 40px 48px 56px; }
+
+/* ── Nav bar ───────────────────────────────────────── */
+.nav-bar {
+  background: #0f2044;
+  padding: 10px 48px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-size: 9pt;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 2px solid #1976d2;
+}
+.nav-bar a {
+  color: #90caf9;
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.nav-bar a:hover { color: #ffffff; }
+.nav-bar .nav-sep { color: #37474f; }
+.nav-bar .nav-current { color: #e3f2fd; }
+
+/* ── Cover ─────────────────────────────────────────── */
+.cover {
+  background: linear-gradient(135deg, #0a1628 0%, #0f2044 60%, #1a3a6b 100%);
+  color: #ffffff;
+  padding: 64px 56px 56px;
+  page-break-after: always;
+}
+.cover-label {
+  font-size: 9pt; letter-spacing: 3px; text-transform: uppercase;
+  color: #64b5f6; margin-bottom: 18px; font-weight: 600;
+}
+.cover h1 {
+  font-size: 30pt; font-weight: 700; color: #ffffff;
+  line-height: 1.15; margin-bottom: 12px;
+}
+.cover-sub { font-size: 13pt; color: #90caf9; margin-bottom: 28px; }
+.cover-desc {
+  font-size: 11pt; color: #b0c4de; max-width: 580px;
+  line-height: 1.65; margin-bottom: 40px;
+}
+.cover-meta {
+  font-size: 9pt; color: #607d8b;
+  border-top: 1px solid #1e3a5f;
+  padding-top: 18px;
+  display: flex; justify-content: space-between;
+}
+.cover-product-tags { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 32px; }
+.tag {
+  background: #1a3a6b; color: #64b5f6; padding: 4px 14px;
+  border-radius: 20px; font-size: 9pt; font-weight: 600;
+  border: 1px solid #2e5ba0;
+}
+.doc-link-box {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: rgba(25,118,210,0.15); border: 1px solid #1976d2;
+  border-radius: 8px; padding: 10px 18px; margin-top: 8px;
+}
+.doc-link-box a { color: #64b5f6; font-size: 9.5pt; font-weight: 600; text-decoration: none; }
+.doc-link-box a:hover { color: #ffffff; }
+.doc-link-box .doc-arrow { color: #1976d2; font-size: 12pt; }
+
+/* ── Section headers ───────────────────────────────── */
+.section { padding: 40px 48px; page-break-before: always; }
+.section-label {
+  font-size: 8.5pt; letter-spacing: 3px; text-transform: uppercase;
+  color: #1976d2; font-weight: 700; margin-bottom: 6px;
+}
+h2.section-title {
+  font-size: 19pt; font-weight: 700; color: #0f2044;
+  margin-bottom: 6px; line-height: 1.2;
+}
+.section-intro {
+  font-size: 10.5pt; color: #455a64; margin-bottom: 28px;
+  max-width: 680px; line-height: 1.65;
+  border-bottom: 2px solid #1976d2; padding-bottom: 18px;
+}
+h3 { font-size: 12pt; font-weight: 700; color: #0d47a1; margin: 26px 0 10px; }
+h4 { font-size: 10.5pt; font-weight: 700; color: #1a2332; margin: 18px 0 8px; }
+p { margin-bottom: 10px; }
+
+/* ── Callout boxes ─────────────────────────────────── */
+.callout {
+  border-left: 4px solid #1976d2; background: #e3f2fd;
+  padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 16px 0;
+  font-size: 10pt; color: #0d47a1;
+}
+.callout-green { border-left-color: #2e7d32; background: #e8f5e9; color: #1b5e20; }
+.callout-amber { border-left-color: #e65100; background: #fff3e0; color: #bf360c; }
+.callout-teal  { border-left-color: #00695c; background: #e0f2f1; color: #004d40; }
+.callout strong { font-weight: 700; }
+
+/* ── Flow boxes (shared with exec overview) ─────────── */
+.flow-wrapper { margin: 24px 0; overflow: visible; }
+.flow-row { display: flex; align-items: center; gap: 0; margin-bottom: 6px; }
+.flow-box {
+  border: 2px solid #1976d2; border-radius: 8px; padding: 9px 13px;
+  text-align: center; background: #e3f2fd; color: #0d47a1;
+  font-size: 9pt; font-weight: 700; flex-shrink: 0; min-width: 90px;
+}
+.flow-box.green  { border-color: #2e7d32; background: #e8f5e9; color: #1b5e20; }
+.flow-box.amber  { border-color: #e65100; background: #fff3e0; color: #bf360c; }
+.flow-box.purple { border-color: #6a1b9a; background: #f3e5f5; color: #4a148c; }
+.flow-box.dark   { border-color: #0f2044; background: #0f2044; color: #e3f2fd; }
+.flow-box.teal   { border-color: #00695c; background: #e0f2f1; color: #004d40; }
+.flow-box.grey   { border-color: #455a64; background: #eceff1; color: #37474f; }
+.flow-box-sub { font-size: 7.5pt; font-weight: 400; opacity: 0.85; margin-top: 3px; }
+.flow-arrow { font-size: 15pt; color: #607d8b; padding: 0 4px; flex-shrink: 0; line-height: 1; }
+.flow-arrow-down { text-align: center; font-size: 14pt; color: #607d8b; line-height: 1; margin: 2px 0; }
+
+/* ── Architecture master diagram ───────────────────── */
+.arch-diagram {
+  border: 1.5px solid #cfd8dc; border-radius: 10px;
+  padding: 24px; background: #fafbfc; margin: 20px 0;
+}
+.arch-layer-label {
+  font-size: 7.5pt; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 2px; color: #607d8b; margin-bottom: 8px;
+  padding-left: 4px;
+}
+.arch-row {
+  display: flex; align-items: stretch; gap: 6px;
+  margin-bottom: 4px; min-height: 48px;
+}
+.arch-box {
+  border-radius: 7px; padding: 8px 11px; text-align: center;
+  font-size: 8.5pt; font-weight: 700; flex: 1;
+  display: flex; flex-direction: column; justify-content: center;
+  cursor: default; border: 1.5px solid;
+}
+.arch-box a { color: inherit; text-decoration: none; }
+.arch-box a:hover { text-decoration: underline; }
+.arch-box .arch-sub { font-size: 7pt; font-weight: 400; opacity: 0.8; margin-top: 2px; }
+/* Layer colours */
+.L1 { background: #e8f5e9; border-color: #2e7d32; color: #1b5e20; }   /* data */
+.L2 { background: #e3f2fd; border-color: #1976d2; color: #0d47a1; }   /* ingestion/state */
+.L3 { background: #ede7f6; border-color: #5e35b1; color: #311b92; }   /* variable/frame */
+.L4 { background: #0f2044; border-color: #0f2044; color: #e3f2fd; }   /* solver */
+.L5 { background: #fff3e0; border-color: #e65100; color: #bf360c; }   /* MC/results */
+.L6 { background: #e0f2f1; border-color: #00695c; color: #004d40; }   /* delivery */
+.L7 { background: #fce4ec; border-color: #880e4f; color: #880e4f; }   /* contract */
+.arch-connector {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; font-size: 18pt; color: #b0bec5;
+  margin: 0 4px;
+}
+.arch-divider {
+  border: none; border-top: 1px dashed #b0bec5; margin: 10px 0;
+}
+.arch-row-gap { height: 6px; }
+.arch-down-row {
+  display: flex; justify-content: center; align-items: center;
+  height: 22px; gap: 4px;
+}
+.arch-down-arrow { font-size: 18pt; color: #b0bec5; line-height: 1; }
+
+/* ── Component cards (TOC-style) ────────────────────── */
+.comp-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 12px; margin: 20px 0;
+}
+.comp-card {
+  border: 1.5px solid #b0bec5; border-radius: 8px; padding: 14px 15px;
+  background: #fafbfc;
+}
+.comp-card .comp-num {
+  font-size: 8pt; font-weight: 700; color: #1976d2;
+  text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;
+}
+.comp-card .comp-name {
+  font-size: 10.5pt; font-weight: 700; color: #0f2044; margin-bottom: 6px;
+}
+.comp-card .comp-desc { font-size: 8.5pt; color: #455a64; line-height: 1.5; }
+.comp-card a { color: #1976d2; text-decoration: none; }
+.comp-card a:hover { text-decoration: underline; }
+
+/* ── Component section ──────────────────────────────── */
+.comp-section {
+  padding: 32px 48px 40px;
+  page-break-before: always;
+  border-top: 3px solid #1976d2;
+}
+.comp-header {
+  display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px;
+}
+.comp-badge {
+  font-size: 8pt; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 2px; padding: 3px 10px; border-radius: 3px;
+  white-space: nowrap;
+}
+.badge-data    { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; }
+.badge-state   { background: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; }
+.badge-engine  { background: #0f2044; color: #e3f2fd; border: 1px solid #0f2044; }
+.badge-mc      { background: #fff3e0; color: #bf360c; border: 1px solid #ffcc80; }
+.badge-ui      { background: #e0f2f1; color: #004d40; border: 1px solid #80cbc4; }
+.badge-auto    { background: #fce4ec; color: #880e4f; border: 1px solid #f48fb1; }
+.badge-contract{ background: #ede7f6; color: #311b92; border: 1px solid #b39ddb; }
+.badge-notify  { background: #eceff1; color: #37474f; border: 1px solid #b0bec5; }
+
+h2.comp-title { font-size: 17pt; font-weight: 700; color: #0f2044; line-height: 1.2; }
+.comp-tagline { font-size: 11pt; color: #455a64; margin: 8px 0 20px; max-width: 640px; line-height: 1.6; }
+
+.io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+.io-box { border: 1.5px solid #cfd8dc; border-radius: 7px; padding: 12px 14px; }
+.io-box-title { font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+  color: #607d8b; margin-bottom: 8px; }
+.io-item { font-size: 8.5pt; color: #37474f; padding: 2px 0; }
+.io-item::before { content: "→ "; color: #1976d2; font-weight: 700; }
+
+.tech-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.tech-chip {
+  background: #eceff1; color: #455a64; border: 1px solid #b0bec5;
+  border-radius: 4px; padding: 3px 10px; font-size: 8pt;
+  font-family: "Consolas", monospace;
+}
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 9.5pt; }
+th {
+  background: #0f2044; color: #e3f2fd; padding: 8px 10px;
+  text-align: left; font-weight: 700; font-size: 8.5pt;
+}
+td { padding: 7px 10px; border-bottom: 1px solid #eceff1; vertical-align: top; }
+tr:nth-child(even) td { background: #f9fafb; }
+td strong { color: #0d47a1; }
+
+/* ── Print ─────────────────────────────────────────── */
+@media print {
+  .nav-bar { display: none; }
+  .comp-section, .section { page-break-before: always; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Navigation bar ─────────────────────────────── -->
+<div class="nav-bar">
+  <span class="nav-current">&#9679; Architecture Overview</span>
+  <span class="nav-sep">|</span>
+  <a href="executive_overview.html">Detailed Technical Overview &rarr;</a>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     COVER
+═══════════════════════════════════════════════════ -->
+<div class="cover page">
+  <div class="cover-label">Trammo Trading Desk &mdash; System Architecture</div>
+  <h1>Component Architecture &amp; Design</h1>
+  <div class="cover-sub">Visual Flow of the Decision-Support Platform</div>
+  <div class="cover-desc">
+    This document presents the high-level architecture of the Trading Desk platform —
+    a real-time decision-support system for NH3 domestic barge trading. It shows how
+    nine major components interact from raw API data through to optimal trade allocation,
+    with drill-down diagrams illustrating each component's internal design.
+  </div>
+  <div class="cover-product-tags">
+    <span class="tag">NH3 Domestic Barge</span>
+    <span class="tag">NH3 International</span>
+    <span class="tag">Sulphur International</span>
+    <span class="tag">Petcoke</span>
+  </div>
+  <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:36px;">
+    <div class="doc-link-box">
+      <span class="doc-arrow">&#9679;</span>
+      <span style="color:#64b5f6; font-size:9pt;">You are here: Architecture Overview</span>
+    </div>
+    <div class="doc-link-box">
+      <span class="doc-arrow">&rarr;</span>
+      <a href="executive_overview.html">Detailed Technical Overview (Section-by-Section)</a>
+    </div>
+  </div>
+  <div class="cover-meta">
+    <span>Confidential &mdash; Internal Use Only</span>
+    <span>February 2026</span>
+    <span>Version 2.0</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     MASTER ARCHITECTURE DIAGRAM
+═══════════════════════════════════════════════════ -->
+<div class="section" id="overview" style="page-break-before:avoid;">
+  <div class="section-label">Section 1</div>
+  <h2 class="section-title">System Architecture — Full Component Flow</h2>
+  <p class="section-intro">
+    The platform moves data through five vertical layers: external data collection, live state
+    management, variable assembly, optimisation, and result delivery. The contract ingestion
+    pipeline feeds constraints horizontally into the solver layer. Components are colour-coded
+    by function; click any component name to jump to its detail section.
+  </p>
+
+  <div class="arch-diagram">
+
+    <!-- LAYER 1: External Data Sources -->
+    <div class="arch-layer-label">LAYER 1 &mdash; EXTERNAL DATA SOURCES (9 feeds)</div>
+    <div class="arch-row">
+      <div class="arch-box L1"><a href="#data-ingestion">USGS</a><div class="arch-sub">River stage</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">NOAA</a><div class="arch-sub">Weather</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">USACE</a><div class="arch-sub">Lock delays</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">EIA</a><div class="arch-sub">Nat gas</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">Market Feed</a><div class="arch-sub">NH3 prices</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">Broker API</a><div class="arch-sub">Freight rates</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">Insight TMS</a><div class="arch-sub">Inventory</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">Fleet Mgmt</a><div class="arch-sub">Barge count</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">SAP FI</a><div class="arch-sub">Working cap</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595;</span></div>
+
+    <!-- LAYER 2: Ingestion + State + Contract (side-by-side) -->
+    <div class="arch-layer-label">LAYER 2 &mdash; DATA INGESTION &amp; LIVE STATE</div>
+    <div class="arch-row">
+      <div class="arch-box L2" style="flex:3"><a href="#data-ingestion">Data Pollers</a>
+        <div class="arch-sub">9 adapters &bull; 5 min&ndash;60 min intervals &bull; typed validation</div></div>
+      <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
+      <div class="arch-box L2" style="flex:3"><a href="#live-state">Live State Store</a>
+        <div class="arch-sub">GenServer &bull; PubSub broadcast &bull; delta detector</div></div>
+      <span style="padding:0 8px; align-self:center; color:#b0bec5; font-size:14pt;">&bull;</span>
+      <div class="arch-box L7" style="flex:3"><a href="#contract-pipeline">Contract Ingestion</a>
+        <div class="arch-sub">SharePoint &rarr; Claude AI &rarr; SAP &rarr; constraints</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595;</span></div>
+
+    <!-- LAYER 3: Variable Assembly -->
+    <div class="arch-layer-label">LAYER 3 &mdash; VARIABLE ASSEMBLY</div>
+    <div class="arch-row">
+      <div class="arch-box L3" style="flex:2"><a href="#variable-assembly">Product Group Frame</a>
+        <div class="arch-sub">NH3 Domestic / NH3 Intl / Sulphur / Petcoke</div></div>
+      <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
+      <div class="arch-box L3" style="flex:3"><a href="#variable-assembly">20 Variables Assembled</a>
+        <div class="arch-sub">6 Env &bull; 5 Ops &bull; 9 Commercial &bull; trader overrides applied</div></div>
+      <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
+      <div class="arch-box L3" style="flex:2"><a href="#variable-assembly">Constraint Set</a>
+        <div class="arch-sub">LP constraints from contracts + operability rules</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595;</span></div>
+
+    <!-- LAYER 4: Solve -->
+    <div class="arch-layer-label">LAYER 4 &mdash; OPTIMISATION ENGINE</div>
+    <div class="arch-row">
+      <div class="arch-box L4" style="flex:3"><a href="#lp-solver" style="color:#90caf9;">LP Solver (HiGHS / Zig)</a>
+        <div class="arch-sub">Maximise profit subject to constraints &bull; shadow prices</div></div>
+      <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&harr;</span>
+      <div class="arch-box L5" style="flex:3"><a href="#monte-carlo">Monte Carlo Engine</a>
+        <div class="arch-sub">1,000 perturbed scenarios &bull; P5/P25/P50/P75/P95 &bull; signal</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595;</span></div>
+
+    <!-- LAYER 5: Decision & Delivery -->
+    <div class="arch-layer-label">LAYER 5 &mdash; DECISION &amp; DELIVERY</div>
+    <div class="arch-row">
+      <div class="arch-box L5" style="flex:2"><a href="#auto-trader">Auto Trader</a>
+        <div class="arch-sub">Delta monitor &bull; threshold alerts &bull; auto re-solve</div></div>
+      <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
+      <div class="arch-box L6" style="flex:3"><a href="#scenario-ui">Scenario UI (LiveView)</a>
+        <div class="arch-sub">Real-time sliders &bull; overrides &bull; results map &bull; signal badge</div></div>
+      <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
+      <div class="arch-box L6" style="flex:2"><a href="#notifications">Notifications &amp; Audit</a>
+        <div class="arch-sub">Email / Slack / Teams &bull; BSV OP_RETURN</div></div>
+    </div>
+
+  </div><!-- .arch-diagram -->
+
+  <!-- Component card grid (TOC) -->
+  <h3>Components at a Glance</h3>
+  <div class="comp-grid">
+    <div class="comp-card">
+      <div class="comp-num">01 &mdash; Data</div>
+      <div class="comp-name"><a href="#data-ingestion">Data Ingestion</a></div>
+      <div class="comp-desc">9 API adapters poll external sources and deliver typed values to the live state.</div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-num">02 &mdash; State</div>
+      <div class="comp-name"><a href="#live-state">Live State Store</a></div>
+      <div class="comp-desc">GenServer holds the current variable snapshot; PubSub fans out changes to all subscribers.</div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-num">03 &mdash; Frame</div>
+      <div class="comp-name"><a href="#variable-assembly">Variable Assembly</a></div>
+      <div class="comp-desc">Product-group frame defines defaults, ranges and solver structure; trader overrides apply on top.</div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-num">04 &mdash; Engine</div>
+      <div class="comp-name"><a href="#lp-solver">LP Solver</a></div>
+      <div class="comp-desc">HiGHS linear-programming engine via Zig port; maximises net margin subject to all constraints.</div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-num">05 &mdash; Risk</div>
+      <div class="comp-name"><a href="#monte-carlo">Monte Carlo Engine</a></div>
+      <div class="comp-desc">1,000 perturbed solves produce a full P&amp;L distribution and a 5-level confidence signal.</div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-num">06 &mdash; Auto</div>
+      <div class="comp-name"><a href="#auto-trader">Auto Trader</a></div>
+      <div class="comp-desc">Monitors live state deltas; triggers automatic re-solve and notifications when thresholds are crossed.</div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-num">07 &mdash; Contracts</div>
+      <div class="comp-name"><a href="#contract-pipeline">Contract Pipeline</a></div>
+      <div class="comp-desc">AI-powered clause extraction converts legal contracts into solver constraints with full SAP audit trail.</div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-num">08 &mdash; UI</div>
+      <div class="comp-name"><a href="#scenario-ui">Scenario UI</a></div>
+      <div class="comp-desc">Phoenix LiveView real-time dashboard with variable sliders, override inputs, results, and map visualisation.</div>
+    </div>
+    <div class="comp-card">
+      <div class="comp-num">09 &mdash; Deliver</div>
+      <div class="comp-name"><a href="#notifications">Notifications &amp; Audit</a></div>
+      <div class="comp-desc">Email, Slack, and Teams alerts triggered by profit delta; every solve committed to BSV blockchain.</div>
+    </div>
+  </div>
+
+</div><!-- /section overview -->
+
+
+<!-- ═══════════════════════════════════════════════════
+     01 — DATA INGESTION
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="data-ingestion">
+  <div class="comp-header">
+    <span class="comp-badge badge-data">01 &mdash; Data</span>
+    <h2 class="comp-title">Data Ingestion Layer</h2>
+  </div>
+  <p class="comp-tagline">
+    Nine dedicated API adapters fetch live data from external and internal sources on independent
+    polling schedules. Each adapter validates, normalises, and enriches its payload before
+    writing to the Live State Store.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Inputs</div>
+      <div class="io-item">USGS gauge readings (river stage, ft)</div>
+      <div class="io-item">NOAA forecasts (temp, wind, visibility, precip)</div>
+      <div class="io-item">USACE lock delay reports (hrs)</div>
+      <div class="io-item">EIA natural gas spot prices ($/MMBtu)</div>
+      <div class="io-item">Market feed (NH3 NOLA buy/sell prices)</div>
+      <div class="io-item">Freight broker API (4 barge route rates)</div>
+      <div class="io-item">Insight TMS (Meredosia &amp; Niota inventory, tons)</div>
+      <div class="io-item">Fleet management (selected barge count)</div>
+      <div class="io-item">SAP FI (working capital, $)</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">Typed &amp; validated variable values</div>
+      <div class="io-item">Source timestamps (as_of)</div>
+      <div class="io-item">Fetch status (:ok / :error / :stale)</div>
+      <div class="io-item">Written to Live State Store via GenServer cast</div>
+    </div>
+  </div>
+
+  <h4>Internal Design — Polling Flow</h4>
+  <div class="flow-wrapper">
+    <div class="arch-row" style="flex-wrap:wrap; gap:6px;">
+      <div class="arch-box L1" style="flex:2">Scheduled Poller<div class="arch-sub">:timer.send_interval</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="arch-box L1" style="flex:2">HTTP Adapter<div class="arch-sub">Req library</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="arch-box L1" style="flex:2">Parse &amp; Validate<div class="arch-sub">Schema cast</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="arch-box L1" style="flex:2">Seed Fallback<div class="arch-sub">if API unavail.</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="arch-box L2" style="flex:2">LiveState.update<div class="arch-sub">GenServer.cast</div></div>
+    </div>
+  </div>
+
+  <h4>Polling Schedule</h4>
+  <table>
+    <tr><th>Source</th><th>Variables</th><th>Interval</th><th>Fallback</th></tr>
+    <tr><td><strong>USGS</strong></td><td>river_stage</td><td>15 min</td><td>Seed constant 18.0 ft</td></tr>
+    <tr><td><strong>NOAA</strong></td><td>temp_f, wind_mph, vis_mi, precip_in</td><td>30 min</td><td>Seasonal seeds</td></tr>
+    <tr><td><strong>USACE</strong></td><td>lock_hrs</td><td>60 min</td><td>Seed 12.0 hrs</td></tr>
+    <tr><td><strong>EIA</strong></td><td>nat_gas</td><td>60 min</td><td>Seed $2.80/MMBtu</td></tr>
+    <tr><td><strong>Market Feed</strong></td><td>nola_buy, sell_stl, sell_mem</td><td>5 min</td><td>Last known price</td></tr>
+    <tr><td><strong>Broker API</strong></td><td>fr_mer_stl/mem, fr_nio_stl/mem</td><td>15 min</td><td>Seed rates</td></tr>
+    <tr><td><strong>Insight TMS</strong></td><td>inv_mer, inv_nio</td><td>15 min</td><td>11,500 / 7,800 tons</td></tr>
+    <tr><td><strong>Fleet Mgmt</strong></td><td>barge_count</td><td>30 min</td><td>14 barges</td></tr>
+    <tr><td><strong>SAP FI</strong></td><td>working_cap</td><td>60 min</td><td>0 (no credit assumed)</td></tr>
+  </table>
+
+  <div class="tech-row">
+    <span class="tech-chip">Elixir Req</span>
+    <span class="tech-chip">GenServer</span>
+    <span class="tech-chip">Jason (JSON)</span>
+    <span class="tech-chip">:timer.send_interval</span>
+    <span class="tech-chip">INSIGHT_API_URL</span>
+    <span class="tech-chip">BROKER_API_URL</span>
+    <span class="tech-chip">TMS_URL</span>
+    <span class="tech-chip">SAP_FI_URL</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     02 — LIVE STATE STORE
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="live-state">
+  <div class="comp-header">
+    <span class="comp-badge badge-state">02 &mdash; State</span>
+    <h2 class="comp-title">Live State Store</h2>
+  </div>
+  <p class="comp-tagline">
+    A supervised GenServer maintains the single in-memory authoritative copy of the current
+    20-variable scenario snapshot. Phoenix PubSub fans out every change to all subscribed
+    LiveViews and the Auto Trader. A delta detector compares each new value against the previous
+    snapshot and records which variables changed and by how much.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Inputs</div>
+      <div class="io-item">Variable updates from 9 pollers (GenServer.cast)</div>
+      <div class="io-item">Trader manual overrides (LiveView pushes)</div>
+      <div class="io-item">Outage toggles (mer_outage, nio_outage — manual)</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">PubSub broadcast on every state change</div>
+      <div class="io-item">Delta map: %{variable =&gt; {old, new, delta_pct}}</div>
+      <div class="io-item">Full Variables struct for on-demand reads</div>
+      <div class="io-item">Source timestamps per variable group</div>
+    </div>
+  </div>
+
+  <h4>Internal Design — State Update Cycle</h4>
+  <div class="flow-wrapper">
+    <div class="flow-row">
+      <div class="flow-box green">Poller / Trader<div class="flow-box-sub">cast :update</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">GenServer<div class="flow-box-sub">handle_cast</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">Delta Detect<div class="flow-box-sub">compare snapshots</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box dark">PubSub Broadcast<div class="flow-box-sub">:state_changed</div></div>
+    </div>
+    <div class="flow-arrow-down">&#8595;</div>
+    <div class="flow-row">
+      <div class="flow-box teal">Auto Trader<div class="flow-box-sub">subscriber</div></div>
+      <div class="flow-arrow">&nbsp;&nbsp;&nbsp;</div>
+      <div class="flow-box teal">LiveView<div class="flow-box-sub">subscriber</div></div>
+      <div class="flow-arrow">&nbsp;&nbsp;&nbsp;</div>
+      <div class="flow-box teal">Logger / Audit<div class="flow-box-sub">subscriber</div></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Outage flags are manual.</strong> mer_outage and nio_outage are trader-toggled from the
+    Scenario UI dashboard. They are not auto-detected; this ensures no terminal is taken offline
+    due to a transient data issue.
+  </div>
+
+  <div class="tech-row">
+    <span class="tech-chip">GenServer</span>
+    <span class="tech-chip">Phoenix.PubSub</span>
+    <span class="tech-chip">Supervisor tree</span>
+    <span class="tech-chip">ETS (cache fallback)</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     03 — VARIABLE ASSEMBLY
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="variable-assembly">
+  <div class="comp-header">
+    <span class="comp-badge badge-state">03 &mdash; Frame</span>
+    <h2 class="comp-title">Variable Assembly &amp; Product Group Frame</h2>
+  </div>
+  <p class="comp-tagline">
+    Before each solve, the 20 live variables are assembled into a typed
+    <code>%TradingDesk.Variables{}</code> struct. The product-group frame defines default values,
+    valid ranges, perturbation sigmas, route definitions, and LP constraint templates. Trader
+    overrides replace any live value; contract constraints are merged in as LP bounds.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Inputs</div>
+      <div class="io-item">Live State Store snapshot (20 values)</div>
+      <div class="io-item">Active product group (NH3 Domestic / Intl / Sulphur / Petcoke)</div>
+      <div class="io-item">Trader overrides from UI session</div>
+      <div class="io-item">Active contract constraints from pipeline</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">%Variables{} struct (20 fields)</div>
+      <div class="io-item">LP constraint set (bounds, equality, route limits)</div>
+      <div class="io-item">Binary-packed payload for Zig port (to_binary/1)</div>
+    </div>
+  </div>
+
+  <h4>20 Variables — NH3 Domestic Barge</h4>
+  <table>
+    <tr><th>Group</th><th>Variable</th><th>Source</th><th>Default</th></tr>
+    <tr><td rowspan="6"><strong>Environment (6)</strong></td>
+        <td>river_stage</td><td>USGS</td><td>18.0 ft</td></tr>
+    <tr><td>lock_hrs</td><td>USACE</td><td>12.0 hrs</td></tr>
+    <tr><td>temp_f</td><td>NOAA</td><td>45.0 °F</td></tr>
+    <tr><td>wind_mph</td><td>NOAA</td><td>12.0 mph</td></tr>
+    <tr><td>vis_mi</td><td>NOAA</td><td>5.0 mi</td></tr>
+    <tr><td>precip_in</td><td>NOAA</td><td>1.0 in</td></tr>
+    <tr><td rowspan="5"><strong>Operations (5)</strong></td>
+        <td>inv_mer</td><td>Insight TMS</td><td>12,000 tons</td></tr>
+    <tr><td>inv_nio</td><td>Insight TMS</td><td>8,000 tons</td></tr>
+    <tr><td>mer_outage</td><td>Manual</td><td>false</td></tr>
+    <tr><td>nio_outage</td><td>Manual</td><td>false</td></tr>
+    <tr><td>barge_count</td><td>Fleet Mgmt (selected)</td><td>14</td></tr>
+    <tr><td rowspan="9"><strong>Commercial (9)</strong></td>
+        <td>nola_buy</td><td>Market Feed</td><td>$320/t</td></tr>
+    <tr><td>sell_stl</td><td>Market Feed</td><td>$410/t</td></tr>
+    <tr><td>sell_mem</td><td>Market Feed</td><td>$385/t</td></tr>
+    <tr><td>fr_mer_stl</td><td>Broker API</td><td>$55/t</td></tr>
+    <tr><td>fr_mer_mem</td><td>Broker API</td><td>$32/t</td></tr>
+    <tr><td>fr_nio_stl</td><td>Broker API</td><td>$58/t</td></tr>
+    <tr><td>fr_nio_mem</td><td>Broker API</td><td>$34/t</td></tr>
+    <tr><td>nat_gas</td><td>EIA</td><td>$2.80/MMBtu</td></tr>
+    <tr><td>working_cap</td><td>SAP FI</td><td>$0 (fallback)</td></tr>
+  </table>
+
+  <div class="tech-row">
+    <span class="tech-chip">TradingDesk.Variables</span>
+    <span class="tech-chip">AmmoniaDomesticFrame</span>
+    <span class="tech-chip">ConstraintBridge</span>
+    <span class="tech-chip">TemplateRegistry</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     04 — LP SOLVER
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="lp-solver">
+  <div class="comp-header">
+    <span class="comp-badge badge-engine">04 &mdash; Engine</span>
+    <h2 class="comp-title">LP Solver (HiGHS via Zig Port)</h2>
+  </div>
+  <p class="comp-tagline">
+    The core optimisation engine formulates a linear programme to maximise net trading margin
+    across all active routes, subject to inventory, capital, operability, and contract constraints.
+    The solver is called through a Zig NIF/port that wraps the open-source HiGHS LP solver,
+    keeping Elixir's scheduler free during solve execution.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Inputs</div>
+      <div class="io-item">Variables binary payload (160 bytes, 20 × f64 little-endian)</div>
+      <div class="io-item">LP constraint set (from frame + contracts)</div>
+      <div class="io-item">Route definitions (origin, destination, margins)</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">Optimal route allocations (tons per route)</div>
+      <div class="io-item">Objective value (net margin, $/day)</div>
+      <div class="io-item">Shadow prices (dual values per constraint)</div>
+      <div class="io-item">Solve status: :optimal / :infeasible / :error</div>
+    </div>
+  </div>
+
+  <h4>LP Formulation — NH3 Domestic</h4>
+  <div class="callout callout-teal">
+    <strong>Objective:</strong> Maximise &Sigma;<sub>r</sub> x<sub>r</sub> &times; (sell<sub>r</sub> &minus; buy &minus; freight<sub>r</sub> &minus; transit_cost<sub>r</sub>)
+    <br/>where r &isin; {Mer&rarr;StL, Mer&rarr;Mem, Nio&rarr;StL, Nio&rarr;Mem}
+  </div>
+
+  <h4>Key Constraints</h4>
+  <table>
+    <tr><th>Constraint</th><th>Description</th></tr>
+    <tr><td><strong>Supply — Meredosia</strong></td><td>&Sigma; x<sub>Mer routes</sub> &le; inv_mer (if !mer_outage)</td></tr>
+    <tr><td><strong>Supply — Niota</strong></td><td>&Sigma; x<sub>Nio routes</sub> &le; inv_nio (if !nio_outage)</td></tr>
+    <tr><td><strong>Fleet capacity</strong></td><td>&Sigma; x<sub>all routes</sub> &le; barge_count &times; 1,500 MT</td></tr>
+    <tr><td><strong>Working capital</strong></td><td>&Sigma; x<sub>r</sub> &times; nola_buy &le; working_cap (if &gt; 0)</td></tr>
+    <tr><td><strong>Operability</strong></td><td>river_stage &ge; 9.0 ft, lock_hrs &le; 48 hrs, vis_mi &ge; 0.25 mi</td></tr>
+    <tr><td><strong>Contract bounds</strong></td><td>Per-route min/max volume from active contracts</td></tr>
+  </table>
+
+  <h4>Solver Execution Flow</h4>
+  <div class="flow-wrapper">
+    <div class="flow-row">
+      <div class="flow-box">Variables{}<div class="flow-box-sub">Elixir struct</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">to_binary/1<div class="flow-box-sub">160-byte pack</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box dark">Zig Port<div class="flow-box-sub">stdin/stdout</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box dark">HiGHS Solver<div class="flow-box-sub">C++ LP engine</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">parse_output<div class="flow-box-sub">Elixir decode</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box green">SolveResult{}<div class="flow-box-sub">allocations + margin</div></div>
+    </div>
+  </div>
+
+  <div class="tech-row">
+    <span class="tech-chip">HiGHS (open-source LP)</span>
+    <span class="tech-chip">Zig port / NIF</span>
+    <span class="tech-chip">Elixir Port</span>
+    <span class="tech-chip">binary pattern matching</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     05 — MONTE CARLO ENGINE
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="monte-carlo">
+  <div class="comp-header">
+    <span class="comp-badge badge-mc">05 &mdash; Risk</span>
+    <h2 class="comp-title">Monte Carlo Engine</h2>
+  </div>
+  <p class="comp-tagline">
+    Every solve spawns 1,000 perturbed scenarios in parallel. Each scenario independently
+    randomises all 20 variables within their configured standard deviations, solves the LP,
+    and records the resulting net margin. The distribution of 1,000 outcomes produces a
+    profit-and-loss fan (P5 through P95) and a five-level confidence signal.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Inputs</div>
+      <div class="io-item">Base Variables{} struct (point estimate)</div>
+      <div class="io-item">Per-variable perturbation config (stddev, min, max)</div>
+      <div class="io-item">n_scenarios (default: 1,000)</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">1,000 individual P&amp;L values</div>
+      <div class="io-item">Percentile fan: P5, P25, P50, P75, P95</div>
+      <div class="io-item">Confidence signal (STRONG GO → NO GO)</div>
+      <div class="io-item">Worst-case / best-case allocation maps</div>
+    </div>
+  </div>
+
+  <h4>Monte Carlo Pipeline</h4>
+  <div class="flow-wrapper">
+    <div class="flow-row">
+      <div class="flow-box">Base Variables<div class="flow-box-sub">point estimate</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box amber">Perturb &times; 1000<div class="flow-box-sub">Normal(μ, σ) clamp</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box dark">LP Solve &times; 1000<div class="flow-box-sub">parallel Task.async</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box amber">Sort P&amp;L<div class="flow-box-sub">percentile slice</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">Signal<div class="flow-box-sub">P50 vs threshold</div></div>
+    </div>
+  </div>
+
+  <h4>Signal Classification</h4>
+  <table>
+    <tr><th>Signal</th><th>Condition</th><th>Colour</th></tr>
+    <tr><td><strong>STRONG GO</strong></td><td>P25 &ge; high_threshold AND P50 &ge; very_high</td><td>Dark green</td></tr>
+    <tr><td><strong>GO</strong></td><td>P50 &ge; high_threshold AND P5 &gt; 0</td><td>Green</td></tr>
+    <tr><td><strong>CAUTIOUS</strong></td><td>P50 &gt; 0 AND P5 &lt; 0</td><td>Amber</td></tr>
+    <tr><td><strong>WEAK</strong></td><td>P50 &le; low_threshold</td><td>Orange</td></tr>
+    <tr><td><strong>NO GO</strong></td><td>P50 &lt; 0 OR operability constraint binding</td><td>Red</td></tr>
+  </table>
+
+  <div class="tech-row">
+    <span class="tech-chip">Task.async_stream</span>
+    <span class="tech-chip">:rand.normal_s</span>
+    <span class="tech-chip">Enum.sort + percentile slice</span>
+    <span class="tech-chip">n=1000 scenarios</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     06 — AUTO TRADER
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="auto-trader">
+  <div class="comp-header">
+    <span class="comp-badge badge-auto">06 &mdash; Auto</span>
+    <h2 class="comp-title">Auto Trader</h2>
+  </div>
+  <p class="comp-tagline">
+    The Auto Trader subscribes to PubSub state changes and evaluates whether any live variable
+    has moved beyond its configured delta threshold. When triggered, it fires a fresh solve and
+    compares the new P50 margin against the previously committed result. If the improvement
+    exceeds the minimum profitable delta, it raises a trader notification and writes an
+    immutable audit record to the blockchain.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Inputs</div>
+      <div class="io-item">PubSub :state_changed events</div>
+      <div class="io-item">DeltaConfig thresholds (per variable)</div>
+      <div class="io-item">Previous solve result (P50 baseline)</div>
+      <div class="io-item">min_solve_interval_ms (anti-thrash cooldown)</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">Trader notification (email / Slack / Teams)</div>
+      <div class="io-item">New solve result written to TradeDB</div>
+      <div class="io-item">BSV OP_RETURN blockchain entry</div>
+      <div class="io-item">:triggered_mask bitmask updated in delta config</div>
+    </div>
+  </div>
+
+  <h4>Auto Trader Decision Loop</h4>
+  <div class="flow-wrapper">
+    <div class="flow-row">
+      <div class="flow-box amber">State Change<div class="flow-box-sub">PubSub event</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">Delta Check<div class="flow-box-sub">|new−old| &ge; σ?</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">Cooldown?<div class="flow-box-sub">min_interval ok?</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box dark">Re-Solve<div class="flow-box-sub">LP + MC</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">Compare P50<div class="flow-box-sub">vs. baseline</div></div>
+    </div>
+    <div class="flow-arrow-down">&#8595;</div>
+    <div class="flow-row">
+      <div class="flow-box green">Notify<div class="flow-box-sub">if Δ &ge; min_delta</div></div>
+      <div class="flow-arrow">&nbsp;&nbsp;</div>
+      <div class="flow-box green">Blockchain<div class="flow-box-sub">BSV OP_RETURN</div></div>
+      <div class="flow-arrow">&nbsp;&nbsp;</div>
+      <div class="flow-box green">TradeDB<div class="flow-box-sub">persist solve</div></div>
+    </div>
+  </div>
+
+  <div class="callout callout-amber">
+    <strong>Centre-point approach:</strong> The Auto Trader always re-optimises from the current
+    live-state centre point, not from the extreme of the triggering variable. This prevents
+    over-reaction to individual data spikes.
+  </div>
+
+  <div class="tech-row">
+    <span class="tech-chip">Phoenix.PubSub subscriber</span>
+    <span class="tech-chip">DeltaConfig GenServer</span>
+    <span class="tech-chip">AutoRunner</span>
+    <span class="tech-chip">:timer cooldown</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     07 — CONTRACT PIPELINE
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="contract-pipeline">
+  <div class="comp-header">
+    <span class="comp-badge badge-contract">07 &mdash; Contracts</span>
+    <h2 class="comp-title">Contract Ingestion Pipeline</h2>
+  </div>
+  <p class="comp-tagline">
+    Legal contracts (PDF, DOCX) are automatically detected in a SharePoint watch folder.
+    An AI clause extractor (Claude API) identifies commercially relevant terms, which are
+    then cross-validated against SAP purchase orders. Human-reviewed clauses are activated
+    as LP constraint bounds that the solver respects on every run.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Inputs</div>
+      <div class="io-item">Contract PDFs / DOCX (SharePoint or email attachment)</div>
+      <div class="io-item">SAP purchase order numbers (cross-reference)</div>
+      <div class="io-item">Clause template registry (known clause types)</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">Extracted clause records (type, value, certainty)</div>
+      <div class="io-item">SAP validation result (matched / unmatched)</div>
+      <div class="io-item">LP constraint bounds per active contract</div>
+      <div class="io-item">Legal review queue items</div>
+    </div>
+  </div>
+
+  <h4>Contract Ingestion Flow</h4>
+  <div class="flow-wrapper">
+    <div class="flow-row">
+      <div class="flow-box purple">SharePoint<div class="flow-box-sub">file watcher</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box purple">PDF/DOCX Parse<div class="flow-box-sub">text extract</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box purple">Claude AI<div class="flow-box-sub">clause extraction</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box purple">SAP X-Validate<div class="flow-box-sub">PO match</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">Legal Review<div class="flow-box-sub">human sign-off</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box dark">LP Constraints<div class="flow-box-sub">activated bounds</div></div>
+    </div>
+  </div>
+
+  <h4>Extracted Clause Types</h4>
+  <table>
+    <tr><th>Clause Type</th><th>LP Impact</th></tr>
+    <tr><td><strong>PRICE</strong></td><td>Sets nola_buy upper bound for this contract's volume</td></tr>
+    <tr><td><strong>VOLUME</strong></td><td>Min / max MT per route per period</td></tr>
+    <tr><td><strong>OPERABILITY</strong></td><td>River stage &amp; draft requirements → solver operability floor</td></tr>
+    <tr><td><strong>FORCE_MAJEURE</strong></td><td>Outage conditions that suspend supply constraints</td></tr>
+    <tr><td><strong>PORTS_AND_BERTH</strong></td><td>Permitted loading/discharge points → route inclusion/exclusion</td></tr>
+    <tr><td><strong>INCOTERMS</strong></td><td>FOB vs CFR → freight assignment in margin calc</td></tr>
+  </table>
+
+  <div class="tech-row">
+    <span class="tech-chip">Claude API (claude-sonnet-4-6)</span>
+    <span class="tech-chip">SAP Business One API</span>
+    <span class="tech-chip">SharePoint REST API</span>
+    <span class="tech-chip">Contracts.Inventory</span>
+    <span class="tech-chip">TemplateRegistry</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     08 — SCENARIO UI
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="scenario-ui">
+  <div class="comp-header">
+    <span class="comp-badge badge-ui">08 &mdash; UI</span>
+    <h2 class="comp-title">Scenario UI (Phoenix LiveView)</h2>
+  </div>
+  <p class="comp-tagline">
+    A real-time, server-rendered dashboard built on Phoenix LiveView. Traders adjust variable
+    sliders and override inputs; every change immediately re-solves the LP and updates the
+    P&amp;L fan, signal badge, route allocations, and Mississippi River map overlay without
+    a page reload.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Inputs</div>
+      <div class="io-item">Live variable values pushed by PubSub</div>
+      <div class="io-item">Trader slider adjustments (browser events)</div>
+      <div class="io-item">Override checkbox / text inputs</div>
+      <div class="io-item">Product group selector</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">P&amp;L fan chart (P5/P25/P50/P75/P95 bars)</div>
+      <div class="io-item">Confidence signal badge (STRONG GO → NO GO)</div>
+      <div class="io-item">Optimal route allocation table</div>
+      <div class="io-item">Shadow price panel (constraint sensitivity)</div>
+      <div class="io-item">Mississippi River map (barge positions &amp; routes)</div>
+    </div>
+  </div>
+
+  <h4>LiveView Interaction Flow</h4>
+  <div class="flow-wrapper">
+    <div class="flow-row">
+      <div class="flow-box teal">Browser Event<div class="flow-box-sub">phx-change</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box teal">handle_event<div class="flow-box-sub">LiveView</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box teal">Apply Override<div class="flow-box-sub">state update</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box dark">Re-Solve<div class="flow-box-sub">LP + MC</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box teal">assign(results)<div class="flow-box-sub">re-render</div></div>
+    </div>
+  </div>
+
+  <div class="callout callout-teal">
+    <strong>Real-time push:</strong> When the Live State Store updates any variable (e.g., a new
+    Insight TMS inventory read), PubSub delivers the change directly to the open LiveView socket.
+    The trader sees updated results appear automatically without any manual refresh.
+  </div>
+
+  <div class="tech-row">
+    <span class="tech-chip">Phoenix LiveView</span>
+    <span class="tech-chip">Phoenix.PubSub</span>
+    <span class="tech-chip">Leaflet.js (map)</span>
+    <span class="tech-chip">Chart.js (P&amp;L fan)</span>
+    <span class="tech-chip">Tailwind CSS</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     09 — NOTIFICATIONS & AUDIT
+═══════════════════════════════════════════════════ -->
+<div class="comp-section" id="notifications">
+  <div class="comp-header">
+    <span class="comp-badge badge-notify">09 &mdash; Deliver</span>
+    <h2 class="comp-title">Notifications &amp; Blockchain Audit</h2>
+  </div>
+  <p class="comp-tagline">
+    Every significant solve result triggers configurable alerts to the trader's preferred
+    channel (email, Slack, Teams). Simultaneously, the solve parameters and result are
+    written as a BSV blockchain transaction (OP_RETURN), creating a tamper-proof,
+    time-stamped audit trail of every trading decision.
+  </p>
+
+  <div class="io-grid">
+    <div class="io-box">
+      <div class="io-box-title">Notification Triggers</div>
+      <div class="io-item">Profit delta &ge; configured threshold ($ or %)</div>
+      <div class="io-item">Signal grade change (e.g., GO &rarr; NO GO)</div>
+      <div class="io-item">Variable threshold breach (per variable alert)</div>
+      <div class="io-item">Operability constraint newly binding</div>
+    </div>
+    <div class="io-box">
+      <div class="io-box-title">Outputs</div>
+      <div class="io-item">Email via SMTP (HTML template)</div>
+      <div class="io-item">Slack message via Webhook</div>
+      <div class="io-item">Microsoft Teams card via Webhook</div>
+      <div class="io-item">BSV OP_RETURN transaction (chain_commit_id)</div>
+    </div>
+  </div>
+
+  <h4>Notification &amp; Audit Flow</h4>
+  <div class="flow-wrapper">
+    <div class="flow-row">
+      <div class="flow-box">Solve Complete<div class="flow-box-sub">SolveResult</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box">Evaluate Triggers<div class="flow-box-sub">threshold check</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box amber">Notify<div class="flow-box-sub">email/Slack/Teams</div></div>
+    </div>
+    <div class="flow-arrow-down">&#8595;</div>
+    <div class="flow-row">
+      <div class="flow-box dark">BSV Tx Build<div class="flow-box-sub">OP_RETURN payload</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box dark">Broadcast &amp; Mine<div class="flow-box-sub">BSV network</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box green">chain_commit_id<div class="flow-box-sub">stored in TradeDB</div></div>
+    </div>
+  </div>
+
+  <h4>BSV OP_RETURN Payload Structure</h4>
+  <div class="callout">
+    <code style="font-size:9pt; font-family:'Consolas',monospace;">
+      TRAMMO_TRADE | solve_id | product_group | timestamp | P50_margin |
+      signal | route_allocs_hash | variable_hash | trader_id
+    </code>
+  </div>
+  <p>
+    The <code>chain_commit_id</code> (transaction TXID) is stored in every
+    <code>solves</code> row, linking the database record to the immutable
+    blockchain proof. Any dispute over a trading decision can be resolved by
+    presenting the TXID for independent verification on the BSV chain.
+  </p>
+
+  <div class="callout callout-amber">
+    <strong>Cooldown configuration:</strong> Traders set a per-channel cooldown period to
+    prevent alert fatigue during volatile market conditions. The Auto Trader also respects
+    a minimum solve interval (<code>min_solve_interval_ms</code>) to prevent rapid-fire
+    re-solves during noisy data periods.
+  </div>
+
+  <div class="tech-row">
+    <span class="tech-chip">Swoosh (email)</span>
+    <span class="tech-chip">Slack Webhook</span>
+    <span class="tech-chip">Teams Webhook</span>
+    <span class="tech-chip">BSV (Bitcoin SV)</span>
+    <span class="tech-chip">OP_RETURN</span>
+    <span class="tech-chip">NotificationEngine</span>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     BACK-MATTER / FOOTER LINKS
+═══════════════════════════════════════════════════ -->
+<div class="page" style="padding-top:32px; border-top:2px solid #e0e0e0; margin-top:40px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+    <div>
+      <div style="font-size:8.5pt; color:#607d8b; margin-bottom:6px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px;">Related Documents</div>
+      <div style="display:flex; gap:14px; flex-wrap:wrap;">
+        <span style="font-size:10pt; color:#1976d2; font-weight:700;">&#9679; Architecture Overview (this document)</span>
+        <a href="executive_overview.html" style="font-size:10pt; color:#1976d2; font-weight:600; text-decoration:none;">
+          &rarr; Detailed Technical Overview (section-by-section deep dive)
+        </a>
+      </div>
+    </div>
+    <div style="font-size:8.5pt; color:#90a4ae; text-align:right;">
+      Confidential &mdash; Internal Use Only<br/>
+      Trading Desk v2.0 &mdash; February 2026
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

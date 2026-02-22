@@ -203,7 +203,7 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:broker) do
     case API.Broker.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem])}
+        {:ok, Map.take(data, [:fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem])}
 
       {:error, _reason} ->
         {:error, :broker_not_available}

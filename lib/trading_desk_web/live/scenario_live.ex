@@ -4672,10 +4672,10 @@ defmodule TradingDesk.ScenarioLive do
       :nola_buy -> "NOLA Buy"
       :sell_stl -> "Sell StL"
       :sell_mem -> "Sell Mem"
-      :fr_don_stl -> "Fr D→StL"
-      :fr_don_mem -> "Fr D→Mem"
-      :fr_geis_stl -> "Fr G→StL"
-      :fr_geis_mem -> "Fr G→Mem"
+      :fr_mer_stl -> "Fr M→StL"
+      :fr_mer_mem -> "Fr M→Mem"
+      :fr_nio_stl -> "Fr N→StL"
+      :fr_nio_mem -> "Fr N→Mem"
       :nat_gas -> "Nat Gas"
       :working_cap -> "Wrk Cap"
       other -> other |> to_string() |> String.replace("_", " ")
@@ -4684,7 +4684,7 @@ defmodule TradingDesk.ScenarioLive do
 
   defp format_threshold_value(key, val) do
     cond do
-      key in [:nola_buy, :sell_stl, :sell_mem, :fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem, :nat_gas] ->
+      key in [:nola_buy, :sell_stl, :sell_mem, :fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem, :nat_gas] ->
         "$#{val}"
       key == :working_cap ->
         "$#{round(val / 1000)}k"

@@ -144,16 +144,16 @@ vessels = [
   },
 
   # ─────────────────────────────────────────────────────────────
-  # AMMONIA DOMESTIC — Mississippi River towboats & NH3 barges
+  # AMMONIA DOMESTIC — Illinois & Mississippi River towboats & NH3 barges
   #
   # Route segments:
-  #   Lower Mississippi: Donaldsonville (Mile 54 AHP) → Cairo (Mile 0)
-  #   Upper Mississippi:  Cairo → St. Louis (Mile 180) → Minneapolis (Mile 857)
-  #   Ohio River (via Cairo): Cairo → Cincinnati
+  #   Illinois River: Meredosia, IL → Grafton, IL (Mississippi confluence, ~100 mi)
+  #   Upper Mississippi: Niota, IL → Cairo (Mile 0) → Memphis → further south
+  #   Upper/Mid Mississippi: Meredosia or Niota → St. Louis (Mile 180) → Minneapolis (Mile 857)
   #
-  # Trammo's typical NH3 supply chain:
-  #   CF Industries Donaldsonville → inland ag distributors
-  #   LSB Industries (Cherokee AL / El Dorado AR) → farmers
+  # Trammo's NH3 supply chain:
+  #   Meredosia, IL (Trammo terminal) → St. Louis & Memphis via Illinois River
+  #   Niota, IL (Trammo terminal) → Minneapolis, St. Louis, Memphis via Upper Mississippi
   # ─────────────────────────────────────────────────────────────
 
   # ── Kirby Inland Marine towboats ──
@@ -162,7 +162,7 @@ vessels = [
     mmsi: "367500210",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "St. Louis",
     eta: Date.add(Date.utc_today(), 6),
     sap_shipping_number: "80012345",
@@ -181,7 +181,7 @@ vessels = [
     mmsi: "367500215",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Memphis",
     eta: Date.add(Date.utc_today(), 5),
     sap_shipping_number: "80012350",
@@ -200,7 +200,7 @@ vessels = [
     mmsi: "367500220",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Cairo",
     eta: Date.add(Date.utc_today(), 8),
     status: "active",
@@ -218,7 +218,7 @@ vessels = [
     mmsi: "367500225",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Minneapolis",
     eta: Date.add(Date.utc_today(), 14),
     sap_shipping_number: "80012351",
@@ -233,13 +233,13 @@ vessels = [
     notes: "2x barges — Upper Mississippi, seasonal route"
   },
 
-  # ── ARTCO (American River Transportation Co) — CF Industries' own fleet ──
+  # ── ARTCO (American River Transportation Co) — contracted barge carrier ──
   %{
     vessel_name: "MV Barbara E",
     mmsi: "367469880",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Memphis",
     eta: Date.add(Date.utc_today(), 4),
     sap_shipping_number: "80012346",
@@ -251,14 +251,14 @@ vessels = [
     river_segment: "lower_mississippi",
     track_in_fleet: true,
     carrying_stock: true,
-    notes: "ARTCO — 2x barges, Donaldsonville to Memphis"
+    notes: "ARTCO — 2x barges, Meredosia to Memphis"
   },
   %{
     vessel_name: "MV Dorothy Ann",
     mmsi: "367469885",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "St. Louis",
     eta: Date.add(Date.utc_today(), 7),
     sap_shipping_number: "80012352",
@@ -277,7 +277,7 @@ vessels = [
     mmsi: "367469890",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Cairo",
     eta: Date.add(Date.utc_today(), 5),
     status: "active",
@@ -297,7 +297,7 @@ vessels = [
     mmsi: "367703250",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Cairo",
     eta: Date.add(Date.utc_today(), 10),
     sap_shipping_number: "80012347",
@@ -316,7 +316,7 @@ vessels = [
     mmsi: "367703255",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Vicksburg",
     eta: Date.add(Date.utc_today(), 3),
     sap_shipping_number: "80012353",
@@ -335,7 +335,7 @@ vessels = [
     mmsi: "367703260",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Baton Rouge",
     eta: Date.add(Date.utc_today(), 1),
     status: "active",
@@ -346,7 +346,7 @@ vessels = [
     river_segment: "lower_mississippi",
     track_in_fleet: true,
     carrying_stock: true,
-    notes: "Short-haul Donaldsonville–Baton Rouge staging barge"
+    notes: "Niota–Memphis short-haul staging barge"
   },
 
   # ── Canal Barge Company ──
@@ -355,7 +355,7 @@ vessels = [
     mmsi: "367612100",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "New Orleans",
     eta: Date.add(Date.utc_today(), 2),
     status: "in_transit",
@@ -373,7 +373,7 @@ vessels = [
     mmsi: "367612105",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Memphis",
     eta: Date.add(Date.utc_today(), 6),
     status: "active",
@@ -393,7 +393,7 @@ vessels = [
     mmsi: "367455310",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "St. Louis",
     eta: Date.add(Date.utc_today(), 9),
     sap_shipping_number: "80012354",
@@ -412,7 +412,7 @@ vessels = [
     mmsi: "367455315",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Minneapolis",
     eta: Date.add(Date.utc_today(), 18),
     status: "active",
@@ -432,7 +432,7 @@ vessels = [
     mmsi: "367380100",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Baton Rouge",
     eta: Date.add(Date.utc_today(), 1),
     status: "active",
@@ -450,7 +450,7 @@ vessels = [
     mmsi: "367380105",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Greenville",
     eta: Date.add(Date.utc_today(), 5),
     sap_shipping_number: "80012355",
@@ -475,7 +475,7 @@ vessels = [
     vessel_name: "TRAMMO NH3-101",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "St. Louis",
     eta: Date.add(Date.utc_today(), 6),
     sap_shipping_number: "80012345",
@@ -493,7 +493,7 @@ vessels = [
     vessel_name: "TRAMMO NH3-102",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "St. Louis",
     eta: Date.add(Date.utc_today(), 6),
     sap_shipping_number: "80012345",
@@ -511,7 +511,7 @@ vessels = [
     vessel_name: "TRAMMO NH3-103",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Memphis",
     eta: Date.add(Date.utc_today(), 5),
     sap_shipping_number: "80012350",
@@ -529,7 +529,7 @@ vessels = [
     vessel_name: "ARTCO NH3-201",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Memphis",
     eta: Date.add(Date.utc_today(), 4),
     sap_shipping_number: "80012346",
@@ -541,13 +541,13 @@ vessels = [
     river_segment: "lower_mississippi",
     track_in_fleet: true,
     carrying_stock: true,
-    notes: "CF Industries ARTCO barge — towed by MV Barbara E"
+    notes: "ARTCO barge — towed by MV Barbara E"
   },
   %{
     vessel_name: "ARTCO NH3-202",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "St. Louis",
     eta: Date.add(Date.utc_today(), 7),
     sap_shipping_number: "80012352",
@@ -559,13 +559,13 @@ vessels = [
     river_segment: "lower_mississippi",
     track_in_fleet: true,
     carrying_stock: true,
-    notes: "CF Industries ARTCO barge — towed by MV Dorothy Ann"
+    notes: "ARTCO barge — towed by MV Dorothy Ann"
   },
   %{
     vessel_name: "ARTCO NH3-203",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "St. Louis",
     eta: Date.add(Date.utc_today(), 7),
     sap_shipping_number: "80012352",
@@ -577,13 +577,13 @@ vessels = [
     river_segment: "lower_mississippi",
     track_in_fleet: true,
     carrying_stock: true,
-    notes: "CF Industries ARTCO barge — towed by MV Dorothy Ann"
+    notes: "ARTCO barge — towed by MV Dorothy Ann"
   },
   %{
     vessel_name: "MQT NH3-301",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Cairo",
     eta: Date.add(Date.utc_today(), 10),
     sap_shipping_number: "80012347",
@@ -601,7 +601,7 @@ vessels = [
     vessel_name: "MQT NH3-302",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Vicksburg",
     eta: Date.add(Date.utc_today(), 3),
     sap_shipping_number: "80012353",
@@ -619,7 +619,7 @@ vessels = [
     vessel_name: "SCF NH3-401",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "St. Louis",
     eta: Date.add(Date.utc_today(), 9),
     sap_shipping_number: "80012354",
@@ -637,7 +637,7 @@ vessels = [
     vessel_name: "SCF NH3-402",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Minneapolis",
     eta: Date.add(Date.utc_today(), 18),
     status: "active",
@@ -654,7 +654,7 @@ vessels = [
     vessel_name: "IB NH3-501",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Greenville",
     eta: Date.add(Date.utc_today(), 5),
     sap_shipping_number: "80012355",
@@ -672,7 +672,7 @@ vessels = [
     vessel_name: "TRAMMO NH3-104",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "Minneapolis",
     eta: Date.add(Date.utc_today(), 14),
     sap_shipping_number: "80012351",
@@ -690,7 +690,7 @@ vessels = [
     vessel_name: "TRAMMO NH3-105",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Meredosia",
     discharge_port: "Cairo",
     eta: Date.add(Date.utc_today(), 8),
     status: "active",
@@ -707,7 +707,7 @@ vessels = [
     vessel_name: "CBC NH3-601",
     product_group: "ammonia_domestic",
     cargo: "Anhydrous Ammonia",
-    loading_port: "Donaldsonville",
+    loading_port: "Niota",
     discharge_port: "New Orleans",
     eta: Date.add(Date.utc_today(), 2),
     status: "in_transit",

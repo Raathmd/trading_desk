@@ -20,18 +20,18 @@ defmodule TradingDesk.Seeds.OperationalNodeSeed do
   # ──────────────────────────────────────────────────────────
 
   @ammonia_domestic [
-    # Supply terminals (where product is purchased / loaded onto barges)
-    %{node_key: "don",  name: "Donaldsonville, LA",
+    # Supply terminals (Trammo's own NH3 storage — source of domestic barge supply)
+    %{node_key: "mer",  name: "Meredosia, IL",
       node_type: "barge_dock", role: "supply",
-      country: "US", region: "Lower Mississippi",
-      lat: 30.1024, lon: -90.9915, capacity_mt: 150_000,
-      notes: "CF Industries / LSB terminal; primary NOLA purchase point"},
+      country: "US", region: "Illinois River",
+      lat: 39.8284, lon: -90.5568, capacity_mt: 150_000,
+      notes: "Trammo NH3 terminal on Illinois River; primary supply point for St. Louis & Memphis barges"},
 
-    %{node_key: "geis", name: "Geismar, LA",
+    %{node_key: "nio",  name: "Niota, IL",
       node_type: "barge_dock", role: "supply",
-      country: "US", region: "Lower Mississippi",
-      lat: 30.2271, lon: -90.9226, capacity_mt: 120_000,
-      notes: "Cornerstone Chemical / LSB Industries terminal"},
+      country: "US", region: "Upper Mississippi",
+      lat: 40.5798, lon: -91.3162, capacity_mt: 120_000,
+      notes: "Trammo NH3 terminal on Upper Mississippi River; supply point for northern and southern routes"},
 
     # Delivery terminals (where product is delivered and sold)
     %{node_key: "stl",  name: "St. Louis, MO",
@@ -57,7 +57,7 @@ defmodule TradingDesk.Seeds.OperationalNodeSeed do
       node_type: "gauge_station", role: "monitoring",
       country: "US", region: "Lower Mississippi",
       lat: 32.3526, lon: -90.8779, capacity_mt: nil,
-      notes: "Mid-river gauge; indicator of transit conditions Donaldsonville→Memphis"},
+      notes: "Mid-river gauge; indicator of transit conditions Meredosia/Niota→Memphis"},
 
     %{node_key: "gauge_memphis", name: "Memphis Gauge (USGS 07032000)",
       node_type: "gauge_station", role: "monitoring",

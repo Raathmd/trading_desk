@@ -647,7 +647,7 @@ defmodule TradingDesk.Contracts.TemplateRegistry do
   def parameter_class_members(:sell_price),
     do: [:sell_stl, :sell_mem, :contract_price]
   def parameter_class_members(:freight),
-    do: [:fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem, :freight_rate]
+    do: [:fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem, :freight_rate]
   def parameter_class_members(:delivery_window),
     do: [:delivery_window]
   def parameter_class_members(:force_majeure),

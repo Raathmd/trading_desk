@@ -69,10 +69,10 @@ defmodule TradingDesk.TradeDB.SolveVariables do
     field :nola_buy, :float
     field :sell_stl, :float
     field :sell_mem, :float
-    field :fr_don_stl, :float
-    field :fr_don_mem, :float
-    field :fr_geis_stl, :float
-    field :fr_geis_mem, :float
+    field :fr_mer_stl, :float
+    field :fr_mer_mem, :float
+    field :fr_nio_stl, :float
+    field :fr_nio_mem, :float
     field :nat_gas, :float
     field :working_cap, :float
   end
@@ -82,7 +82,7 @@ defmodule TradingDesk.TradeDB.SolveVariables do
     :river_stage, :lock_hrs, :temp_f, :wind_mph, :vis_mi, :precip_in,
     :inv_mer, :inv_nio, :mer_outage, :nio_outage, :barge_count,
     :nola_buy, :sell_stl, :sell_mem,
-    :fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem,
+    :fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem,
     :nat_gas, :working_cap
   ]
 

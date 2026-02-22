@@ -417,6 +417,12 @@
 </head>
 <body>
 
+<div style="background:#0f2044;padding:10px 48px;display:flex;align-items:center;gap:24px;font-size:9pt;border-bottom:2px solid #1976d2;position:sticky;top:0;z-index:100;">
+  <a href="architecture_overview.html" style="color:#90caf9;text-decoration:none;font-weight:600;">&larr; Architecture Overview (Component Flow)</a>
+  <span style="color:#37474f;">|</span>
+  <span style="color:#e3f2fd;font-weight:600;">&#9679; Detailed Technical Overview</span>
+</div>
+
 <!-- ═══════════════════════════════════════════════════════════
      COVER PAGE
 ════════════════════════════════════════════════════════════ -->
@@ -577,7 +583,7 @@
 
   <!-- SOURCE GRID -->
   <div class="flow-wrapper no-break">
-    <p style="font-size:8.5pt;color:#607d8b;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Live Data Sources (9 APIs)</p>
+    <p style="font-size:8.5pt;color:#607d8b;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Live Data Sources — 9 solver feeds + vessel tracking</p>
     <div class="source-grid">
       <div class="source-card">
         <div class="src-name">USGS Gauges</div>
@@ -606,13 +612,23 @@
       </div>
       <div class="source-card">
         <div class="src-name">Freight Broker</div>
-        <div class="src-data">4 route rates: Don→StL, Don→Mem, Geis→StL, Geis→Mem ($/ton)</div>
-        <div class="src-freq">Every 60 min</div>
+        <div class="src-data">4 route rates: Mer→StL, Mer→Mem, Nio→StL, Nio→Mem ($/ton)</div>
+        <div class="src-freq">Every 15 min</div>
       </div>
       <div class="source-card">
-        <div class="src-name">Internal Systems</div>
-        <div class="src-data">Terminal inventory, barge count, dock outages, working capital</div>
-        <div class="src-freq">Every 5 min</div>
+        <div class="src-name">Insight TMS</div>
+        <div class="src-data">Meredosia &amp; Niota terminal inventory (tons) — Trammo's own terminals</div>
+        <div class="src-freq">Every 15 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">Fleet Management</div>
+        <div class="src-data">Selected barge count — available NH3 pressure barges</div>
+        <div class="src-freq">Every 30 min</div>
+      </div>
+      <div class="source-card">
+        <div class="src-name">SAP FI</div>
+        <div class="src-data">Working capital ($) — fallback: 0 when not connected (no credit assumed)</div>
+        <div class="src-freq">Every 60 min</div>
       </div>
       <div class="source-card">
         <div class="src-name">Vessel Tracking</div>
@@ -712,27 +728,27 @@
     </div>
   </div>
   <div class="var-group no-break">
-    <div class="var-group-title">Operations (5) — drawn from internal ERP, fleet tracking</div>
+    <div class="var-group-title">Operations (5) — Insight TMS (inventory), fleet management (barges), manual toggles (outages)</div>
     <div class="var-chips">
-      <span class="var-chip green">inv_don (tons, Donaldsonville)</span>
-      <span class="var-chip green">inv_geis (tons, Geismar)</span>
-      <span class="var-chip green">barge_count (available fleet)</span>
-      <span class="var-chip green">stl_outage (dock status)</span>
-      <span class="var-chip green">mem_outage (dock status)</span>
+      <span class="var-chip green">inv_mer (tons, Meredosia)</span>
+      <span class="var-chip green">inv_nio (tons, Niota)</span>
+      <span class="var-chip green">barge_count (selected fleet)</span>
+      <span class="var-chip green">mer_outage (terminal status — manual)</span>
+      <span class="var-chip green">nio_outage (terminal status — manual)</span>
     </div>
   </div>
   <div class="var-group no-break">
-    <div class="var-group-title">Commercial (9) — drawn from market feeds, freight brokers, EIA</div>
+    <div class="var-group-title">Commercial (9) — market feeds, freight brokers, EIA, SAP FI</div>
     <div class="var-chips">
       <span class="var-chip amber">nola_buy ($/t)</span>
       <span class="var-chip amber">sell_stl ($/t)</span>
       <span class="var-chip amber">sell_mem ($/t)</span>
-      <span class="var-chip amber">fr_don_stl ($/t)</span>
-      <span class="var-chip amber">fr_don_mem ($/t)</span>
-      <span class="var-chip amber">fr_geis_stl ($/t)</span>
-      <span class="var-chip amber">fr_geis_mem ($/t)</span>
+      <span class="var-chip amber">fr_mer_stl ($/t)</span>
+      <span class="var-chip amber">fr_mer_mem ($/t)</span>
+      <span class="var-chip amber">fr_nio_stl ($/t)</span>
+      <span class="var-chip amber">fr_nio_mem ($/t)</span>
       <span class="var-chip amber">nat_gas ($/MMBtu)</span>
-      <span class="var-chip amber">working_cap ($)</span>
+      <span class="var-chip amber">working_cap ($ — SAP FI; 0 fallback)</span>
     </div>
   </div>
 
@@ -795,7 +811,7 @@
     <tr>
       <td><strong>Inventory Constraints</strong></td>
       <td>Cannot load more from a terminal than it holds</td>
-      <td>inv_don and inv_geis are the supply caps for Donaldsonville and Geismar routes respectively</td>
+      <td>inv_mer and inv_nio (from Insight TMS) are the supply caps for Meredosia and Niota routes respectively</td>
     </tr>
     <tr>
       <td><strong>Capital Constraint</strong></td>
@@ -1043,10 +1059,10 @@
 
   <div class="callout no-break">
     <strong>Simplified example for NH3 Domestic Barge:</strong><br/><br/>
-    <em>Maximise:</em> &nbsp;profit(Don→StL) × x₁ + profit(Don→Mem) × x₂ + profit(Geis→StL) × x₃ + profit(Geis→Mem) × x₄<br/><br/>
+    <em>Maximise:</em> &nbsp;profit(Mer→StL) × x₁ + profit(Mer→Mem) × x₂ + profit(Nio→StL) × x₃ + profit(Nio→Mem) × x₄<br/><br/>
     <em>Subject to:</em><br/>
-    &nbsp;&nbsp;x₁ + x₂ ≤ inv_don &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Donaldsonville inventory)<br/>
-    &nbsp;&nbsp;x₃ + x₄ ≤ inv_geis &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Geismar inventory)<br/>
+    &nbsp;&nbsp;x₁ + x₂ ≤ inv_mer &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Meredosia inventory)<br/>
+    &nbsp;&nbsp;x₃ + x₄ ≤ inv_nio &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Niota inventory)<br/>
     &nbsp;&nbsp;(x₁+x₂+x₃+x₄)/eff_barge ≤ barge_count &nbsp;&nbsp;&nbsp; (fleet capacity)<br/>
     &nbsp;&nbsp;(x₁+x₂+x₃+x₄) × nola_buy ≤ working_cap &nbsp;&nbsp;(capital)<br/>
     &nbsp;&nbsp;x₁ + x₃ ≥ contract_floor_stl &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (contract minimum)<br/>
@@ -1118,9 +1134,9 @@
       <td>Assess whether short-term credit is worth the finance cost</td>
     </tr>
     <tr>
-      <td>Inventory at Don is binding</td>
-      <td>$Z additional profit per extra ton at Donaldsonville</td>
-      <td>Evaluate an opportunistic spot purchase to build inventory</td>
+      <td>Inventory at Meredosia is binding</td>
+      <td>$Z additional profit per extra ton at Meredosia</td>
+      <td>Evaluate top-up cargo or reallocate from Niota tank</td>
     </tr>
     <tr>
       <td>Contract minimum is binding</td>
@@ -1202,9 +1218,9 @@
     <tr><td>river_stage</td><td>±0.5 ft</td><td>Half a foot can shift the barge capacity tier and materially change fleet requirements</td></tr>
     <tr><td>nola_buy</td><td>±$2/ton</td><td>NH3 buy price moves in $2 increments; smaller moves are noise</td></tr>
     <tr><td>lock_hrs</td><td>±2 hrs</td><td>Two hours of additional lock delay affects transit economics and delivery timing</td></tr>
-    <tr><td>fr_don_stl</td><td>±$3/ton</td><td>Freight moves in $1–3 clips; $3 represents a decision-relevant shift</td></tr>
+    <tr><td>fr_mer_stl</td><td>±$3/ton</td><td>Freight moves in $1–3 clips; $3 represents a decision-relevant shift</td></tr>
     <tr><td>barge_count</td><td>±1 barge</td><td>Any change in available fleet directly changes the maximum allocation</td></tr>
-    <tr><td>inv_don</td><td>±500 tons</td><td>500-ton swing represents roughly one-third of a barge load</td></tr>
+    <tr><td>inv_mer</td><td>±500 tons</td><td>500-ton swing represents roughly one-third of a barge load at Meredosia</td></tr>
   </table>
 
   <h3>What Happens After a Re-Solve</h3>

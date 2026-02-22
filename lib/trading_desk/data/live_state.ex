@@ -58,7 +58,7 @@ defmodule TradingDesk.Data.LiveState do
         inv_mer: 12_000.0, inv_nio: 8_000.0,
         mer_outage: true, nio_outage: false, barge_count: 14.0,
         nola_buy: 320.0, sell_stl: 410.0, sell_mem: 385.0,
-        fr_don_stl: 55.0, fr_don_mem: 32.0, fr_geis_stl: 58.0, fr_geis_mem: 34.0,
+        fr_mer_stl: 55.0, fr_mer_mem: 32.0, fr_nio_stl: 58.0, fr_nio_mem: 34.0,
         nat_gas: 2.80, working_cap: 4_200_000.0
       },
       updated_at: %{},

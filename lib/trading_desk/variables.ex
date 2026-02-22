@@ -1,6 +1,6 @@
 defmodule TradingDesk.Variables do
   @moduledoc """
-  The 18 variables that define a scenario.
+  The 20 variables that define a scenario.
   This is the single source of truth for what a scenario looks like.
   """
 
@@ -8,12 +8,12 @@ defmodule TradingDesk.Variables do
     :river_stage, :lock_hrs, :temp_f, :wind_mph, :vis_mi, :precip_in,
     :inv_mer, :inv_nio, :mer_outage, :nio_outage, :barge_count,
     :nola_buy, :sell_stl, :sell_mem,
-    :fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem,
+    :fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem,
     :nat_gas, :working_cap
   ]
 
   defstruct [
-    # ENV (1-8) — from USGS, NOAA, USACE
+    # ENV (1-6) — from USGS, NOAA, USACE
     river_stage: 18.0,     # ft — USGS gauge
     lock_hrs: 12.0,        # hrs total delay — USACE
     temp_f: 45.0,          # °F — NOAA
@@ -21,23 +21,23 @@ defmodule TradingDesk.Variables do
     vis_mi: 5.0,           # miles — NOAA
     precip_in: 1.0,        # inches 3-day — NOAA
 
-    # OPS (9-13) — internal systems
-    inv_mer: 12_000.0,     # tons — Meredosia terminal
-    inv_nio: 8_000.0,     # tons — Niota terminal
-    mer_outage: false,     # Meredosia terminal outage
-    nio_outage: false,     # Niota terminal outage
-    barge_count: 14.0,     # available barges
+    # OPS (7-11) — internal systems
+    inv_mer: 12_000.0,     # tons — Meredosia terminal (Insight TMS)
+    inv_nio: 8_000.0,      # tons — Niota terminal (Insight TMS)
+    mer_outage: false,     # Meredosia terminal outage (manual — trader-toggled)
+    nio_outage: false,     # Niota terminal outage (manual — trader-toggled)
+    barge_count: 14.0,     # available barges (fleet management — selected count)
 
-    # COMMERCIAL (14-18)
+    # COMMERCIAL (12-20)
     nola_buy: 320.0,       # $/ton — NH3 purchase price
     sell_stl: 410.0,       # $/ton — StL delivered
     sell_mem: 385.0,       # $/ton — Memphis delivered
-    fr_don_stl: 55.0,      # $/ton freight
-    fr_don_mem: 32.0,
-    fr_geis_stl: 58.0,
-    fr_geis_mem: 34.0,
+    fr_mer_stl: 55.0,      # $/ton freight — Meredosia → St. Louis
+    fr_mer_mem: 32.0,      # $/ton freight — Meredosia → Memphis
+    fr_nio_stl: 58.0,      # $/ton freight — Niota → St. Louis
+    fr_nio_mem: 34.0,      # $/ton freight — Niota → Memphis
     nat_gas: 2.80,         # $/MMBtu — EIA
-    working_cap: 0.0
+    working_cap: 0.0       # $ — SAP FI; fallback 0 until connected
   ]
 
   @type t :: %__MODULE__{}
@@ -75,13 +75,13 @@ defmodule TradingDesk.Variables do
         source: :market, group: :commercial},
       %{key: :sell_mem, label: "NH3 Memphis Delivered", unit: "$/t", min: 280, max: 550, step: 5,
         source: :market, group: :commercial},
-      %{key: :fr_don_stl, label: "Freight Don→StL", unit: "$/t", min: 20, max: 130, step: 1,
+      %{key: :fr_mer_stl, label: "Freight Mer→StL", unit: "$/t", min: 20, max: 130, step: 1,
         source: :broker, group: :commercial},
-      %{key: :fr_don_mem, label: "Freight Don→Mem", unit: "$/t", min: 10, max: 80, step: 1,
+      %{key: :fr_mer_mem, label: "Freight Mer→Mem", unit: "$/t", min: 10, max: 80, step: 1,
         source: :broker, group: :commercial},
-      %{key: :fr_geis_stl, label: "Freight Geis→StL", unit: "$/t", min: 20, max: 135, step: 1,
+      %{key: :fr_nio_stl, label: "Freight Nio→StL", unit: "$/t", min: 20, max: 135, step: 1,
         source: :broker, group: :commercial},
-      %{key: :fr_geis_mem, label: "Freight Geis→Mem", unit: "$/t", min: 10, max: 85, step: 1,
+      %{key: :fr_nio_mem, label: "Freight Nio→Mem", unit: "$/t", min: 10, max: 85, step: 1,
         source: :broker, group: :commercial},
       %{key: :nat_gas, label: "Nat Gas (Henry Hub)", unit: "$/MMBtu", min: 1.0, max: 8.0, step: 0.05,
         source: :eia, group: :commercial},
@@ -107,10 +107,10 @@ defmodule TradingDesk.Variables do
       v.nola_buy::float-little-64,
       v.sell_stl::float-little-64,
       v.sell_mem::float-little-64,
-      v.fr_don_stl::float-little-64,
-      v.fr_don_mem::float-little-64,
-      v.fr_geis_stl::float-little-64,
-      v.fr_geis_mem::float-little-64,
+      v.fr_mer_stl::float-little-64,
+      v.fr_mer_mem::float-little-64,
+      v.fr_nio_stl::float-little-64,
+      v.fr_nio_mem::float-little-64,
       v.nat_gas::float-little-64,
       v.working_cap::float-little-64
     >>
