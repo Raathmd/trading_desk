@@ -1204,6 +1204,7 @@ defmodule TradingDesk.ScenarioLive do
             <% end %>
           </select>
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
+          <a href="/architecture_overview.html" target="_blank" style="color:#38bdf8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Architecture &amp; Executive Overview">OVERVIEW</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
           <%!-- Logged-in user + logout --%>
