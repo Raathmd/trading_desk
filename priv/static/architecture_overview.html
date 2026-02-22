@@ -302,83 +302,125 @@ td strong { color: #0d47a1; }
   <div class="section-label">Section 1</div>
   <h2 class="section-title">System Architecture — Full Component Flow</h2>
   <p class="section-intro">
-    The platform moves data through five vertical layers: external data collection, live state
-    management, variable assembly, optimisation, and result delivery. The contract ingestion
-    pipeline feeds constraints horizontally into the solver layer. Components are colour-coded
-    by function; click any component name to jump to its detail section.
+    Every solve follows a 10-step pipeline: raw API data is polled and held in a live state
+    store, assembled into 20 typed variables by the product-group frame, encoded into a binary
+    payload for the HiGHS LP solver, decoded into a result struct, explained by Claude AI,
+    written to the Trade DB, and broadcast via PubSub to the LiveView UI. The contract ingestion
+    pipeline feeds constraints into step 5. Monte Carlo runs 1,000 perturbed solves in parallel
+    as an optional branch from step 6. Components are colour-coded by function; click any name
+    to jump to its detail section.
   </p>
 
   <div class="arch-diagram">
 
-    <!-- LAYER 1: External Data Sources -->
-    <div class="arch-layer-label">LAYER 1 &mdash; EXTERNAL DATA SOURCES (9 feeds)</div>
-    <div class="arch-row">
-      <div class="arch-box L1"><a href="#data-ingestion">USGS</a><div class="arch-sub">River stage</div></div>
-      <div class="arch-box L1"><a href="#data-ingestion">NOAA</a><div class="arch-sub">Weather</div></div>
-      <div class="arch-box L1"><a href="#data-ingestion">USACE</a><div class="arch-sub">Lock delays</div></div>
-      <div class="arch-box L1"><a href="#data-ingestion">EIA</a><div class="arch-sub">Nat gas</div></div>
-      <div class="arch-box L1"><a href="#data-ingestion">Market Feed</a><div class="arch-sub">NH3 prices</div></div>
-      <div class="arch-box L1"><a href="#data-ingestion">Broker API</a><div class="arch-sub">Freight rates</div></div>
-      <div class="arch-box L1"><a href="#data-ingestion">Insight TMS</a><div class="arch-sub">Inventory</div></div>
-      <div class="arch-box L1"><a href="#data-ingestion">Fleet Mgmt</a><div class="arch-sub">Barge count</div></div>
-      <div class="arch-box L1"><a href="#data-ingestion">SAP FI</a><div class="arch-sub">Working cap</div></div>
+    <!-- ── STEP 1: External APIs ─────────────────────────── -->
+    <div class="arch-layer-label">STEP 1 &mdash; EXTERNAL DATA SOURCES (9 live feeds)</div>
+    <div class="arch-row" style="flex-wrap:wrap; gap:5px;">
+      <div class="arch-box L1"><a href="#data-ingestion">USGS</a><div class="arch-sub">river_stage · 15 min</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">NOAA</a><div class="arch-sub">temp_f, wind_mph, vis_mi, precip_in · 30 min</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">USACE</a><div class="arch-sub">lock_hrs · 60 min</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">EIA</a><div class="arch-sub">nat_gas · 60 min</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">Market Feed</a><div class="arch-sub">nola_buy, sell_stl, sell_mem · 5 min</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">Broker API</a><div class="arch-sub">fr_mer_stl/mem, fr_nio_stl/mem · 15 min</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">Insight TMS</a><div class="arch-sub">inv_mer, inv_nio · 15 min</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">Fleet Mgmt</a><div class="arch-sub">barge_count · 30 min</div></div>
+      <div class="arch-box L1"><a href="#data-ingestion">SAP FI</a><div class="arch-sub">working_cap · 60 min (0 fallback)</div></div>
     </div>
 
     <div class="arch-down-row"><span class="arch-down-arrow">&#8595;</span></div>
 
-    <!-- LAYER 2: Ingestion + State + Contract (side-by-side) -->
-    <div class="arch-layer-label">LAYER 2 &mdash; DATA INGESTION &amp; LIVE STATE</div>
+    <!-- ── STEP 2: Data Pollers ──────────────────────────── -->
+    <div class="arch-layer-label">STEP 2 &mdash; DATA POLLERS</div>
     <div class="arch-row">
-      <div class="arch-box L2" style="flex:3"><a href="#data-ingestion">Data Pollers</a>
-        <div class="arch-sub">9 adapters &bull; 5 min&ndash;60 min intervals &bull; typed validation</div></div>
-      <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
-      <div class="arch-box L2" style="flex:3"><a href="#live-state">Live State Store</a>
-        <div class="arch-sub">GenServer &bull; PubSub broadcast &bull; delta detector</div></div>
-      <span style="padding:0 8px; align-self:center; color:#b0bec5; font-size:14pt;">&bull;</span>
-      <div class="arch-box L7" style="flex:3"><a href="#contract-pipeline">Contract Ingestion</a>
-        <div class="arch-sub">SharePoint &rarr; Claude AI &rarr; SAP &rarr; constraints</div></div>
+      <div class="arch-box L2" style="flex:1"><a href="#data-ingestion">Data Pollers</a>
+        <div class="arch-sub">9 typed HTTP / REST / internal adapters &bull; per-feed error isolation &bull; typed value validation &bull; delivers to Live State Store</div></div>
     </div>
 
     <div class="arch-down-row"><span class="arch-down-arrow">&#8595;</span></div>
 
-    <!-- LAYER 3: Variable Assembly -->
-    <div class="arch-layer-label">LAYER 3 &mdash; VARIABLE ASSEMBLY</div>
+    <!-- ── STEP 3: Live State Store ──────────────────────── -->
+    <div class="arch-layer-label">STEP 3 &mdash; LIVE STATE STORE</div>
     <div class="arch-row">
-      <div class="arch-box L3" style="flex:2"><a href="#variable-assembly">Product Group Frame</a>
-        <div class="arch-sub">NH3 Domestic / NH3 Intl / Sulphur / Petcoke</div></div>
+      <div class="arch-box L2" style="flex:1"><a href="#live-state">Live State Store &mdash; GenServer</a>
+        <div class="arch-sub">Holds current %Variables{} snapshot &bull; PubSub delta broadcast on change &bull; mer_outage / nio_outage are manual-only flags (never auto-set) &bull; LiveState.get/0 called at solve time</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595; LiveState.get/0 &rarr; %Variables{}</span></div>
+
+    <!-- ── STEP 4: Variable Assembly + Frame + Contracts ─── -->
+    <div class="arch-layer-label">STEP 4 &mdash; VARIABLE ASSEMBLY &amp; PRODUCT GROUP FRAME</div>
+    <div class="arch-row">
+      <div class="arch-box L3" style="flex:3"><a href="#variable-assembly">Variable Assembly</a>
+        <div class="arch-sub">20 vars: 6 Env &bull; 5 Ops &bull; 9 Commercial &bull; trader overrides layered on live values</div></div>
       <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
-      <div class="arch-box L3" style="flex:3"><a href="#variable-assembly">20 Variables Assembled</a>
-        <div class="arch-sub">6 Env &bull; 5 Ops &bull; 9 Commercial &bull; trader overrides applied</div></div>
-      <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
-      <div class="arch-box L3" style="flex:2"><a href="#variable-assembly">Constraint Set</a>
-        <div class="arch-sub">LP constraints from contracts + operability rules</div></div>
+      <div class="arch-box L3" style="flex:3"><a href="#variable-assembly">Product Group Frame</a>
+        <div class="arch-sub">AmmoniaDomestic / Intl / Sulphur &bull; defines LP topology: routes, objective mode, variable defaults &amp; ranges</div></div>
+      <span style="padding:0 8px; align-self:center; color:#9c27b0; font-size:16pt; font-weight:700;">+</span>
+      <div class="arch-box L7" style="flex:3"><a href="#contract-pipeline">Contract Constraints</a>
+        <div class="arch-sub">Min delivery, penalty clauses, credit limits &bull; ConstraintBridge injects LP constraint rows alongside the 20 variables</div></div>
     </div>
 
     <div class="arch-down-row"><span class="arch-down-arrow">&#8595;</span></div>
 
-    <!-- LAYER 4: Solve -->
-    <div class="arch-layer-label">LAYER 4 &mdash; OPTIMISATION ENGINE</div>
+    <!-- ── STEP 5: LP Input Encoder ──────────────────────── -->
+    <div class="arch-layer-label">STEP 5 &mdash; LP INPUT ENCODER</div>
     <div class="arch-row">
-      <div class="arch-box L4" style="flex:3"><a href="#lp-solver" style="color:#90caf9;">LP Solver (HiGHS / Zig)</a>
-        <div class="arch-sub">Maximise profit subject to constraints &bull; shadow prices</div></div>
+      <div class="arch-box L3" style="flex:1; border-style:dashed;"><a href="#lp-solver">Variables.to_binary/1 &amp; ModelDescriptor</a>
+        <div class="arch-sub">20 vars &rarr; 160-byte f64-LE binary (booleans as 1.0 / 0.0) &bull; ModelDescriptor encodes LP topology: n_vars, n_routes, n_constraints, objective mode, route &amp; constraint definitions &bull; concatenated into single binary frame sent to Solver Port</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595; Port.command/2 (binary frame: cmd + model_descriptor + vars)</span></div>
+
+    <!-- ── STEP 6: Solver Port + Monte Carlo ─────────────── -->
+    <div class="arch-layer-label">STEP 6 &mdash; SOLVER PORT &amp; OPTIMISATION ENGINE</div>
+    <div class="arch-row">
+      <div class="arch-box L4" style="flex:3"><a href="#lp-solver" style="color:#90caf9;">Solver Port &mdash; Zig NIF</a>
+        <div class="arch-sub" style="color:#90caf9;">HiGHS LP engine &bull; maximise net margin &bull; shadow prices on binding constraints &bull; feasibility check &bull; cmd=1 single solve / cmd=2 Monte Carlo batch</div></div>
       <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&harr;</span>
       <div class="arch-box L5" style="flex:3"><a href="#monte-carlo">Monte Carlo Engine</a>
-        <div class="arch-sub">1,000 perturbed scenarios &bull; P5/P25/P50/P75/P95 &bull; signal</div></div>
+        <div class="arch-sub">cmd=2 &bull; 1,000 &times; perturbed variable sets &bull; Task.async_stream concurrent solves &bull; P5 / P25 / P50 / P75 / P95 distribution &bull; 5-level confidence signal</div></div>
     </div>
 
-    <div class="arch-down-row"><span class="arch-down-arrow">&#8595;</span></div>
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595; binary response frame (status + profit + tons + route allocations + shadow prices)</span></div>
 
-    <!-- LAYER 5: Decision & Delivery -->
-    <div class="arch-layer-label">LAYER 5 &mdash; DECISION &amp; DELIVERY</div>
+    <!-- ── STEP 7: Result Decoder ─────────────────────────── -->
+    <div class="arch-layer-label">STEP 7 &mdash; RESULT DECODER</div>
     <div class="arch-row">
-      <div class="arch-box L5" style="flex:2"><a href="#auto-trader">Auto Trader</a>
-        <div class="arch-sub">Delta monitor &bull; threshold alerts &bull; auto re-solve</div></div>
+      <div class="arch-box L2" style="flex:1"><a href="#lp-solver">decode_solve_response/2</a>
+        <div class="arch-sub">Binary &rarr; %Result{}: status, profit, tons, barges, ROI, cost, route_tons[], route_profits[], margins[], shadow_prices[] &bull; %Distribution{} for Monte Carlo (P5&ndash;P95, signal, sensitivity)</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595; %Result{} / %Distribution{}</span></div>
+
+    <!-- ── STEP 8: AI Explainer ───────────────────────────── -->
+    <div class="arch-layer-label">STEP 8 &mdash; AI EXPLAINER</div>
+    <div class="arch-row">
+      <div class="arch-box L6" style="flex:1"><a href="#notifications">TradingDesk.Analyst &mdash; Claude API</a>
+        <div class="arch-sub">explain_solve_with_impact/4 (async Task) &bull; analyses: position impact, penalty risk, which constraints are binding, weather &amp; ops risks &bull; 5&ndash;8 sentence analyst note returned to LiveView &bull; explain_distribution/2 for Monte Carlo signal</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595; {:ok, explanation_text, impact_map}</span></div>
+
+    <!-- ── STEP 9: Trade DB Write ─────────────────────────── -->
+    <div class="arch-layer-label">STEP 9 &mdash; TRADE DATABASE WRITE</div>
+    <div class="arch-row">
+      <div class="arch-box" style="flex:1; border:2px solid #37474f; background:#eceff1; color:#263238;"><a href="#notifications" style="color:#263238;">DB.Writer.persist_solve_audit/1 &rarr; PostgreSQL</a>
+        <div class="arch-sub">WAL-first snapshot &bull; solve_audits table: id, mode, product_group, trader_id, variables (JSONB), result_data (JSONB), timestamps &bull; solve_audit_contracts join: one row per contract used &bull; BSV OP_RETURN hash written for tamper-proof audit trail &bull; async via Task.Supervisor</div></div>
+    </div>
+
+    <div class="arch-down-row"><span class="arch-down-arrow">&#8595; PubSub :pipeline_solve_done on "solve_pipeline" topic</span></div>
+
+    <!-- ── STEP 10: Delivery ──────────────────────────────── -->
+    <div class="arch-layer-label">STEP 10 &mdash; DELIVERY</div>
+    <div class="arch-row">
+      <div class="arch-box L6" style="flex:3"><a href="#scenario-ui">Scenario UI &mdash; LiveView</a>
+        <div class="arch-sub">handle_info :pipeline_solve_done &bull; result + explanation assigned to socket &bull; map overlays, signal badge, shadow price table re-rendered &bull; tab auto-switches to RESPONSE</div></div>
       <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
-      <div class="arch-box L6" style="flex:3"><a href="#scenario-ui">Scenario UI (LiveView)</a>
-        <div class="arch-sub">Real-time sliders &bull; overrides &bull; results map &bull; signal badge</div></div>
+      <div class="arch-box L5" style="flex:2"><a href="#auto-trader">Auto Trader</a>
+        <div class="arch-sub">Monitors live state deltas &bull; threshold crossing triggers re-solve &bull; cooldown prevents thrash</div></div>
       <span style="padding:0 6px; align-self:center; color:#b0bec5; font-size:14pt;">&rarr;</span>
       <div class="arch-box L6" style="flex:2"><a href="#notifications">Notifications &amp; Audit</a>
-        <div class="arch-sub">Email / Slack / Teams &bull; BSV OP_RETURN</div></div>
+        <div class="arch-sub">Email / Slack / Teams &bull; BSV OP_RETURN chain_commit_id</div></div>
     </div>
 
   </div><!-- .arch-diagram -->
