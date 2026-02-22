@@ -59,10 +59,10 @@ defmodule TradingDesk.TradeDB.SolveVariables do
     field :precip_in, :float
 
     # Operations
-    field :inv_don, :float
-    field :inv_geis, :float
-    field :stl_outage, :boolean
-    field :mem_outage, :boolean
+    field :inv_mer, :float
+    field :inv_nio, :float
+    field :mer_outage, :boolean
+    field :nio_outage, :boolean
     field :barge_count, :float
 
     # Commercial
@@ -80,7 +80,7 @@ defmodule TradingDesk.TradeDB.SolveVariables do
   @fields [
     :solve_id,
     :river_stage, :lock_hrs, :temp_f, :wind_mph, :vis_mi, :precip_in,
-    :inv_don, :inv_geis, :stl_outage, :mem_outage, :barge_count,
+    :inv_mer, :inv_nio, :mer_outage, :nio_outage, :barge_count,
     :nola_buy, :sell_stl, :sell_mem,
     :fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem,
     :nat_gas, :working_cap

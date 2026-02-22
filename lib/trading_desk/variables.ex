@@ -6,7 +6,7 @@ defmodule TradingDesk.Variables do
 
   @enforce_keys [
     :river_stage, :lock_hrs, :temp_f, :wind_mph, :vis_mi, :precip_in,
-    :inv_don, :inv_geis, :stl_outage, :mem_outage, :barge_count,
+    :inv_mer, :inv_nio, :mer_outage, :nio_outage, :barge_count,
     :nola_buy, :sell_stl, :sell_mem,
     :fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem,
     :nat_gas, :working_cap
@@ -22,10 +22,10 @@ defmodule TradingDesk.Variables do
     precip_in: 1.0,        # inches 3-day — NOAA
 
     # OPS (9-13) — internal systems
-    inv_don: 12_000.0,     # tons — Donaldsonville terminal
-    inv_geis: 8_000.0,     # tons — Geismar terminal
-    stl_outage: false,     # StL dock status
-    mem_outage: false,     # Memphis dock status
+    inv_mer: 12_000.0,     # tons — Meredosia terminal
+    inv_nio: 8_000.0,     # tons — Niota terminal
+    mer_outage: false,     # Meredosia terminal outage
+    nio_outage: false,     # Niota terminal outage
     barge_count: 14.0,     # available barges
 
     # COMMERCIAL (14-18)
@@ -58,14 +58,14 @@ defmodule TradingDesk.Variables do
       %{key: :precip_in, label: "Precip (3-day)", unit: "in", min: 0, max: 8, step: 0.1,
         source: :noaa, group: :environment},
 
-      %{key: :inv_don, label: "Donaldsonville Inv", unit: "tons", min: 0, max: 15000, step: 100,
-        source: :internal, group: :operations},
-      %{key: :inv_geis, label: "Geismar Inv", unit: "tons", min: 0, max: 10000, step: 100,
-        source: :internal, group: :operations},
-      %{key: :stl_outage, label: "StL Dock Outage", unit: "", min: 0, max: 1, step: 1,
-        source: :internal, group: :operations, type: :boolean},
-      %{key: :mem_outage, label: "Memphis Dock Outage", unit: "", min: 0, max: 1, step: 1,
-        source: :internal, group: :operations, type: :boolean},
+      %{key: :inv_mer, label: "Meredosia Inv", unit: "tons", min: 0, max: 15000, step: 100,
+        source: :insight, group: :operations},
+      %{key: :inv_nio, label: "Niota Inv", unit: "tons", min: 0, max: 10000, step: 100,
+        source: :insight, group: :operations},
+      %{key: :mer_outage, label: "Meredosia Outage", unit: "", min: 0, max: 1, step: 1,
+        source: :manual, group: :operations, type: :boolean},
+      %{key: :nio_outage, label: "Niota Outage", unit: "", min: 0, max: 1, step: 1,
+        source: :manual, group: :operations, type: :boolean},
       %{key: :barge_count, label: "Barges Available", unit: "", min: 1, max: 30, step: 1,
         source: :internal, group: :operations},
 
@@ -99,10 +99,10 @@ defmodule TradingDesk.Variables do
       v.wind_mph::float-little-64,
       v.vis_mi::float-little-64,
       v.precip_in::float-little-64,
-      v.inv_don::float-little-64,
-      v.inv_geis::float-little-64,
-      (if v.stl_outage, do: 1.0, else: 0.0)::float-little-64,
-      (if v.mem_outage, do: 1.0, else: 0.0)::float-little-64,
+      v.inv_mer::float-little-64,
+      v.inv_nio::float-little-64,
+      (if v.mer_outage, do: 1.0, else: 0.0)::float-little-64,
+      (if v.nio_outage, do: 1.0, else: 0.0)::float-little-64,
       v.barge_count::float-little-64,
       v.nola_buy::float-little-64,
       v.sell_stl::float-little-64,

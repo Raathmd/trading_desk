@@ -354,8 +354,8 @@ defmodule TradingDesk.Scenarios.AutoRunner do
   defp default_thresholds do
     %{
       river_stage: 0.5, lock_hrs: 2.0, temp_f: 5.0, wind_mph: 3.0,
-      vis_mi: 1.0, precip_in: 0.5, inv_don: 500.0, inv_geis: 500.0,
-      stl_outage: 0.5, mem_outage: 0.5, barge_count: 1.0,
+      vis_mi: 1.0, precip_in: 0.5, inv_mer: 500.0, inv_nio: 500.0,
+      mer_outage: 0.5, nio_outage: 0.5, barge_count: 1.0,
       nola_buy: 2.0, sell_stl: 2.0, sell_mem: 2.0,
       fr_don_stl: 1.0, fr_don_mem: 1.0, fr_geis_stl: 1.0, fr_geis_mem: 1.0,
       nat_gas: 0.10, working_cap: 100_000.0

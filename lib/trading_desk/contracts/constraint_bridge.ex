@@ -418,7 +418,7 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   # For backward compatibility, also accept the ammonia_domestic hardcoded list.
   @legacy_solver_variables [
     :river_stage, :lock_hrs, :temp_f, :wind_mph, :vis_mi, :precip_in,
-    :inv_don, :inv_geis, :stl_outage, :mem_outage, :barge_count,
+    :inv_mer, :inv_nio, :mer_outage, :nio_outage, :barge_count,
     :nola_buy, :sell_stl, :sell_mem, :fr_don_stl, :fr_don_mem,
     :fr_geis_stl, :fr_geis_mem, :nat_gas, :working_cap
   ]

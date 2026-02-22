@@ -44,7 +44,7 @@ defmodule TradingDesk.Contracts.TemplateRegistry do
       category: :core_terms,
       anchors: ["Quantity", "+/-", "more or less", "shipping tolerance"],
       extract_fields: [:qty, :uom, :tolerance_pct, :option_holder],
-      lp_mapping: [:total_volume, :inv_don, :inv_geis, :sell_stl, :sell_mem],
+      lp_mapping: [:total_volume, :inv_mer, :inv_nio, :sell_stl, :sell_mem],
       level_default: :required
     },
     "ORIGIN" => %{
@@ -641,7 +641,7 @@ defmodule TradingDesk.Contracts.TemplateRegistry do
   Kept for backward compatibility with TemplateValidator and ConstraintBridge.
   """
   def parameter_class_members(:volume),
-    do: [:inv_don, :inv_geis, :total_volume, :sell_stl, :sell_mem]
+    do: [:inv_mer, :inv_nio, :total_volume, :sell_stl, :sell_mem]
   def parameter_class_members(:buy_price),
     do: [:nola_buy, :contract_price]
   def parameter_class_members(:sell_price),
@@ -659,9 +659,9 @@ defmodule TradingDesk.Contracts.TemplateRegistry do
   def parameter_class_members(:demurrage),
     do: [:demurrage]
   def parameter_class_members(:inventory),
-    do: [:inv_don, :inv_geis, :inventory]
+    do: [:inv_mer, :inv_nio, :inventory]
   def parameter_class_members(:max_volume),
-    do: [:inv_don, :inv_geis, :total_volume, :sell_stl, :sell_mem]
+    do: [:inv_mer, :inv_nio, :total_volume, :sell_stl, :sell_mem]
   def parameter_class_members(:working_capital),
     do: [:working_cap]
   def parameter_class_members(:barge_capacity),

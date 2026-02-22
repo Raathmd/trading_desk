@@ -213,16 +213,16 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:internal) do
     case API.Internal.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:inv_don, :inv_geis, :stl_outage, :mem_outage,
+        {:ok, Map.take(data, [:inv_mer, :inv_nio, :mer_outage, :nio_outage,
                                :barge_count, :working_cap])}
 
       {:error, _reason} ->
         # Internal systems fallback — use simulated values
         {:ok, %{
-          inv_don: 12_000.0,
-          inv_geis: 8_000.0,
-          stl_outage: false,
-          mem_outage: false,
+          inv_mer: 12_000.0,
+          inv_nio: 8_000.0,
+          mer_outage: false,
+          nio_outage: false,
           barge_count: 14.0,
           working_cap: 4_200_000.0
         }}

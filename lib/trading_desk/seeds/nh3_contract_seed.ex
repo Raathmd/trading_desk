@@ -28,15 +28,15 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
     PRICE (purchase)          → :nola_buy,   :<=,     max $/ton we pay supplier
     PRICE (sale StL)          → :sell_stl,   :>=,     min $/ton we receive at StL
     PRICE (sale Mem)          → :sell_mem,   :>=,     min $/ton we receive at Mem
-    QUANTITY_TOLERANCE        → :inv_don/:inv_geis, :between, shipment volume range (tons)
+    QUANTITY_TOLERANCE        → :inv_mer/:inv_nio, :between, shipment volume range (tons)
     LAYTIME_DEMURRAGE         → :lock_hrs,   :<=,     free hours before penalty accrues;
                                                        penalty_per_unit = demurrage $/hr
     PORTS_AND_SAFE_BERTH      → :river_stage, :>=,    minimum river stage for safe berth (ft)
     PAYMENT                   → :working_cap, :>=,    capital required for LC/TT ($)
-    FORCE_MAJEURE             → :stl_outage/:mem_outage, :==, 1.0 = FM trigger condition
+    FORCE_MAJEURE             → :mer_outage/:nio_outage, :==, 1.0 = FM trigger condition
     PRODUCT_AND_SPECS         → :temp_f,     :<=,     max temp for NH3 integrity (°F)
     DATES_WINDOWS_NOMINATIONS → :barge_count, :>=,    barges needed to meet schedule
-    INSPECTION_AND_QTY_DET.   → :inv_don/:inv_geis, :>=, inspector quantity basis (tons)
+    INSPECTION_AND_QTY_DET.   → :inv_mer/:inv_nio, :>=, inspector quantity basis (tons)
 
   Non-LP clauses (legal, compliance, vessel ops) are included with nil parameter
   to give completeness scores and document the full contract structure.
@@ -194,12 +194,12 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         ),
 
         # QUANTITY_TOLERANCE: Annual 120,000 MT ±5% seller's option.
-        # Each shipment 10,000–12,000 MT. Solver: inv_don must absorb these draws.
+        # Each shipment 10,000–12,000 MT. Solver: inv_mer must absorb these draws.
         # between constraint expresses a single-shipment volume window.
         clause("QUANTITY_TOLERANCE", :obligation, :core_terms,
           "Annual quantity: 120,000 Metric Tons (+/- 5% in Seller's option). " <>
           "Individual shipments: 10,000 MT minimum, 12,000 MT maximum per cargo.",
-          parameter:  :inv_don,
+          parameter:  :inv_mer,
           operator:   :between,
           value:      10_000.0,
           value_upper: 12_000.0,
@@ -316,12 +316,12 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
 
         # INSPECTION_AND_QTY_DETERMINATION: Load-port inspector appoints quantity
         # and quality basis. B/L qty is final and binding for freight/demurrage.
-        # Solver: inv_don >= 10,000 at time of loading to satisfy minimum shipment.
+        # Solver: inv_mer >= 10,000 at time of loading to satisfy minimum shipment.
         clause("INSPECTION_AND_QTY_DETERMINATION", :condition, :determination,
           "Independent inspector appointed by Buyer at Buyer's cost. Quality and " <>
           "quantity determined at load port; Bill of Lading quantity final and binding. " <>
           "Minimum loadable inventory at Donaldsonville: 10,000 MT.",
-          parameter:  :inv_don,
+          parameter:  :inv_mer,
           operator:   :>=,
           value:      10_000.0,
           unit:       "MT",
@@ -335,14 +335,14 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
 
         # FORCE_MAJEURE: Dock outage at Donaldsonville triggers FM; obligations
         # suspended for duration. Seller must notify within 48 hrs.
-        # Solver: stl_outage = 1.0 modelled as FM condition (StL outage prevents delivery).
-        # (Don terminal outage not a separate solver variable; modelled via stl_outage proxy.)
+        # Solver: mer_outage = 1.0 modelled as FM condition (StL outage prevents delivery).
+        # (Meredosia terminal outage is modelled via mer_outage; trader-toggled.)
         clause("FORCE_MAJEURE", :condition, :risk_events,
           "Force Majeure includes: Acts of God, war, strikes, government action, " <>
           "terminal or dock closure beyond the party's control. Party invoking FM " <>
           "must notify within 48 hours. Laytime and demurrage obligations are not " <>
           "affected by Force Majeure unless dock is physically inaccessible.",
-          parameter:  :stl_outage,
+          parameter:  :mer_outage,
           operator:   :==,
           value:      1.0,
           unit:       "",
@@ -574,11 +574,11 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         ),
 
         # QUANTITY_TOLERANCE: 3,000 MT ±5% seller's option = 2,850–3,150 MT.
-        # Solver: inv_geis between 2,850-3,150 for this shipment.
+        # Solver: inv_nio between 2,850-3,150 for this shipment.
         clause("QUANTITY_TOLERANCE", :obligation, :core_terms,
           "Quantity: 3,000 Metric Tons (+/- 5% in Seller's option), " <>
           "being approximately 2,850 to 3,150 Metric Tons.",
-          parameter:   :inv_geis,
+          parameter:   :inv_nio,
           operator:    :between,
           value:       2_850.0,
           value_upper: 3_150.0,
@@ -666,7 +666,7 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
           "Independent inspector appointed and paid by Buyer. Quantity and quality " <>
           "determined at load port, B/L quantity final and binding. " <>
           "Minimum inventory at Geismar: 2,850 MT at time of loading.",
-          parameter:  :inv_geis,
+          parameter:  :inv_nio,
           operator:   :>=,
           value:      2_850.0,
           unit:       "MT",
@@ -676,11 +676,11 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
                         "qty_basis" => "bill_of_lading", "quality_basis" => "load_port_cert"}
         ),
 
-        # FORCE_MAJEURE: Geismar dock outage modelled via stl_outage (general outage proxy).
+        # FORCE_MAJEURE: Geismar dock outage modelled via mer_outage (general outage proxy).
         clause("FORCE_MAJEURE", :condition, :risk_events,
           "Force Majeure: Acts of God, government action, terminal closure. " <>
           "Notice within 48 hours. Demurrage not tolled unless dock physically inaccessible.",
-          parameter:  :stl_outage,
+          parameter:  :mer_outage,
           operator:   :==,
           value:      1.0,
           unit:       "",
@@ -829,11 +829,11 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         ),
 
         # QUANTITY_TOLERANCE: 5,000 MT ±5% buyer's option = 4,750–5,250 MT.
-        # Solver: inv_don between 4,750-5,250 (we draw from Don to service Mosaic StL).
+        # Solver: inv_mer between 4,750-5,250 (we draw from Meredosia to service Mosaic StL).
         clause("QUANTITY_TOLERANCE", :obligation, :core_terms,
           "Quantity: 5,000 Metric Tons (+/- 5% Buyer's option), " <>
           "being 4,750 to 5,250 Metric Tons DAP St. Louis.",
-          parameter:   :inv_don,
+          parameter:   :inv_mer,
           operator:    :between,
           value:       4_750.0,
           value_upper: 5_250.0,
@@ -887,12 +887,12 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         ),
 
         # FORCE_MAJEURE: St. Louis dock outage = FM trigger for this delivery.
-        # Solver: stl_outage = 1.0 directly represents delivery impossibility at StL.
+        # Solver: mer_outage = 1.0 directly represents delivery impossibility at StL.
         clause("FORCE_MAJEURE", :condition, :risk_events,
           "Force Majeure: floods, ice, dock closure, USCG navigation closure, " <>
           "government restriction. St. Louis dock outage declared FM after 24 hours. " <>
           "Party invoking FM must notify within 24 hours. Delivery schedule suspended.",
-          parameter:  :stl_outage,
+          parameter:  :mer_outage,
           operator:   :==,
           value:      1.0,
           unit:       "",
@@ -909,7 +909,7 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
           "Quantity determined by certified scale weight at St. Louis terminal upon " <>
           "unloading. Seller appoints inspector; cost shared equally. " <>
           "Scale certificate final and binding.",
-          parameter:  :inv_don,
+          parameter:  :inv_mer,
           operator:   :>=,
           value:      4_750.0,
           unit:       "MT",
@@ -1057,7 +1057,7 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         clause("QUANTITY_TOLERANCE", :obligation, :core_terms,
           "Quantity: 4,000 Metric Tons (+/- 5% Buyer's option), " <>
           "being 3,800 to 4,200 Metric Tons DAP Memphis, Tennessee.",
-          parameter:   :inv_geis,
+          parameter:   :inv_nio,
           operator:    :between,
           value:       3_800.0,
           value_upper: 4_200.0,
@@ -1108,12 +1108,12 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         ),
 
         # FORCE_MAJEURE: Memphis dock outage directly triggers FM on this contract.
-        # Solver: mem_outage = 1.0 is the exact variable that models this condition.
+        # Solver: nio_outage = 1.0 is the exact variable that models this condition.
         clause("FORCE_MAJEURE", :condition, :risk_events,
           "Force Majeure: Memphis dock closure, USCG navigation hold, ice, flood, " <>
           "government restriction. FM declared after 24-hour dock outage. " <>
           "Delivery obligations suspended; demurrage tolled during FM period.",
-          parameter:  :mem_outage,
+          parameter:  :nio_outage,
           operator:   :==,
           value:      1.0,
           unit:       "",
@@ -1128,7 +1128,7 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         clause("INSPECTION_AND_QTY_DETERMINATION", :condition, :determination,
           "Quantity by flow meter at Memphis terminal manifold, certified by independent " <>
           "inspector appointed jointly. Cost shared equally. Meter certificate final.",
-          parameter:  :inv_geis,
+          parameter:  :inv_nio,
           operator:   :>=,
           value:      3_800.0,
           unit:       "MT",
@@ -1289,13 +1289,13 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         ),
 
         # QUANTITY_TOLERANCE: 30,000 MT annual ±5% Trammo option. Quarterly splits
-        # nominated by Trammo. Solver: total inv_don draw (primary source) >= 21,000
+        # nominated by Trammo. Solver: total inv_mer draw (primary source) >= 21,000
         # (70% of 30,000) over the year. Expressed as quarterly minimum.
         clause("QUANTITY_TOLERANCE", :obligation, :core_terms,
           "Annual quantity: 30,000 Metric Tons (+/- 5% Seller's option). " <>
           "Quarterly minimum off-take: 6,750 MT (5% below 7,500 MT/quarter). " <>
           "Delivery split: 70% St. Louis, 30% Memphis per Seller's quarterly plan.",
-          parameter:   :inv_don,
+          parameter:   :inv_mer,
           operator:    :between,
           value:       6_750.0,
           value_upper: 8_250.0,
@@ -1368,7 +1368,7 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
           "Force Majeure at St. Louis: dock closure, ice, flood, USCG hold. " <>
           "FM declared after 24-hour continuous outage; delivery obligations suspended. " <>
           "Trammo to re-route affected volume to Memphis if feasible.",
-          parameter:  :stl_outage,
+          parameter:  :mer_outage,
           operator:   :==,
           value:      1.0,
           unit:       "",
@@ -1384,7 +1384,7 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
           "Force Majeure at Memphis: dock closure, ice, USCG hold. " <>
           "FM declared after 24-hour outage; Memphis deliveries suspended. " <>
           "Trammo to re-route affected volume to St. Louis if feasible.",
-          parameter:  :mem_outage,
+          parameter:  :nio_outage,
           operator:   :==,
           value:      1.0,
           unit:       "",
@@ -1398,7 +1398,7 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         clause("INSPECTION_AND_QTY_DETERMINATION", :condition, :determination,
           "Quantity by certified scale weight at delivery terminal. Joint inspection. " <>
           "Cost shared equally. Certificate final and binding for invoicing.",
-          parameter:  :inv_don,
+          parameter:  :inv_mer,
           operator:   :>=,
           value:      6_750.0,
           unit:       "MT",

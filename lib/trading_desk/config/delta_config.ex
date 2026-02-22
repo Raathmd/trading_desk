@@ -65,10 +65,10 @@ defmodule TradingDesk.Config.DeltaConfig do
         wind_mph:     3.0,        # mph
         vis_mi:       1.0,        # miles
         precip_in:    0.5,        # inches
-        inv_don:      500.0,      # tons
-        inv_geis:     500.0,      # tons
-        stl_outage:   0.5,        # boolean flip (any change triggers)
-        mem_outage:   0.5,        # boolean flip
+        inv_mer:      500.0,      # tons
+        inv_nio:     500.0,      # tons
+        mer_outage:   0.5,        # boolean flip (any change triggers)
+        nio_outage:   0.5,        # boolean flip
         barge_count:  1.0,        # barges
         nola_buy:     2.0,        # $/ton
         sell_stl:     2.0,        # $/ton
@@ -104,8 +104,8 @@ defmodule TradingDesk.Config.DeltaConfig do
       },
       thresholds: %{
         river_stage: 0.5, lock_hrs: 2.0, temp_f: 5.0, wind_mph: 3.0,
-        vis_mi: 1.0, precip_in: 0.5, inv_don: 500.0, inv_geis: 500.0,
-        stl_outage: 0.5, mem_outage: 0.5, barge_count: 1.0,
+        vis_mi: 1.0, precip_in: 0.5, inv_mer: 500.0, inv_nio: 500.0,
+        mer_outage: 0.5, nio_outage: 0.5, barge_count: 1.0,
         nola_buy: 2.0, sell_stl: 2.0, sell_mem: 2.0,
         fr_don_stl: 1.0, fr_don_mem: 1.0, fr_geis_stl: 1.0, fr_geis_mem: 1.0,
         nat_gas: 0.10, working_cap: 100_000.0
@@ -130,8 +130,8 @@ defmodule TradingDesk.Config.DeltaConfig do
       },
       thresholds: %{
         river_stage: 0.5, lock_hrs: 2.0, temp_f: 5.0, wind_mph: 3.0,
-        vis_mi: 1.0, precip_in: 0.5, inv_don: 500.0, inv_geis: 500.0,
-        stl_outage: 0.5, mem_outage: 0.5, barge_count: 1.0,
+        vis_mi: 1.0, precip_in: 0.5, inv_mer: 500.0, inv_nio: 500.0,
+        mer_outage: 0.5, nio_outage: 0.5, barge_count: 1.0,
         nola_buy: 2.0, sell_stl: 2.0, sell_mem: 2.0,
         fr_don_stl: 1.0, fr_don_mem: 1.0, fr_geis_stl: 1.0, fr_geis_mem: 1.0,
         nat_gas: 0.10, working_cap: 100_000.0
@@ -193,7 +193,7 @@ defmodule TradingDesk.Config.DeltaConfig do
   # Legacy variable indices for backward compat (ammonia domestic)
   @legacy_variable_indices %{
     river_stage: 0, lock_hrs: 1, temp_f: 2, wind_mph: 3, vis_mi: 4,
-    precip_in: 5, inv_don: 6, inv_geis: 7, stl_outage: 8, mem_outage: 9,
+    precip_in: 5, inv_mer: 6, inv_nio: 7, mer_outage: 8, nio_outage: 9,
     barge_count: 10, nola_buy: 11, sell_stl: 12, sell_mem: 13,
     fr_don_stl: 14, fr_don_mem: 15, fr_geis_stl: 16, fr_geis_mem: 17,
     nat_gas: 18, working_cap: 19

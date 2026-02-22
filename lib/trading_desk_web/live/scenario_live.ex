@@ -2801,7 +2801,7 @@ defmodule TradingDesk.ScenarioLive do
                   <span>⛽ Gas: <span style="color:#38bdf8;font-weight:600">$<%= Float.round(Map.get(@auto_result.center, :nat_gas, 0.0), 2) %></span></span>
                   <span>🔒 Lock: <span style="color:#38bdf8;font-weight:600"><%= Float.round(Map.get(@auto_result.center, :lock_hrs, 0.0), 0) %>hrs</span></span>
                   <span>💨 Wind: <span style="color:#38bdf8;font-weight:600"><%= Float.round(Map.get(@auto_result.center, :wind_mph, 0.0), 0) %>mph</span></span>
-                  <span>🏭 StL: <span style={"font-weight:600;color:#{if Map.get(@auto_result.center, :stl_outage), do: "#ef4444", else: "#10b981"}"}><%= if Map.get(@auto_result.center, :stl_outage), do: "OUTAGE", else: "ONLINE" %></span></span>
+                  <span>🏭 Meredosia: <span style={"font-weight:600;color:#{if Map.get(@auto_result.center, :mer_outage), do: "#ef4444", else: "#10b981"}"}><%= if Map.get(@auto_result.center, :mer_outage), do: "OUTAGE", else: "ONLINE" %></span></span>
                 </div>
 
                 <%!-- What triggered this run --%>
@@ -3558,7 +3558,7 @@ defmodule TradingDesk.ScenarioLive do
                   </div>
                   <div>
                     <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">Loading Port</label>
-                    <input name="loading_port" placeholder="Donaldsonville"
+                    <input name="loading_port" placeholder="Meredosia"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
                   </div>
                   <div>
@@ -4664,10 +4664,10 @@ defmodule TradingDesk.ScenarioLive do
       :wind_mph -> "Wind"
       :vis_mi -> "Visibility"
       :precip_in -> "Precip"
-      :inv_don -> "Inv Don"
-      :inv_geis -> "Inv Geis"
-      :stl_outage -> "StL Out"
-      :mem_outage -> "Mem Out"
+      :inv_mer -> "Inv Mer"
+      :inv_nio -> "Inv Nio"
+      :mer_outage -> "Mer Out"
+      :nio_outage -> "Nio Out"
       :barge_count -> "Barges"
       :nola_buy -> "NOLA Buy"
       :sell_stl -> "Sell StL"
@@ -4700,9 +4700,9 @@ defmodule TradingDesk.ScenarioLive do
         "#{val}in"
       key in [:lock_hrs] ->
         "#{val}hrs"
-      key in [:inv_don, :inv_geis] ->
+      key in [:inv_mer, :inv_nio] ->
         "#{round(val)}MT"
-      key in [:stl_outage, :mem_outage] ->
+      key in [:mer_outage, :nio_outage] ->
         "any"
       key in [:barge_count] ->
         "#{round(val)}"
@@ -4827,8 +4827,8 @@ defmodule TradingDesk.ScenarioLive do
 
   @terminal_coords %{
     # Ammonia Domestic (Mississippi River)
-    "Donaldsonville, LA" => {30.098, -90.993},
-    "Geismar, LA" => {30.219, -90.935},
+    "Meredosia, IL" => {39.823, -90.567},
+    "Niota, IL" => {40.577, -91.312},
     "St. Louis, MO" => {38.627, -90.199},
     "Memphis, TN" => {35.150, -90.049},
     # Ammonia International
