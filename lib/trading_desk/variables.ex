@@ -37,7 +37,7 @@ defmodule TradingDesk.Variables do
     fr_geis_stl: 58.0,
     fr_geis_mem: 34.0,
     nat_gas: 2.80,         # $/MMBtu — EIA
-    working_cap: 4_200_000.0
+    working_cap: 0.0
   ]
 
   @type t :: %__MODULE__{}
@@ -86,7 +86,7 @@ defmodule TradingDesk.Variables do
       %{key: :nat_gas, label: "Nat Gas (Henry Hub)", unit: "$/MMBtu", min: 1.0, max: 8.0, step: 0.05,
         source: :eia, group: :commercial},
       %{key: :working_cap, label: "Working Capital", unit: "$", min: 500_000, max: 10_000_000, step: 100_000,
-        source: :internal, group: :commercial}
+        source: :sap_fi, group: :commercial}
     ]
   end
 

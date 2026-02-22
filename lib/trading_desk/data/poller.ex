@@ -217,14 +217,15 @@ defmodule TradingDesk.Data.Poller do
                                :barge_count, :working_cap])}
 
       {:error, _reason} ->
-        # Internal systems fallback — use simulated values
+        # Internal systems fallback — use seed values.
+        # working_cap is 0 so the trader must explicitly set it per product group.
         {:ok, %{
           inv_mer: 12_000.0,
           inv_nio: 8_000.0,
           mer_outage: false,
           nio_outage: false,
           barge_count: 14.0,
-          working_cap: 4_200_000.0
+          working_cap: 0.0
         }}
     end
   end

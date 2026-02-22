@@ -67,6 +67,10 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaInternational do
     }
   end
 
+  # Seed value used as the working capital default until SAP FI is connected.
+  # Unit: $M (millions). Trader must confirm or override per trade session.
+  @working_cap_seed 50.0
+
   defp variables do
     [
       # ── MARKET PRICES ──
@@ -148,7 +152,7 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaInternational do
         default: 1.08, source: :fx_rates, group: :macro, type: :float, delta_threshold: 0.01,
         perturbation: %{stddev: 0.02, min: 0.8, max: 1.3}},
       %{key: :working_cap, label: "Working Capital", unit: "$M", min: 5, max: 200, step: 5,
-        default: 50.0, source: :internal, group: :macro, type: :float, delta_threshold: 5.0,
+        default: @working_cap_seed, source: :sap_fi, group: :macro, type: :float, delta_threshold: 5.0,
         perturbation: %{stddev: 8.0, min: 5, max: 200}}
     ]
   end

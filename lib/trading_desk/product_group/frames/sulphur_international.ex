@@ -66,6 +66,10 @@ defmodule TradingDesk.ProductGroup.Frames.SulphurInternational do
     }
   end
 
+  # Seed value used as the working capital default until SAP FI is connected.
+  # Unit: $M (millions). Trader must confirm or override per trade session.
+  @working_cap_seed 25.0
+
   defp variables do
     [
       # ── MARKET PRICES ──
@@ -144,7 +148,7 @@ defmodule TradingDesk.ProductGroup.Frames.SulphurInternational do
         default: 350.0, source: :internal, group: :macro, type: :float, delta_threshold: 20.0,
         perturbation: %{stddev: 30.0, min: 100, max: 800}},
       %{key: :working_cap, label: "Working Capital", unit: "$M", min: 1, max: 100, step: 1,
-        default: 25.0, source: :internal, group: :macro, type: :float, delta_threshold: 2.0,
+        default: @working_cap_seed, source: :sap_fi, group: :macro, type: :float, delta_threshold: 2.0,
         perturbation: %{stddev: 3.0, min: 1, max: 100}}
     ]
   end
