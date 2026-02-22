@@ -170,4 +170,61 @@ defmodule TradingDesk.DB.Writer do
   defp serialize_result(r) when is_struct(r), do: Map.from_struct(r)
   defp serialize_result(r) when is_map(r), do: r
   defp serialize_result(_), do: %{}
+
+  # ──────────────────────────────────────────────────────────
+  # MOBILE SOLVE PERSISTENCE
+  # ──────────────────────────────────────────────────────────
+
+  @doc """
+  Persist a solve result computed on a mobile device.
+
+  Written as a solve audit record with `trigger: :mobile` and a `device_id`
+  stored in the metadata JSONB field.
+  """
+  def persist_mobile_solve(attrs) when is_map(attrs) do
+    Task.Supervisor.start_child(
+      TradingDesk.Contracts.TaskSupervisor,
+      fn -> do_persist_mobile_solve(attrs) end
+    )
+  end
+
+  defp do_persist_mobile_solve(attrs) do
+    result_map = attrs[:result] || %{}
+
+    db_attrs = %{
+      id: attrs[:id] || generate_id(),
+      trader_id: attrs[:trader_id],
+      product_group: to_string(attrs[:product_group] || :ammonia_domestic),
+      mode: to_string(attrs[:mode] || :solve),
+      trigger: "mobile",
+      result_status: to_string(Map.get(result_map, :status, :unknown)),
+      result_data: serialize_result(result_map),
+      variables: serialize_variables(attrs[:variables] || %{}),
+      variable_sources: %{device_id: attrs[:device_id]},
+      contracts_checked: false,
+      contracts_stale: false,
+      contracts_ingested: 0,
+      started_at: attrs[:started_at] || DateTime.utc_now(),
+      solve_started_at: attrs[:started_at] || DateTime.utc_now(),
+      completed_at: attrs[:completed_at] || DateTime.utc_now()
+    }
+
+    %SolveAuditRecord{}
+    |> SolveAuditRecord.changeset(db_attrs)
+    |> Repo.insert()
+    |> case do
+      {:ok, _} ->
+        Logger.info("DB: mobile solve #{db_attrs.id} persisted for #{db_attrs.trader_id}")
+
+      {:error, changeset} ->
+        Logger.warning("DB: failed to persist mobile solve #{db_attrs.id}: #{inspect(changeset.errors)}")
+    end
+  rescue
+    e ->
+      Logger.warning("DB: mobile solve persist error: #{inspect(e)}")
+  end
+
+  defp generate_id do
+    :crypto.strong_rand_bytes(6) |> Base.hex_encode32(case: :lower, padding: false)
+  end
 end

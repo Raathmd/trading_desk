@@ -11,4 +11,13 @@ defmodule TradingDesk.TradeDB.Writer do
   def persist_auto_triggers(_id, _triggers),    do: :ok
   def persist_contract(_contract),              do: :ok
   def persist_config_change(_group, _cfg, _opts \\ []), do: :ok
+
+  @doc """
+  Persist a solve result that originated on the mobile device.
+  Routes through the same Postgres audit path as server-side solves,
+  but marks the trigger as `:mobile`.
+  """
+  def persist_mobile_solve(attrs) do
+    TradingDesk.DB.Writer.persist_mobile_solve(attrs)
+  end
 end

@@ -10,6 +10,11 @@ defmodule TradingDesk.Endpoint do
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]]
 
+  # Native mobile app WebSocket (token-authenticated)
+  socket "/mobile", TradingDeskWeb.MobileSocket,
+    websocket: true,
+    longpoll: false
+
   plug Plug.Static,
     at: "/",
     from: :trading_desk,
