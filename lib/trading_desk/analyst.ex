@@ -590,7 +590,7 @@ defmodule TradingDesk.Analyst do
           {"anthropic-version", "2023-06-01"},
           {"content-type", "application/json"}
         ],
-        receive_timeout: 20_000
+        receive_timeout: 60_000
       ) do
         {:ok, %{status: 200, body: %{"content" => [%{"text" => text} | _]}}} ->
           {:ok, String.trim(text)}
