@@ -64,6 +64,10 @@ defmodule TradingDesk.ProductGroup.Frames.Petcoke do
     }
   end
 
+  # Seed value used as the working capital default until SAP FI is connected.
+  # Unit: $M (millions). Trader must confirm or override per trade session.
+  @working_cap_seed 12.0
+
   defp variables do
     [
       # ── MARKET PRICES ──
@@ -130,7 +134,7 @@ defmodule TradingDesk.ProductGroup.Frames.Petcoke do
         default: 480.0, source: :bunker_fuel, group: :macro, type: :float, delta_threshold: 10.0,
         perturbation: %{stddev: 20.0, min: 200, max: 800}},
       %{key: :working_cap, label: "Working Capital", unit: "$M", min: 1, max: 50, step: 1,
-        default: 12.0, source: :internal, group: :macro, type: :float, delta_threshold: 1.0,
+        default: @working_cap_seed, source: :sap_fi, group: :macro, type: :float, delta_threshold: 1.0,
         perturbation: %{stddev: 2.0, min: 1, max: 50}}
     ]
   end

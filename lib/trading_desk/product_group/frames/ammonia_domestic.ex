@@ -2,22 +2,22 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
   @moduledoc """
   Solver frame for domestic ammonia barge trading on the Mississippi River.
 
-  This is the original product group — anhydrous ammonia purchased at NOLA
-  terminals (Donaldsonville, Geismar) and delivered by barge to St. Louis
+  This is the original product group — anhydrous ammonia sourced from Trammo's
+  own terminals (Meredosia, IL and Niota, IL) and delivered by barge to St. Louis
   and Memphis.
 
   ## Transport
-  Inland waterway barge on the Lower Mississippi River.
+  Inland waterway barge on the Illinois and Mississippi Rivers.
 
   ## Routes (4)
-  - Donaldsonville → St. Louis (1050 miles, ~9 days)
-  - Donaldsonville → Memphis (600 miles, ~5.5 days)
-  - Geismar → St. Louis (1060 miles, ~9.5 days)
-  - Geismar → Memphis (610 miles, ~6 days)
+  - Meredosia → St. Louis (~100 miles, ~1 day)
+  - Meredosia → Memphis (~450 miles, ~4 days)
+  - Niota → St. Louis (~260 miles, ~2.5 days)
+  - Niota → Memphis (~590 miles, ~5 days)
 
   ## Variables (20)
   Environment (6): river stage, lock delays, temperature, wind, visibility, precipitation
-  Operations (5): Don inventory, Geis inventory, StL outage, Mem outage, barge count
+  Operations (5): Meredosia inventory, Niota inventory, Meredosia outage, Niota outage, barge count
   Commercial (9): NOLA buy, StL sell, Mem sell, 4 freight rates, nat gas, working capital
   """
 
@@ -30,7 +30,7 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
       name: "NH3 Domestic Barge",
       product: "Anhydrous Ammonia",
       transport_mode: :barge,
-      geography: "Lower Mississippi River, USA",
+      geography: "Illinois & Upper Mississippi River, USA",
 
       variables: variables(),
       routes: routes(),
@@ -60,6 +60,10 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
     }
   end
 
+  # Seed value used as the working capital default until SAP FI is connected.
+  # Unit: absolute dollars. Trader must confirm or override per trade session.
+  @working_cap_seed 4_200_000.0
+
   defp variables do
     [
       # ── ENVIRONMENT ──
@@ -83,17 +87,17 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
         perturbation: %{stddev: 0.5, min: 0, max: 8}},
 
       # ── OPERATIONS ──
-      %{key: :inv_don, label: "Donaldsonville Inv", unit: "tons", min: 0, max: 15_000, step: 100,
-        default: 12_000.0, source: :internal, group: :operations, type: :float, delta_threshold: 500.0,
+      %{key: :inv_mer, label: "Meredosia Inv", unit: "tons", min: 0, max: 15_000, step: 100,
+        default: 12_000.0, source: :insight, group: :operations, type: :float, delta_threshold: 500.0,
         perturbation: %{stddev: 1000, min: 0, max: 15_000}},
-      %{key: :inv_geis, label: "Geismar Inv", unit: "tons", min: 0, max: 10_000, step: 100,
-        default: 8_000.0, source: :internal, group: :operations, type: :float, delta_threshold: 500.0,
+      %{key: :inv_nio, label: "Niota Inv", unit: "tons", min: 0, max: 10_000, step: 100,
+        default: 8_000.0, source: :insight, group: :operations, type: :float, delta_threshold: 500.0,
         perturbation: %{stddev: 800, min: 0, max: 10_000}},
-      %{key: :stl_outage, label: "StL Dock Outage", unit: "", min: 0, max: 1, step: 1,
-        default: false, source: :internal, group: :operations, type: :boolean, delta_threshold: 0.5,
+      %{key: :mer_outage, label: "Meredosia Outage", unit: "", min: 0, max: 1, step: 1,
+        default: false, source: :manual, group: :operations, type: :boolean, delta_threshold: 0.5,
         perturbation: %{flip_prob: 0.08}},
-      %{key: :mem_outage, label: "Memphis Dock Outage", unit: "", min: 0, max: 1, step: 1,
-        default: false, source: :internal, group: :operations, type: :boolean, delta_threshold: 0.5,
+      %{key: :nio_outage, label: "Niota Outage", unit: "", min: 0, max: 1, step: 1,
+        default: false, source: :manual, group: :operations, type: :boolean, delta_threshold: 0.5,
         perturbation: %{flip_prob: 0.05}},
       %{key: :barge_count, label: "Barges Available", unit: "", min: 1, max: 30, step: 1,
         default: 14.0, source: :internal, group: :operations, type: :float, delta_threshold: 1.0,
@@ -115,62 +119,62 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
       %{key: :sell_mem, label: "NH3 Memphis Delivered", unit: "$/t", min: 280, max: 550, step: 5,
         default: 385.0, source: :market, group: :commercial, type: :float, delta_threshold: 2.0,
         perturbation: %{stddev: 10.0, min: 280, max: 550}},
-      %{key: :fr_don_stl, label: "Freight Don→StL", unit: "$/t", min: 20, max: 130, step: 1,
-        default: 55.0, source: :broker, group: :commercial, type: :float, delta_threshold: 1.0,
-        perturbation: %{stddev: 5.0, min: 20, max: 130}},
-      %{key: :fr_don_mem, label: "Freight Don→Mem", unit: "$/t", min: 10, max: 80, step: 1,
-        default: 32.0, source: :broker, group: :commercial, type: :float, delta_threshold: 1.0,
+      %{key: :fr_mer_stl, label: "Freight Mer→StL", unit: "$/t", min: 10, max: 80, step: 1,
+        default: 25.0, source: :broker, group: :commercial, type: :float, delta_threshold: 1.0,
         perturbation: %{stddev: 3.0, min: 10, max: 80}},
-      %{key: :fr_geis_stl, label: "Freight Geis→StL", unit: "$/t", min: 20, max: 135, step: 1,
+      %{key: :fr_mer_mem, label: "Freight Mer→Mem", unit: "$/t", min: 20, max: 100, step: 1,
+        default: 48.0, source: :broker, group: :commercial, type: :float, delta_threshold: 1.0,
+        perturbation: %{stddev: 5.0, min: 20, max: 100}},
+      %{key: :fr_nio_stl, label: "Freight Nio→StL", unit: "$/t", min: 20, max: 110, step: 1,
+        default: 42.0, source: :broker, group: :commercial, type: :float, delta_threshold: 1.0,
+        perturbation: %{stddev: 4.0, min: 20, max: 110}},
+      %{key: :fr_nio_mem, label: "Freight Nio→Mem", unit: "$/t", min: 25, max: 120, step: 1,
         default: 58.0, source: :broker, group: :commercial, type: :float, delta_threshold: 1.0,
-        perturbation: %{stddev: 5.0, min: 20, max: 135}},
-      %{key: :fr_geis_mem, label: "Freight Geis→Mem", unit: "$/t", min: 10, max: 85, step: 1,
-        default: 34.0, source: :broker, group: :commercial, type: :float, delta_threshold: 1.0,
-        perturbation: %{stddev: 3.0, min: 10, max: 85}},
+        perturbation: %{stddev: 5.0, min: 25, max: 120}},
       %{key: :nat_gas, label: "Nat Gas (Henry Hub)", unit: "$/MMBtu", min: 1.0, max: 8.0, step: 0.05,
         default: 2.80, source: :eia, group: :commercial, type: :float, delta_threshold: 0.10,
         perturbation: %{stddev: 0.3, min: 1.0, max: 8.0}},
       %{key: :working_cap, label: "Working Capital", unit: "$", min: 500_000, max: 10_000_000, step: 100_000,
-        default: 4_200_000.0, source: :internal, group: :commercial, type: :float, delta_threshold: 100_000.0,
+        default: @working_cap_seed, source: :sap_fi, group: :commercial, type: :float, delta_threshold: 100_000.0,
         perturbation: %{stddev: 200_000, min: 500_000, max: 10_000_000}}
     ]
   end
 
   defp routes do
     [
-      %{key: :don_stl, name: "Don→StL", origin: "Donaldsonville, LA", destination: "St. Louis, MO",
-        distance_mi: 1050, transport_mode: :barge, freight_variable: :fr_don_stl,
+      %{key: :mer_stl, name: "Mer→StL", origin: "Meredosia, IL", destination: "St. Louis, MO",
+        distance_mi: 100, transport_mode: :barge, freight_variable: :fr_mer_stl,
         buy_variable: :nola_buy, sell_variable: :sell_stl,
-        typical_transit_days: 9.0, transit_cost_per_day: 2.0, unit_capacity: 1500.0},
-      %{key: :don_mem, name: "Don→Mem", origin: "Donaldsonville, LA", destination: "Memphis, TN",
-        distance_mi: 600, transport_mode: :barge, freight_variable: :fr_don_mem,
+        typical_transit_days: 1.0, transit_cost_per_day: 2.0, unit_capacity: 1500.0},
+      %{key: :mer_mem, name: "Mer→Mem", origin: "Meredosia, IL", destination: "Memphis, TN",
+        distance_mi: 450, transport_mode: :barge, freight_variable: :fr_mer_mem,
         buy_variable: :nola_buy, sell_variable: :sell_mem,
-        typical_transit_days: 5.5, transit_cost_per_day: 2.0, unit_capacity: 1500.0},
-      %{key: :geis_stl, name: "Geis→StL", origin: "Geismar, LA", destination: "St. Louis, MO",
-        distance_mi: 1060, transport_mode: :barge, freight_variable: :fr_geis_stl,
+        typical_transit_days: 4.0, transit_cost_per_day: 2.0, unit_capacity: 1500.0},
+      %{key: :nio_stl, name: "Nio→StL", origin: "Niota, IL", destination: "St. Louis, MO",
+        distance_mi: 260, transport_mode: :barge, freight_variable: :fr_nio_stl,
         buy_variable: :nola_buy, sell_variable: :sell_stl,
-        typical_transit_days: 9.5, transit_cost_per_day: 2.0, unit_capacity: 1500.0},
-      %{key: :geis_mem, name: "Geis→Mem", origin: "Geismar, LA", destination: "Memphis, TN",
-        distance_mi: 610, transport_mode: :barge, freight_variable: :fr_geis_mem,
+        typical_transit_days: 2.5, transit_cost_per_day: 2.0, unit_capacity: 1500.0},
+      %{key: :nio_mem, name: "Nio→Mem", origin: "Niota, IL", destination: "Memphis, TN",
+        distance_mi: 590, transport_mode: :barge, freight_variable: :fr_nio_mem,
         buy_variable: :nola_buy, sell_variable: :sell_mem,
-        typical_transit_days: 6.0, transit_cost_per_day: 2.0, unit_capacity: 1500.0}
+        typical_transit_days: 5.0, transit_cost_per_day: 2.0, unit_capacity: 1500.0}
     ]
   end
 
   defp constraints do
-    all_routes = [:don_stl, :don_mem, :geis_stl, :geis_mem]
+    all_routes = [:mer_stl, :mer_mem, :nio_stl, :nio_mem]
 
     [
-      %{key: :supply_don, name: "Supply Don", type: :supply, terminal: "Donaldsonville",
-        bound_variable: :inv_don, routes: [:don_stl, :don_mem]},
-      %{key: :supply_geis, name: "Supply Geis", type: :supply, terminal: "Geismar",
-        bound_variable: :inv_geis, routes: [:geis_stl, :geis_mem]},
+      %{key: :supply_mer, name: "Supply Meredosia", type: :supply, terminal: "Meredosia",
+        bound_variable: :inv_mer, routes: [:mer_stl, :mer_mem]},
+      %{key: :supply_nio, name: "Supply Niota", type: :supply, terminal: "Niota",
+        bound_variable: :inv_nio, routes: [:nio_stl, :nio_mem]},
       %{key: :cap_stl, name: "StL Capacity", type: :demand_cap, destination: "St. Louis",
-        bound_variable: :demand_stl, outage_variable: :stl_outage, outage_factor: 0.0,
-        routes: [:don_stl, :geis_stl]},
+        bound_variable: :demand_stl, outage_variable: :mer_outage, outage_factor: 0.0,
+        routes: [:mer_stl, :nio_stl]},
       %{key: :cap_mem, name: "Mem Capacity", type: :demand_cap, destination: "Memphis",
-        bound_variable: :demand_mem, outage_variable: :mem_outage, outage_factor: 0.0,
-        routes: [:don_mem, :geis_mem]},
+        bound_variable: :demand_mem, outage_variable: :nio_outage, outage_factor: 0.0,
+        routes: [:mer_mem, :nio_mem]},
       %{key: :fleet, name: "Fleet", type: :fleet_constraint,
         bound_variable: :barge_count, routes: all_routes},
       %{key: :working_cap, name: "Working Cap", type: :capital_constraint,
@@ -185,8 +189,8 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
       usace:    %{module: TradingDesk.Data.API.USACE,     variables: [:lock_hrs]},
       eia:      %{module: TradingDesk.Data.API.EIA,       variables: [:nat_gas]},
       market:   %{module: TradingDesk.Data.API.Market,    variables: [:nola_buy, :sell_stl, :sell_mem]},
-      broker:   %{module: TradingDesk.Data.API.Broker,    variables: [:fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem]},
-      internal: %{module: TradingDesk.Data.API.Internal,  variables: [:inv_don, :inv_geis, :stl_outage, :mem_outage, :barge_count, :demand_stl, :demand_mem, :working_cap]},
+      broker:   %{module: TradingDesk.Data.API.Broker,    variables: [:fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem]},
+      internal: %{module: TradingDesk.Data.API.Internal,  variables: [:inv_mer, :inv_nio, :mer_outage, :nio_outage, :barge_count, :demand_stl, :demand_mem, :working_cap]},
       vessel_tracking: %{module: TradingDesk.Data.API.VesselTracking, variables: []},
       tides:    %{module: TradingDesk.Data.API.Tides,     variables: []}
     }
@@ -216,10 +220,10 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
 
   defp location_anchors do
     %{
-      "donaldsonville" => :inv_don,
-      "don" => :inv_don,
-      "geismar" => :inv_geis,
-      "geis" => :inv_geis,
+      "meredosia" => :inv_mer,
+      "mer" => :inv_mer,
+      "niota" => :inv_nio,
+      "nio" => :inv_nio,
       "st. louis" => :sell_stl,
       "stl" => :sell_stl,
       "memphis" => :sell_mem,

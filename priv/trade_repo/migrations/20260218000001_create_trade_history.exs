@@ -63,11 +63,11 @@ defmodule TradingDesk.TradeRepo.Migrations.CreateTradeHistory do
       add :precip_in, :float      # inches/3-day — NOAA (flood risk)
 
       # Operations — internal systems
-      add :inv_don, :float        # tons — Donaldsonville terminal inventory
-      add :inv_geis, :float       # tons — Geismar terminal inventory
-      add :stl_outage, :boolean   # St. Louis dock outage flag
-      add :mem_outage, :boolean   # Memphis dock outage flag
-      add :barge_count, :float    # available barges fleet-wide
+      add :inv_mer, :float        # tons — Meredosia terminal inventory (Insight)
+      add :inv_nio, :float        # tons — Niota terminal inventory (Insight)
+      add :mer_outage, :boolean   # Meredosia terminal outage flag (trader-set)
+      add :nio_outage, :boolean   # Niota terminal outage flag (trader-set)
+      add :barge_count, :float    # selected barges from fleet management
 
       # Commercial — market / broker / EIA
       add :nola_buy, :float       # $/ton — NH3 NOLA purchase price
@@ -95,7 +95,7 @@ defmodule TradingDesk.TradeRepo.Migrations.CreateTradeHistory do
       add :noaa_fetched_at, :utc_datetime     # temp_f, wind_mph, vis_mi, precip_in
       add :usace_fetched_at, :utc_datetime    # lock_hrs
       add :eia_fetched_at, :utc_datetime      # nat_gas
-      add :internal_fetched_at, :utc_datetime # inv_don, inv_geis, stl_outage, mem_outage, barge_count, working_cap
+      add :internal_fetched_at, :utc_datetime # inv_mer, inv_nio, mer_outage, nio_outage, barge_count, working_cap
       add :broker_fetched_at, :utc_datetime   # freight rates
       add :market_fetched_at, :utc_datetime   # nola_buy, sell_stl, sell_mem
     end

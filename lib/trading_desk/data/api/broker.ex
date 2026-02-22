@@ -3,10 +3,10 @@ defmodule TradingDesk.Data.API.Broker do
   Barge freight rate API integration.
 
   Fetches freight rates from barge brokers for the four route combinations:
-    - fr_don_stl: Donaldsonville → St. Louis ($/ton)
-    - fr_don_mem: Donaldsonville → Memphis ($/ton)
-    - fr_geis_stl: Geismar → St. Louis ($/ton)
-    - fr_geis_mem: Geismar → Memphis ($/ton)
+    - fr_mer_stl: Meredosia, IL → St. Louis ($/ton)
+    - fr_mer_mem: Meredosia, IL → Memphis ($/ton)
+    - fr_nio_stl: Niota, IL → St. Louis ($/ton)
+    - fr_nio_mem: Niota, IL → Memphis ($/ton)
 
   ## Data Sources
 
@@ -43,40 +43,40 @@ defmodule TradingDesk.Data.API.Broker do
 
   # Route definitions
   @routes %{
-    don_stl: %{
-      origin: "Donaldsonville, LA",
+    mer_stl: %{
+      origin: "Meredosia, IL",
       dest: "St. Louis, MO",
-      variable: :fr_don_stl,
-      river_miles: 1050,
-      typical_range: {40.0, 130.0}
-    },
-    don_mem: %{
-      origin: "Donaldsonville, LA",
-      dest: "Memphis, TN",
-      variable: :fr_don_mem,
-      river_miles: 600,
+      variable: :fr_mer_stl,
+      river_miles: 100,
       typical_range: {20.0, 80.0}
     },
-    geis_stl: %{
-      origin: "Geismar, LA",
-      dest: "St. Louis, MO",
-      variable: :fr_geis_stl,
-      river_miles: 1060,
-      typical_range: {42.0, 135.0}
-    },
-    geis_mem: %{
-      origin: "Geismar, LA",
+    mer_mem: %{
+      origin: "Meredosia, IL",
       dest: "Memphis, TN",
-      variable: :fr_geis_mem,
-      river_miles: 610,
-      typical_range: {22.0, 85.0}
+      variable: :fr_mer_mem,
+      river_miles: 450,
+      typical_range: {25.0, 100.0}
+    },
+    nio_stl: %{
+      origin: "Niota, IL",
+      dest: "St. Louis, MO",
+      variable: :fr_nio_stl,
+      river_miles: 260,
+      typical_range: {30.0, 110.0}
+    },
+    nio_mem: %{
+      origin: "Niota, IL",
+      dest: "Memphis, TN",
+      variable: :fr_nio_mem,
+      river_miles: 590,
+      typical_range: {35.0, 120.0}
     }
   }
 
   @doc """
   Fetch current freight rates for all routes.
 
-  Returns `{:ok, %{fr_don_stl: float, fr_don_mem: float, fr_geis_stl: float, fr_geis_mem: float}}`
+  Returns `{:ok, %{fr_mer_stl: float, fr_mer_mem: float, fr_nio_stl: float, fr_nio_mem: float}}`
   or `{:error, reason}`.
 
   Tries: broker API → TMS → last known rates.
@@ -144,10 +144,10 @@ defmodule TradingDesk.Data.API.Broker do
       {:ok, data} when is_map(data) ->
         # Direct field mapping
         result = %{
-          fr_don_stl: parse_num(data["don_stl"] || data["fr_don_stl"]),
-          fr_don_mem: parse_num(data["don_mem"] || data["fr_don_mem"]),
-          fr_geis_stl: parse_num(data["geis_stl"] || data["fr_geis_stl"]),
-          fr_geis_mem: parse_num(data["geis_mem"] || data["fr_geis_mem"]),
+          fr_mer_stl: parse_num(data["mer_stl"] || data["fr_mer_stl"]),
+          fr_mer_mem: parse_num(data["mer_mem"] || data["fr_mer_mem"]),
+          fr_nio_stl: parse_num(data["nio_stl"] || data["fr_nio_stl"]),
+          fr_nio_mem: parse_num(data["nio_mem"] || data["fr_nio_mem"]),
           source: :broker_api
         }
 
@@ -186,10 +186,10 @@ defmodule TradingDesk.Data.API.Broker do
     case Jason.decode(body) do
       {:ok, %{"rates" => rates}} when is_map(rates) ->
         {:ok, %{
-          fr_don_stl: parse_num(rates["DON-STL"]),
-          fr_don_mem: parse_num(rates["DON-MEM"]),
-          fr_geis_stl: parse_num(rates["GEIS-STL"]),
-          fr_geis_mem: parse_num(rates["GEIS-MEM"]),
+          fr_mer_stl: parse_num(rates["MER-STL"]),
+          fr_mer_mem: parse_num(rates["MER-MEM"]),
+          fr_nio_stl: parse_num(rates["NIO-STL"]),
+          fr_nio_mem: parse_num(rates["NIO-MEM"]),
           source: :tms
         }}
 
@@ -204,8 +204,8 @@ defmodule TradingDesk.Data.API.Broker do
 
   defp match_route(origin, dest) do
     origin_key = cond do
-      String.contains?(origin, "donald") -> :don
-      String.contains?(origin, "geismar") -> :geis
+      String.contains?(origin, "meredosia") or String.contains?(origin, "mer") -> :mer
+      String.contains?(origin, "niota") or String.contains?(origin, "nio") -> :nio
       true -> nil
     end
 
@@ -216,10 +216,10 @@ defmodule TradingDesk.Data.API.Broker do
     end
 
     case {origin_key, dest_key} do
-      {:don, :stl} -> :don_stl
-      {:don, :mem} -> :don_mem
-      {:geis, :stl} -> :geis_stl
-      {:geis, :mem} -> :geis_mem
+      {:mer, :stl} -> :mer_stl
+      {:mer, :mem} -> :mer_mem
+      {:nio, :stl} -> :nio_stl
+      {:nio, :mem} -> :nio_mem
       _ -> nil
     end
   end

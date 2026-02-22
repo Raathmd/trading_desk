@@ -203,7 +203,7 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:broker) do
     case API.Broker.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem])}
+        {:ok, Map.take(data, [:fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem])}
 
       {:error, _reason} ->
         {:error, :broker_not_available}
@@ -213,18 +213,19 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:internal) do
     case API.Internal.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:inv_don, :inv_geis, :stl_outage, :mem_outage,
+        {:ok, Map.take(data, [:inv_mer, :inv_nio, :mer_outage, :nio_outage,
                                :barge_count, :working_cap])}
 
       {:error, _reason} ->
-        # Internal systems fallback — use simulated values
+        # Internal systems fallback — use seed values.
+        # working_cap is 0 so the trader must explicitly set it per product group.
         {:ok, %{
-          inv_don: 12_000.0,
-          inv_geis: 8_000.0,
-          stl_outage: false,
-          mem_outage: false,
+          inv_mer: 12_000.0,
+          inv_nio: 8_000.0,
+          mer_outage: false,
+          nio_outage: false,
           barge_count: 14.0,
-          working_cap: 4_200_000.0
+          working_cap: 0.0
         }}
     end
   end

@@ -261,13 +261,13 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
     dest        = line.destination
     river_stage = to_float(Map.get(vars, :river_stage, 12.0))
     lock_hrs    = to_float(Map.get(vars, :lock_hrs, 24.0))
-    stl_outage  = truthy?(Map.get(vars, :stl_outage, false))
-    mem_outage  = truthy?(Map.get(vars, :mem_outage, false))
+    mer_outage  = truthy?(Map.get(vars, :mer_outage, false))
+    nio_outage  = truthy?(Map.get(vars, :nio_outage, false))
 
     river_delay = if dest in [:stl, :mem, :don] and river_stage < 9.0, do: 7, else: 0
     lock_delay  = if dest in [:stl, :mem] and lock_hrs > 48.0, do: trunc((lock_hrs - 24) / 24), else: 0
-    stl_delay   = if dest == :stl and stl_outage, do: 14, else: 0
-    mem_delay   = if dest == :mem and mem_outage, do: 14, else: 0
+    stl_delay   = if dest == :stl and mer_outage, do: 14, else: 0
+    mem_delay   = if dest == :mem and nio_outage, do: 14, else: 0
 
     river_delay + lock_delay + stl_delay + mem_delay
   end
@@ -275,15 +275,15 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
   defp build_delay_note(dest, vars) do
     river_stage = to_float(Map.get(vars, :river_stage, 12.0))
     lock_hrs    = to_float(Map.get(vars, :lock_hrs, 24.0))
-    stl_outage  = truthy?(Map.get(vars, :stl_outage, false))
-    mem_outage  = truthy?(Map.get(vars, :mem_outage, false))
+    mer_outage  = truthy?(Map.get(vars, :mer_outage, false))
+    nio_outage  = truthy?(Map.get(vars, :nio_outage, false))
 
     reasons =
       [
         if(dest in [:stl, :mem, :don] and river_stage < 9.0,
           do: "low river (#{:erlang.float_to_binary(river_stage, decimals: 1)}ft)"),
-        if(dest == :stl and stl_outage, do: "StL terminal outage"),
-        if(dest == :mem and mem_outage,  do: "Mem terminal outage"),
+        if(dest == :stl and mer_outage, do: "Meredosia terminal outage"),
+        if(dest == :mem and nio_outage,  do: "Niota terminal outage"),
         if(dest in [:stl, :mem] and lock_hrs > 48.0,
           do: "high lock wait (#{trunc(lock_hrs)}hrs)")
       ]

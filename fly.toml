@@ -7,6 +7,12 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
+[deploy]
+  # Runs migrations automatically before the new version goes live.
+  # Seeds must be run manually once (after first deploy or after a DB reset):
+  #   fly ssh console -C "/app/bin/trading_desk eval 'TradingDesk.Release.seed()'"
+  release_command = "/app/bin/trading_desk eval 'TradingDesk.Release.migrate()'"
+
 [env]
   PORT = "4111"
   MIX_ENV = "prod"

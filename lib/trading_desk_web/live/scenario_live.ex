@@ -1204,6 +1204,7 @@ defmodule TradingDesk.ScenarioLive do
             <% end %>
           </select>
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
+          <a href="/architecture_overview.html" target="_blank" style="color:#38bdf8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Architecture &amp; Executive Overview">OVERVIEW</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
           <%!-- Logged-in user + logout --%>
@@ -2801,7 +2802,7 @@ defmodule TradingDesk.ScenarioLive do
                   <span>⛽ Gas: <span style="color:#38bdf8;font-weight:600">$<%= Float.round(Map.get(@auto_result.center, :nat_gas, 0.0), 2) %></span></span>
                   <span>🔒 Lock: <span style="color:#38bdf8;font-weight:600"><%= Float.round(Map.get(@auto_result.center, :lock_hrs, 0.0), 0) %>hrs</span></span>
                   <span>💨 Wind: <span style="color:#38bdf8;font-weight:600"><%= Float.round(Map.get(@auto_result.center, :wind_mph, 0.0), 0) %>mph</span></span>
-                  <span>🏭 StL: <span style={"font-weight:600;color:#{if Map.get(@auto_result.center, :stl_outage), do: "#ef4444", else: "#10b981"}"}><%= if Map.get(@auto_result.center, :stl_outage), do: "OUTAGE", else: "ONLINE" %></span></span>
+                  <span>🏭 Meredosia: <span style={"font-weight:600;color:#{if Map.get(@auto_result.center, :mer_outage), do: "#ef4444", else: "#10b981"}"}><%= if Map.get(@auto_result.center, :mer_outage), do: "OUTAGE", else: "ONLINE" %></span></span>
                 </div>
 
                 <%!-- What triggered this run --%>
@@ -3558,7 +3559,7 @@ defmodule TradingDesk.ScenarioLive do
                   </div>
                   <div>
                     <label style="font-size:11px;color:#7b8fa4;display:block;margin-bottom:2px">Loading Port</label>
-                    <input name="loading_port" placeholder="Donaldsonville"
+                    <input name="loading_port" placeholder="Meredosia"
                       style="width:100%;background:#0a0f18;border:1px solid #1e293b;color:#e2e8f0;padding:6px 8px;border-radius:4px;font-size:11px;font-family:inherit" />
                   </div>
                   <div>
@@ -4664,18 +4665,18 @@ defmodule TradingDesk.ScenarioLive do
       :wind_mph -> "Wind"
       :vis_mi -> "Visibility"
       :precip_in -> "Precip"
-      :inv_don -> "Inv Don"
-      :inv_geis -> "Inv Geis"
-      :stl_outage -> "StL Out"
-      :mem_outage -> "Mem Out"
+      :inv_mer -> "Inv Mer"
+      :inv_nio -> "Inv Nio"
+      :mer_outage -> "Mer Out"
+      :nio_outage -> "Nio Out"
       :barge_count -> "Barges"
       :nola_buy -> "NOLA Buy"
       :sell_stl -> "Sell StL"
       :sell_mem -> "Sell Mem"
-      :fr_don_stl -> "Fr D→StL"
-      :fr_don_mem -> "Fr D→Mem"
-      :fr_geis_stl -> "Fr G→StL"
-      :fr_geis_mem -> "Fr G→Mem"
+      :fr_mer_stl -> "Fr M→StL"
+      :fr_mer_mem -> "Fr M→Mem"
+      :fr_nio_stl -> "Fr N→StL"
+      :fr_nio_mem -> "Fr N→Mem"
       :nat_gas -> "Nat Gas"
       :working_cap -> "Wrk Cap"
       other -> other |> to_string() |> String.replace("_", " ")
@@ -4684,7 +4685,7 @@ defmodule TradingDesk.ScenarioLive do
 
   defp format_threshold_value(key, val) do
     cond do
-      key in [:nola_buy, :sell_stl, :sell_mem, :fr_don_stl, :fr_don_mem, :fr_geis_stl, :fr_geis_mem, :nat_gas] ->
+      key in [:nola_buy, :sell_stl, :sell_mem, :fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem, :nat_gas] ->
         "$#{val}"
       key == :working_cap ->
         "$#{round(val / 1000)}k"
@@ -4700,9 +4701,9 @@ defmodule TradingDesk.ScenarioLive do
         "#{val}in"
       key in [:lock_hrs] ->
         "#{val}hrs"
-      key in [:inv_don, :inv_geis] ->
+      key in [:inv_mer, :inv_nio] ->
         "#{round(val)}MT"
-      key in [:stl_outage, :mem_outage] ->
+      key in [:mer_outage, :nio_outage] ->
         "any"
       key in [:barge_count] ->
         "#{round(val)}"
@@ -4827,8 +4828,8 @@ defmodule TradingDesk.ScenarioLive do
 
   @terminal_coords %{
     # Ammonia Domestic (Mississippi River)
-    "Donaldsonville, LA" => {30.098, -90.993},
-    "Geismar, LA" => {30.219, -90.935},
+    "Meredosia, IL" => {39.823, -90.567},
+    "Niota, IL" => {40.577, -91.312},
     "St. Louis, MO" => {38.627, -90.199},
     "Memphis, TN" => {35.150, -90.049},
     # Ammonia International

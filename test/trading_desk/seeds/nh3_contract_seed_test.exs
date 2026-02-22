@@ -95,13 +95,13 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert MapSet.member?(all_params, :sell_stl),    "sell_stl not covered"
       assert MapSet.member?(all_params, :sell_mem),    "sell_mem not covered"
       assert MapSet.member?(all_params, :working_cap), "working_cap not covered"
-      assert MapSet.member?(all_params, :inv_don),     "inv_don not covered"
-      assert MapSet.member?(all_params, :inv_geis),    "inv_geis not covered"
+      assert MapSet.member?(all_params, :inv_mer),     "inv_mer not covered"
+      assert MapSet.member?(all_params, :inv_nio),    "inv_nio not covered"
       assert MapSet.member?(all_params, :lock_hrs),    "lock_hrs not covered"
       assert MapSet.member?(all_params, :river_stage), "river_stage not covered"
       assert MapSet.member?(all_params, :barge_count), "barge_count not covered"
       assert MapSet.member?(all_params, :temp_f),      "temp_f not covered"
-      assert MapSet.member?(all_params, :stl_outage),  "stl_outage not covered"
+      assert MapSet.member?(all_params, :mer_outage),  "mer_outage not covered"
     end
   end
 
@@ -141,9 +141,9 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert cl.unit      == "$/MT"
     end
 
-    test "QUANTITY_TOLERANCE → :inv_don :between 10000 and 12000", %{contract: c} do
+    test "QUANTITY_TOLERANCE → :inv_mer :between 10000 and 12000", %{contract: c} do
       cl = find_clause(c, "QUANTITY_TOLERANCE")
-      assert cl.parameter  == :inv_don
+      assert cl.parameter  == :inv_mer
       assert cl.operator   == :between
       assert cl.value      == 10_000.0
       assert cl.value_upper == 12_000.0
@@ -186,11 +186,11 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert satisfies?(cl, @vars), constraint_msg(cl, @vars)
     end
 
-    test "constraint: QUANTITY_TOLERANCE — inv_don 12000 covers minimum 10000 [PASS]", %{contract: c} do
+    test "constraint: QUANTITY_TOLERANCE — inv_mer 12000 covers minimum 10000 [PASS]", %{contract: c} do
       cl = find_clause(c, "QUANTITY_TOLERANCE")
       # :between check: inventory can cover minimum shipment
-      assert @vars.inv_don >= cl.value,
-             "inv_don #{@vars.inv_don} < minimum shipment #{cl.value}"
+      assert @vars.inv_mer >= cl.value,
+             "inv_mer #{@vars.inv_mer} < minimum shipment #{cl.value}"
     end
 
     test "constraint: LAYTIME_DEMURRAGE — lock_hrs 12.0 <= free 24.0 [PASS]", %{contract: c} do
@@ -217,9 +217,9 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
              "Expected ambient temp to exceed NH3 storage threshold (refrigeration always required)"
     end
 
-    test "constraint: FORCE_MAJEURE — stl_outage false means FM not triggered [normal ops]", %{contract: c} do
+    test "constraint: FORCE_MAJEURE — mer_outage false means FM not triggered [normal ops]", %{contract: c} do
       cl = find_clause(c, "FORCE_MAJEURE")
-      # FM is NOT triggered (stl_outage = 0.0 != 1.0). Desired state.
+      # FM is NOT triggered (mer_outage = 0.0 != 1.0). Desired state.
       refute satisfies?(cl, @vars),
              "FM should not be triggered under default variables"
     end
@@ -252,9 +252,9 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert cl.value     == 342.0
     end
 
-    test "QUANTITY_TOLERANCE → :inv_geis :between 2850 and 3150", %{contract: c} do
+    test "QUANTITY_TOLERANCE → :inv_nio :between 2850 and 3150", %{contract: c} do
       cl = find_clause(c, "QUANTITY_TOLERANCE")
-      assert cl.parameter   == :inv_geis
+      assert cl.parameter   == :inv_nio
       assert cl.operator    == :between
       assert cl.value       == 2_850.0
       assert cl.value_upper == 3_150.0
@@ -279,10 +279,10 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert satisfies?(cl, @vars), constraint_msg(cl, @vars)
     end
 
-    test "constraint: QUANTITY_TOLERANCE — inv_geis 8000 covers minimum 2850 [PASS]", %{contract: c} do
+    test "constraint: QUANTITY_TOLERANCE — inv_nio 8000 covers minimum 2850 [PASS]", %{contract: c} do
       cl = find_clause(c, "QUANTITY_TOLERANCE")
-      assert @vars.inv_geis >= cl.value,
-             "inv_geis #{@vars.inv_geis} < minimum shipment #{cl.value}"
+      assert @vars.inv_nio >= cl.value,
+             "inv_nio #{@vars.inv_nio} < minimum shipment #{cl.value}"
     end
 
     test "constraint: LAYTIME_DEMURRAGE — lock_hrs 12.0 EXCEEDS Koch free 8.0 [FAIL — demurrage accrues]", %{contract: c} do
@@ -334,9 +334,9 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert cl.value     == 415.0
     end
 
-    test "QUANTITY_TOLERANCE → :inv_don :between 4750 and 5250", %{contract: c} do
+    test "QUANTITY_TOLERANCE → :inv_mer :between 4750 and 5250", %{contract: c} do
       cl = find_clause(c, "QUANTITY_TOLERANCE")
-      assert cl.parameter   == :inv_don
+      assert cl.parameter   == :inv_mer
       assert cl.value       == 4_750.0
       assert cl.value_upper == 5_250.0
     end
@@ -347,9 +347,9 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert cl.penalty_per_unit == 208.33
     end
 
-    test "FORCE_MAJEURE → :stl_outage :== 1.0 (StL dock directly)", %{contract: c} do
+    test "FORCE_MAJEURE → :mer_outage :== 1.0 (StL dock directly)", %{contract: c} do
       cl = find_clause(c, "FORCE_MAJEURE")
-      assert cl.parameter == :stl_outage
+      assert cl.parameter == :mer_outage
       assert cl.value     == 1.0
     end
 
@@ -399,9 +399,9 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert cl.value     == 388.0
     end
 
-    test "FORCE_MAJEURE → :mem_outage :== 1.0 (Memphis dock)", %{contract: c} do
+    test "FORCE_MAJEURE → :nio_outage :== 1.0 (Memphis dock)", %{contract: c} do
       cl = find_clause(c, "FORCE_MAJEURE")
-      assert cl.parameter == :mem_outage
+      assert cl.parameter == :nio_outage
       assert cl.value     == 1.0
     end
 
@@ -414,7 +414,7 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
       assert shortfall == 3.0
     end
 
-    test "constraint: FORCE_MAJEURE — mem_outage false means FM not triggered [normal ops]", %{contract: c} do
+    test "constraint: FORCE_MAJEURE — nio_outage false means FM not triggered [normal ops]", %{contract: c} do
       cl = find_clause(c, "FORCE_MAJEURE")
       refute satisfies?(cl, @vars),
              "FM should not be triggered under default variables"
@@ -603,8 +603,8 @@ defmodule TradingDesk.Seeds.NH3ContractSeedTest do
   end
 
   # Resolve variable value — booleans become 0.0/1.0 for :== comparisons
-  defp resolve_var(vars, :stl_outage), do: if(vars.stl_outage, do: 1.0, else: 0.0)
-  defp resolve_var(vars, :mem_outage), do: if(vars.mem_outage, do: 1.0, else: 0.0)
+  defp resolve_var(vars, :mer_outage), do: if(vars.mer_outage, do: 1.0, else: 0.0)
+  defp resolve_var(vars, :nio_outage), do: if(vars.nio_outage, do: 1.0, else: 0.0)
   defp resolve_var(vars, key), do: Map.fetch!(vars, key)
 
   # Human-readable constraint failure message
