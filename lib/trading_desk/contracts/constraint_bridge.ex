@@ -387,6 +387,14 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   defp extract_penalty_clauses(%Contract{clauses: clauses}) when is_list(clauses) do
     penalties = []
 
+    # Take-or-pay shortfall obligation (supplier contracts with committed lift floor)
+    penalties =
+      case Enum.find(clauses, &(&1.clause_id == "TAKE_OR_PAY")) do
+        %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
+          [{:take_or_pay, rate} | penalties]
+        _ -> penalties
+      end
+
     penalties =
       case Enum.find(clauses, &(&1.clause_id == "PENALTY_VOLUME_SHORTFALL")) do
         %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
@@ -419,6 +427,8 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   @legacy_solver_variables [
     :river_stage, :lock_hrs, :temp_f, :wind_mph, :vis_mi, :precip_in,
     :inv_mer, :inv_nio, :mer_outage, :nio_outage, :barge_count,
+    # contract-derived supply floor (not in legacy binary, but readable for bridge logic)
+    :committed_lift_mer,
     :nola_buy, :sell_stl, :sell_mem, :fr_mer_stl, :fr_mer_mem,
     :fr_nio_stl, :fr_nio_mem, :nat_gas, :working_cap
   ]
