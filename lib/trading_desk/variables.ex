@@ -27,6 +27,10 @@ defmodule TradingDesk.Variables do
     mer_outage: false,     # Meredosia terminal outage (manual — trader-toggled)
     nio_outage: false,     # Niota terminal outage (manual — trader-toggled)
     barge_count: 14.0,     # available barges (fleet management — selected count)
+    # Contract-derived floor: minimum MT that must route from Meredosia this cycle.
+    # Set by the constraint bridge from active TAKE_OR_PAY clauses. Not in to_binary
+    # (legacy 20-var binary format preserved); used only via the dynamic frame path.
+    committed_lift_mer: 0.0,
 
     # COMMERCIAL (12-20)
     nola_buy: 320.0,       # $/ton — NH3 purchase price
