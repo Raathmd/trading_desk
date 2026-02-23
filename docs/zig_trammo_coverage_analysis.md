@@ -103,7 +103,7 @@ The original hardcoded solver for domestic ammonia barge trading only. **Superse
 - Hardcoded causal chain for correlated Monte Carlo perturbation:
   - weather (independent) → precipitation affects river stage → stage/temp/wind affect lock delays → all affect barge availability → logistics difficulty affects freight price adjustments
 
-Notable: the v1 solver uses hardcoded terminal names (`inv_don`, `inv_geis` for Donaldsonville and Geismar, Louisiana — actual Trammo terminals). The generic solver.zig replaced these with indexed variable references.
+Notable: the v1 solver uses hardcoded terminal names `inv_don` and `inv_geis` (abbreviated for Donaldsonville and Geismar, Louisiana). These are supply origin points as modelled in the prototype — they are **not** Trammo's own US terminal names. The production frame uses `inv_mer` and `inv_nio` for Trammo's actual storage terminals at Meredosia, IL and Niota, IL. The generic solver.zig replaced all hardcoded location references with indexed variable references.
 
 ---
 
@@ -230,18 +230,17 @@ Trammo is a **privately-held global commodity trader**, not a producer. Its comp
 
 The following dimensions of Trammo's actual business are **not modelled** or only partially represented:
 
-#### Gap 1: Ocean Vessel Operations — Not Modelled
-Trammo operates 10–14 refrigerated gas carriers globally. Ocean shipping involves:
+#### Gap 1: Ocean Vessel Operations — Frame Defined, API Integrations Not Yet Connected
+Trammo operates 10–14 refrigerated gas carriers globally. The `AmmoniaInternational`, `SulphurInternational`, and `Petcoke` frames **are fully defined** in Elixir with routes, variables, constraints, and perturbation parameters. The LP structure is ready.
+
+The current gap is **data connectivity**: all three international frames have `module: nil` for their market price, ocean freight, FX, and bunker fuel API sources. Variables are populated from seed/default values only; live feeds from Argus, ICIS, Baltic Exchange, Clarksons etc. have not been integrated. Additionally, the following ocean-specific dimensions are not yet modelled:
+
 - **Vessel positioning** (empty repositioning costs, laden vs. ballast legs)
-- **Port-to-port routing** with canal transit options (Suez, Panama)
-- **Cargo size flexibility** (full vs. partial cargo, parcel sizes)
-- **Vessel scheduling** (multi-voyage planning horizon)
-- **Ice class restrictions** (Baltic routes in winter)
-- **Laytime/demurrage** (penalty costs for port delays beyond agreed berth time)
+- **Canal routing** (Suez/Panama transit cost already modelled in sulphur frame; not in NH3 or petcoke)
+- **Laytime/demurrage** (contract term captured; not yet fed into LP cost structure)
+- **Ice class restrictions** (Baltic routes in winter — relevant for Ukrainian/Russian origins)
 
-The current model has a `AmmoniaInternational` frame in Elixir but the variables and route definitions for international operations are not apparent in the Zig solver — it would need separate ocean route definitions, port congestion variables, and vessel scheduling constraints rather than barge fleet constraints.
-
-**Business impact:** Trammo's largest profit pool by volume is seaborne ammonia. Not having an optimised ocean dispatch model is the single biggest coverage gap.
+**Business impact:** Trammo's largest profit pool by volume is seaborne ammonia and sulphur. The model structure is ready but is operating on manual/seed data rather than live market prices and freight rates.
 
 #### Gap 2: Multi-Product Portfolio Optimisation — Not Modelled
 Trammo trades ammonia, sulphur, petcoke, sulphuric acid, and nitric acid simultaneously and often shares:
@@ -319,7 +318,7 @@ The trans-Caspian Middle Corridor routing through Batumi (rail → Black Sea ves
 | Real-time decision latency | <100ms via HiGHS | **Covered** |
 | Contract term capture | Scanner + LLM + SAP pipeline | **Covered (Elixir layer)** |
 | Mobile deployment | C FFI for iOS/Android | **Covered** |
-| Ocean vessel dispatch (global ammonia) | Frame exists in Elixir; solver variables/constraints not fully defined | **Partial** |
+| Ocean vessel dispatch (global ammonia) | Frame fully defined (24 vars, 4 routes, 8 constraints); market/freight API sources are stubs (module: nil) | **Partial — frame ready, data not live** |
 | Multi-product portfolio optimisation | Separate frames per product, no joint solve | **Not covered** |
 | Multi-period planning (weeks/months) | Single-period snapshot only | **Not covered** |
 | Global geographic price arbitrage | US routes only in current frames | **Not covered** |
@@ -327,7 +326,8 @@ The trans-Caspian Middle Corridor routing through Batumi (rail → Black Sea ves
 | Derivatives / hedging integration | Physical book only; no derivatives P&L | **Not covered** |
 | Counterparty credit limits | Working capital proxy only | **Not covered** |
 | Batumi multi-modal routing | No rail + vessel + handoff model | **Not covered** |
-| Petcoke/sulphur dispatch optimisation | Frames in Elixir but domain variables unclear | **Not covered** |
+| Petcoke dispatch optimisation | Frame fully defined (16 vars, 3 routes, 6 constraints); market/freight API sources are stubs | **Partial — frame ready, data not live** |
+| Sulphur dispatch optimisation | Frame fully defined (22 vars, 4 routes, 8 constraints); market/freight API sources are stubs | **Partial — frame ready, data not live** |
 
 ---
 
