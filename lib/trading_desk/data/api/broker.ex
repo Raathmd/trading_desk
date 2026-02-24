@@ -103,8 +103,8 @@ defmodule TradingDesk.Data.API.Broker do
   @doc "Fetch rates from broker API."
   @spec fetch_broker_api() :: {:ok, map()} | {:error, term()}
   def fetch_broker_api do
-    url = System.get_env("BROKER_API_URL")
-    api_key = System.get_env("BROKER_API_KEY")
+    url = TradingDesk.ApiConfig.get_url("broker", "BROKER_API_URL")
+    api_key = TradingDesk.ApiConfig.get_credential("broker", "BROKER_API_KEY")
 
     headers = [
       {"Authorization", "Bearer #{api_key}"},
@@ -165,8 +165,8 @@ defmodule TradingDesk.Data.API.Broker do
   @doc "Fetch from internal TMS."
   @spec fetch_tms() :: {:ok, map()} | {:error, term()}
   def fetch_tms do
-    url = System.get_env("TMS_URL") || ""
-    api_key = System.get_env("TMS_API_KEY")
+    url = TradingDesk.ApiConfig.get_url("tms", "TMS_URL") || ""
+    api_key = TradingDesk.ApiConfig.get_credential("tms", "TMS_API_KEY")
 
     tms_url = "#{url}/api/rates/current?product=ammonia&mode=barge"
 

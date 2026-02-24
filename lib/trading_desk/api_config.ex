@@ -62,4 +62,44 @@ defmodule TradingDesk.ApiConfig do
 
     upsert(product_group, updated)
   end
+
+  @doc """
+  Get the effective API key for a source.
+
+  Returns the DB-stored value (under the "global" product group) if set,
+  otherwise falls back to reading the given environment variable.
+  """
+  @spec get_credential(String.t(), String.t()) :: String.t() | nil
+  def get_credential(source, env_var) do
+    db_val =
+      get_entries("global")
+      |> Map.get(source, %{})
+      |> Map.get("api_key")
+
+    if db_val not in [nil, ""] do
+      db_val
+    else
+      System.get_env(env_var)
+    end
+  end
+
+  @doc """
+  Get the effective URL for a source.
+
+  Returns the DB-stored value (under the "global" product group) if set,
+  otherwise falls back to reading `env_var`, then `default`.
+  """
+  @spec get_url(String.t(), String.t() | nil, String.t() | nil) :: String.t() | nil
+  def get_url(source, env_var, default \\ nil) do
+    db_val =
+      get_entries("global")
+      |> Map.get(source, %{})
+      |> Map.get("url")
+
+    if db_val not in [nil, ""] do
+      db_val
+    else
+      (env_var && System.get_env(env_var)) || default
+    end
+  end
 end

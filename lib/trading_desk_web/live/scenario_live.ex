@@ -115,6 +115,8 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:ammonia_prices, TradingDesk.Data.AmmoniaPrices.price_summary())
       |> assign(:contracts_data, load_contracts_data())
       |> assign(:api_status, load_api_status())
+      |> assign(:api_configs, TradingDesk.ApiConfig.get_entries("global"))
+      |> assign(:api_config_flash, nil)
       |> assign(:solve_history, [])
       |> assign(:history_stats, nil)
       |> assign(:ingestion_running, false)
@@ -689,6 +691,21 @@ defmodule TradingDesk.ScenarioLive do
       end
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("save_api_config", %{"source" => source, "url" => url, "key" => key}, socket) do
+    case TradingDesk.ApiConfig.update_source("global", source, String.trim(url), String.trim(key)) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> assign(:api_configs, TradingDesk.ApiConfig.get_entries("global"))
+         |> assign(:api_config_flash, "#{source} saved")
+         |> assign(:api_status, load_api_status())}
+
+      {:error, _} ->
+        {:noreply, assign(socket, :api_config_flash, "Save failed for #{source}")}
+    end
   end
 
   @impl true
@@ -3064,6 +3081,79 @@ defmodule TradingDesk.ScenarioLive do
                       </div>
                     <% end %>
                   </div>
+                <% end %>
+              </div>
+
+              <%!-- ── API KEY CONFIGURATION ── --%>
+              <div style="font-size:12px;color:#f97316;letter-spacing:1px;margin-bottom:8px;margin-top:4px">
+                API KEY CONFIGURATION
+                <span style="color:#7b8fa4;font-weight:400;font-size:11px;margin-left:8px">· stored in database · overrides env vars · takes effect on next poll</span>
+              </div>
+
+              <%= if @api_config_flash do %>
+                <div style="margin-bottom:10px;padding:6px 10px;background:#0a2317;border:1px solid #065f46;border-radius:6px;font-size:11px;color:#4ade80;font-family:monospace">
+                  <%= @api_config_flash %>
+                </div>
+              <% end %>
+
+              <%
+                api_key_sources = [
+                  %{id: "eia",           label: "EIA (Natural Gas)",       url_placeholder: "https://api.eia.gov/v2",          key_placeholder: "EIA_API_KEY",          note: "Free key at eia.gov/opendata"},
+                  %{id: "argus",         label: "Argus Media",             url_placeholder: "https://api.argusmedia.com/v2",   key_placeholder: "ARGUS_API_KEY",        note: "Subscription — NH3 NOLA/Tampa/Yuzhnyy"},
+                  %{id: "icis",          label: "ICIS/Profercy",           url_placeholder: "https://api.icis.com/v1",         key_placeholder: "ICIS_API_KEY",         note: "Subscription — Nitrogen Index"},
+                  %{id: "market",        label: "Custom Market Feed",      url_placeholder: "https://your-feed.example.com",   key_placeholder: "MARKET_FEED_KEY",      note: "Internal or third-party price feed"},
+                  %{id: "broker",        label: "Broker Freight API",      url_placeholder: "https://broker.example.com",      key_placeholder: "BROKER_API_KEY",       note: "Barge freight rates (4 routes)"},
+                  %{id: "tms",           label: "TMS (Transport Mgmt)",    url_placeholder: "https://tms.example.com",         key_placeholder: "TMS_API_KEY",          note: "Barge count / fleet status"},
+                  %{id: "insight",       label: "Insight (Trammo TMS)",    url_placeholder: "https://insight.trammo.com",      key_placeholder: "INSIGHT_API_KEY",      note: "Meredosia & Niota inventory"},
+                  %{id: "aisstream",     label: "AISStream (WebSocket)",   url_placeholder: "wss://stream.aisstream.io/v0/stream", key_placeholder: "AISSTREAM_API_KEY", note: "Free at aisstream.io — vessel tracking"},
+                  %{id: "marinetraffic", label: "MarineTraffic (fallback)", url_placeholder: "",                              key_placeholder: "MARINETRAFFIC_API_KEY",note: "Vessel positions fallback #1"},
+                  %{id: "aishub",        label: "AISHub (fallback)",       url_placeholder: "",                               key_placeholder: "AISHUB_API_KEY",       note: "Vessel positions fallback #2"},
+                  %{id: "anthropic",     label: "Anthropic Claude",        url_placeholder: "https://api.anthropic.com",      key_placeholder: "ANTHROPIC_API_KEY",    note: "Analyst explanations & intent mapper"},
+                  %{id: "copilot",       label: "Copilot / LLM",          url_placeholder: "https://api.openai.com/v1",       key_placeholder: "COPILOT_API_KEY",      note: "Contract extraction (OpenAI-compatible)"}
+                ]
+              %>
+
+              <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+                <%= for src <- api_key_sources do %>
+                  <%
+                    saved = Map.get(@api_configs, src.id, %{})
+                    saved_url = Map.get(saved, "url", "")
+                    saved_key = Map.get(saved, "api_key", "")
+                    has_key = saved_key not in [nil, ""]
+                  %>
+                  <form phx-submit="save_api_config" style="background:#0a0f18;border:1px solid #{if has_key, do: "#1e3a5f", else: "#1e293b"};border-radius:8px;padding:10px 12px">
+                    <input type="hidden" name="source" value={src.id} />
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <span style={"width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#{if has_key, do: "#10b981", else: "#475569"}"}></span>
+                        <span style="font-size:12px;font-weight:700;color:#e2e8f0"><%= src.label %></span>
+                        <span style={"font-size:10px;font-weight:700;letter-spacing:0.5px;color:#{if has_key, do: "#10b981", else: "#64748b"}"}><%= if has_key, do: "KEY SET", else: "NO KEY" %></span>
+                      </div>
+                      <button type="submit"
+                        style="font-size:10px;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:700;border:1px solid #1e3a5f;background:#0d1f3c;color:#60a5fa">
+                        SAVE
+                      </button>
+                    </div>
+                    <div style="font-size:10px;color:#475569;margin-bottom:6px"><%= src.note %></div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                      <%= if src.url_placeholder != "" do %>
+                        <div>
+                          <label style="font-size:10px;color:#64748b;font-weight:600;display:block;margin-bottom:2px">ENDPOINT URL</label>
+                          <input type="text" name="url" value={saved_url} placeholder={src.url_placeholder}
+                            style="width:100%;background:#111827;border:1px solid #1e293b;border-radius:4px;color:#c8d6e5;padding:4px 6px;font-size:10px;box-sizing:border-box;font-family:monospace" />
+                        </div>
+                      <% else %>
+                        <input type="hidden" name="url" value={saved_url} />
+                        <div></div>
+                      <% end %>
+                      <div>
+                        <label style="font-size:10px;color:#64748b;font-weight:600;display:block;margin-bottom:2px">API KEY</label>
+                        <input type="password" name="key" value={saved_key} placeholder={src.key_placeholder}
+                          autocomplete="new-password"
+                          style="width:100%;background:#111827;border:1px solid #1e293b;border-radius:4px;color:#c8d6e5;padding:4px 6px;font-size:10px;box-sizing:border-box;font-family:monospace" />
+                      </div>
+                    </div>
+                  </form>
                 <% end %>
               </div>
 

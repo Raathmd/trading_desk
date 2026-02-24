@@ -43,7 +43,7 @@ defmodule TradingDesk.Data.API.EIA do
   """
   @spec fetch() :: {:ok, map()} | {:error, term()}
   def fetch do
-    api_key = System.get_env("EIA_API_KEY")
+    api_key = TradingDesk.ApiConfig.get_credential("eia", "EIA_API_KEY")
 
     if is_nil(api_key) or api_key == "" do
       fetch_fallback()

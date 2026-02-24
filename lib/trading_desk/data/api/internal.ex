@@ -98,8 +98,8 @@ defmodule TradingDesk.Data.API.Internal do
   """
   @spec fetch_inventory() :: {:ok, map()} | {:error, term()}
   def fetch_inventory do
-    insight_url = System.get_env("INSIGHT_API_URL")
-    insight_key = System.get_env("INSIGHT_API_KEY")
+    insight_url = TradingDesk.ApiConfig.get_url("insight", "INSIGHT_API_URL")
+    insight_key = TradingDesk.ApiConfig.get_credential("insight", "INSIGHT_API_KEY")
 
     if insight_url not in [nil, ""] do
       fetch_inventory_insight(insight_url, insight_key)

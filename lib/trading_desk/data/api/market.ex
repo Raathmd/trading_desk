@@ -72,8 +72,8 @@ defmodule TradingDesk.Data.API.Market do
   @doc "Fetch from Argus Media API."
   @spec fetch_argus() :: {:ok, map()} | {:error, term()}
   def fetch_argus do
-    api_key = System.get_env("ARGUS_API_KEY")
-    base_url = System.get_env("ARGUS_API_URL") || "https://api.argusmedia.com/v2"
+    api_key = TradingDesk.ApiConfig.get_credential("argus", "ARGUS_API_KEY")
+    base_url = TradingDesk.ApiConfig.get_url("argus", "ARGUS_API_URL", "https://api.argusmedia.com/v2")
 
     url = "#{base_url}/prices?" <>
       URI.encode_query(%{
@@ -141,8 +141,8 @@ defmodule TradingDesk.Data.API.Market do
   @doc "Fetch from ICIS/Profercy API."
   @spec fetch_icis() :: {:ok, map()} | {:error, term()}
   def fetch_icis do
-    api_key = System.get_env("ICIS_API_KEY")
-    base_url = System.get_env("ICIS_API_URL") || "https://api.icis.com/v1"
+    api_key = TradingDesk.ApiConfig.get_credential("icis", "ICIS_API_KEY")
+    base_url = TradingDesk.ApiConfig.get_url("icis", "ICIS_API_URL", "https://api.icis.com/v1")
 
     url = "#{base_url}/prices/ammonia?" <>
       URI.encode_query(%{
@@ -194,8 +194,8 @@ defmodule TradingDesk.Data.API.Market do
   @doc "Fetch from a custom/internal price feed."
   @spec fetch_custom_feed() :: {:ok, map()} | {:error, term()}
   def fetch_custom_feed do
-    url = System.get_env("MARKET_FEED_URL")
-    api_key = System.get_env("MARKET_FEED_KEY")
+    url = TradingDesk.ApiConfig.get_url("market", "MARKET_FEED_URL")
+    api_key = TradingDesk.ApiConfig.get_credential("market", "MARKET_FEED_KEY")
 
     headers = if api_key do
       [{"Authorization", "Bearer #{api_key}"}, {"Accept", "application/json"}]
@@ -240,9 +240,9 @@ defmodule TradingDesk.Data.API.Market do
   # Typical NOLA→Memphis delivered spread
   defp default_mem_spread, do: 65.0  # $/ton
 
-  defp argus_configured?, do: System.get_env("ARGUS_API_KEY") not in [nil, ""]
-  defp icis_configured?, do: System.get_env("ICIS_API_KEY") not in [nil, ""]
-  defp custom_feed_configured?, do: System.get_env("MARKET_FEED_URL") not in [nil, ""]
+  defp argus_configured?, do: TradingDesk.ApiConfig.get_credential("argus", "ARGUS_API_KEY") not in [nil, ""]
+  defp icis_configured?, do: TradingDesk.ApiConfig.get_credential("icis", "ICIS_API_KEY") not in [nil, ""]
+  defp custom_feed_configured?, do: TradingDesk.ApiConfig.get_url("market", "MARKET_FEED_URL") not in [nil, ""]
 
   defp parse_num(nil), do: nil
   defp parse_num(v) when is_number(v), do: v / 1.0
