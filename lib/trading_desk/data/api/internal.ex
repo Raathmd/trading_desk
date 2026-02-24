@@ -168,8 +168,8 @@ defmodule TradingDesk.Data.API.Internal do
   """
   @spec fetch_barge_fleet() :: {:ok, map()} | {:error, term()}
   def fetch_barge_fleet do
-    tms_url = System.get_env("TMS_URL")
-    tms_key = System.get_env("TMS_API_KEY")
+    tms_url = TradingDesk.ApiConfig.get_url("tms", "TMS_URL")
+    tms_key = TradingDesk.ApiConfig.get_credential("tms", "TMS_API_KEY")
 
     if tms_url not in [nil, ""] do
       url = "#{tms_url}/api/fleet/selected?product=ammonia"
@@ -210,8 +210,8 @@ defmodule TradingDesk.Data.API.Internal do
   @doc "Fetch available working capital from SAP FI."
   @spec fetch_working_capital() :: {:ok, map()} | {:error, term()}
   def fetch_working_capital do
-    sap_url = System.get_env("SAP_API_URL")
-    sap_key = System.get_env("SAP_API_KEY")
+    sap_url = TradingDesk.ApiConfig.get_url("sap", "SAP_API_URL")
+    sap_key = TradingDesk.ApiConfig.get_credential("sap", "SAP_API_KEY")
 
     if sap_url not in [nil, ""] do
       url = "#{sap_url}/api/finance/working-capital?business_unit=TRADING"

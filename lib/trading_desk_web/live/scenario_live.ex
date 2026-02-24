@@ -3097,33 +3097,50 @@ defmodule TradingDesk.ScenarioLive do
               <% end %>
 
               <%
+                # free: true  → public API, no key required, URL is hardcoded (read-only display)
+                # free: false → subscription/private API, URL + key both configurable
                 api_key_sources = [
-                  %{id: "eia",           label: "EIA (Natural Gas)",       url_placeholder: "https://api.eia.gov/v2",          key_placeholder: "EIA_API_KEY",          note: "Free key at eia.gov/opendata"},
-                  %{id: "argus",         label: "Argus Media",             url_placeholder: "https://api.argusmedia.com/v2",   key_placeholder: "ARGUS_API_KEY",        note: "Subscription — NH3 NOLA/Tampa/Yuzhnyy"},
-                  %{id: "icis",          label: "ICIS/Profercy",           url_placeholder: "https://api.icis.com/v1",         key_placeholder: "ICIS_API_KEY",         note: "Subscription — Nitrogen Index"},
-                  %{id: "market",        label: "Custom Market Feed",      url_placeholder: "https://your-feed.example.com",   key_placeholder: "MARKET_FEED_KEY",      note: "Internal or third-party price feed"},
-                  %{id: "broker",        label: "Broker Freight API",      url_placeholder: "https://broker.example.com",      key_placeholder: "BROKER_API_KEY",       note: "Barge freight rates (4 routes)"},
-                  %{id: "tms",           label: "TMS (Transport Mgmt)",    url_placeholder: "https://tms.example.com",         key_placeholder: "TMS_API_KEY",          note: "Barge count / fleet status"},
-                  %{id: "insight",       label: "Insight (Trammo TMS)",    url_placeholder: "https://insight.trammo.com",      key_placeholder: "INSIGHT_API_KEY",      note: "Meredosia & Niota inventory"},
-                  %{id: "aisstream",     label: "AISStream (WebSocket)",   url_placeholder: "wss://stream.aisstream.io/v0/stream", key_placeholder: "AISSTREAM_API_KEY", note: "Free at aisstream.io — vessel tracking"},
-                  %{id: "marinetraffic", label: "MarineTraffic (fallback)", url_placeholder: "",                              key_placeholder: "MARINETRAFFIC_API_KEY",note: "Vessel positions fallback #1"},
-                  %{id: "aishub",        label: "AISHub (fallback)",       url_placeholder: "",                               key_placeholder: "AISHUB_API_KEY",       note: "Vessel positions fallback #2"},
-                  %{id: "anthropic",     label: "Anthropic Claude",        url_placeholder: "https://api.anthropic.com",      key_placeholder: "ANTHROPIC_API_KEY",    note: "Analyst explanations & intent mapper"},
-                  %{id: "copilot",       label: "Copilot / LLM",          url_placeholder: "https://api.openai.com/v1",       key_placeholder: "COPILOT_API_KEY",      note: "Contract extraction (OpenAI-compatible)"}
+                  # ── Market & Price Data ─────────────────────────────────────────────────
+                  %{id: "eia",           free: false, label: "EIA (Natural Gas)",        url_placeholder: "https://api.eia.gov/v2",               key_placeholder: "EIA_API_KEY",           variables: ~w(nat_gas),                                       note: "Free key at eia.gov/opendata"},
+                  %{id: "argus",         free: false, label: "Argus Media",              url_placeholder: "https://api.argusmedia.com/v2",        key_placeholder: "ARGUS_API_KEY",         variables: ~w(nola_buy sell_stl sell_mem),                     note: "Subscription — NH3 NOLA/Tampa/Yuzhnyy (primary price feed)"},
+                  %{id: "icis",          free: false, label: "ICIS / Profercy",          url_placeholder: "https://api.icis.com/v1",              key_placeholder: "ICIS_API_KEY",          variables: ~w(nola_buy sell_stl sell_mem),                     note: "Subscription — Nitrogen Index (fallback to Argus)"},
+                  %{id: "market",        free: false, label: "Custom Market Feed",       url_placeholder: "https://your-feed.example.com",        key_placeholder: "MARKET_FEED_KEY",       variables: ~w(nola_buy sell_stl sell_mem),                     note: "Internal or third-party feed (fallback to Argus & ICIS)"},
+                  # ── Freight & Fleet ────────────────────────────────────────────────────
+                  %{id: "broker",        free: false, label: "Broker Freight API",       url_placeholder: "https://broker.example.com",           key_placeholder: "BROKER_API_KEY",        variables: ~w(fr_mer_stl fr_mer_mem fr_nio_stl fr_nio_mem),   note: "Barge freight rates for 4 routes"},
+                  %{id: "tms",           free: false, label: "TMS (Transport Mgmt)",     url_placeholder: "https://tms.example.com",              key_placeholder: "TMS_API_KEY",           variables: ~w(barge_count fr_mer_stl fr_mer_mem fr_nio_stl fr_nio_mem), note: "Selected barge count + freight (internal TMS)"},
+                  # ── Inventory & Capital ────────────────────────────────────────────────
+                  %{id: "insight",       free: false, label: "Insight (Trammo TMS)",     url_placeholder: "https://insight.trammo.com",           key_placeholder: "INSIGHT_API_KEY",       variables: ~w(inv_mer inv_nio),                               note: "Meredosia & Niota terminal inventory (system of record)"},
+                  %{id: "sap",           free: false, label: "SAP S/4HANA FI",           url_placeholder: "https://sap.example.com",              key_placeholder: "SAP_API_KEY",           variables: ~w(working_cap),                                   note: "Available working capital — SAP Finance module"},
+                  # ── Vessel Tracking ────────────────────────────────────────────────────
+                  %{id: "aisstream",     free: false, label: "AISStream (primary)",      url_placeholder: "wss://stream.aisstream.io/v0/stream",  key_placeholder: "AISSTREAM_API_KEY",     variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Free at aisstream.io — real-time WebSocket"},
+                  %{id: "marinetraffic", free: false, label: "MarineTraffic (fallback)", url_placeholder: "",                                     key_placeholder: "MARINETRAFFIC_API_KEY", variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #1"},
+                  %{id: "aishub",        free: false, label: "AISHub (fallback)",        url_placeholder: "",                                     key_placeholder: "AISHUB_API_KEY",        variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #2"},
+                  # ── AI / LLM ───────────────────────────────────────────────────────────
+                  %{id: "anthropic",     free: false, label: "Anthropic Claude",         url_placeholder: "https://api.anthropic.com",            key_placeholder: "ANTHROPIC_API_KEY",     variables: ~w(analyst_explanation intent_map),                note: "Analyst explanations & intent mapper"},
+                  %{id: "copilot",       free: false, label: "Copilot / LLM",            url_placeholder: "https://api.openai.com/v1",            key_placeholder: "COPILOT_API_KEY",       variables: ~w(contract_extraction),                           note: "Contract extraction (OpenAI-compatible endpoint)"},
+                  # ── Free / Public APIs (no key — URL hardcoded) ────────────────────────
+                  %{id: "usgs",          free: true,  label: "USGS Water Services",      url_placeholder: "https://waterservices.usgs.gov/nwis/iv/", key_placeholder: "",                   variables: ~w(river_stage river_flow_cfs air_gap_clearance),  note: "Public API — 4 Mississippi gauges · no key required"},
+                  %{id: "noaa",          free: true,  label: "NOAA Weather",             url_placeholder: "https://api.weather.gov/",             key_placeholder: "",                      variables: ~w(temp_f wind_mph visibility_mi precip_in),        note: "Public API — stations KBTR KMEM KSTL KVKS · no key required"},
+                  %{id: "usace",         free: true,  label: "USACE Locks (NDC)",        url_placeholder: "https://corpslocks.usace.army.mil/",   key_placeholder: "",                      variables: ~w(lock_delay_hours draft_limit_ft),                note: "Public API — lock status & draft limits · no key required"},
+                  %{id: "tides",         free: true,  label: "NOAA Tides & Currents",    url_placeholder: "https://api.tidesandcurrents.noaa.gov/api/prod/", key_placeholder: "",          variables: ~w(water_level_ft tidal_range_ft current_speed_kn), note: "Public API — tidal data · no key required"}
                 ]
+
+                configurable = Enum.reject(api_key_sources, & &1.free)
+                free_apis    = Enum.filter(api_key_sources, & &1.free)
               %>
 
-              <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
-                <%= for src <- api_key_sources do %>
+              <%!-- Configurable APIs (need keys) --%>
+              <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+                <%= for src <- configurable do %>
                   <%
                     saved = Map.get(@api_configs, src.id, %{})
                     saved_url = Map.get(saved, "url", "")
                     saved_key = Map.get(saved, "api_key", "")
                     has_key = saved_key not in [nil, ""]
                   %>
-                  <form phx-submit="save_api_config" style="background:#0a0f18;border:1px solid #{if has_key, do: "#1e3a5f", else: "#1e293b"};border-radius:8px;padding:10px 12px">
+                  <form phx-submit="save_api_config" style={"background:#0a0f18;border:1px solid #{if has_key, do: "#1e3a5f", else: "#1e293b"};border-radius:8px;padding:10px 12px"}>
                     <input type="hidden" name="source" value={src.id} />
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
                       <div style="display:flex;align-items:center;gap:8px">
                         <span style={"width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#{if has_key, do: "#10b981", else: "#475569"}"}></span>
                         <span style="font-size:12px;font-weight:700;color:#e2e8f0"><%= src.label %></span>
@@ -3134,7 +3151,13 @@ defmodule TradingDesk.ScenarioLive do
                         SAVE
                       </button>
                     </div>
-                    <div style="font-size:10px;color:#475569;margin-bottom:6px"><%= src.note %></div>
+                    <div style="font-size:10px;color:#475569;margin-bottom:5px"><%= src.note %></div>
+                    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px">
+                      <span style="font-size:10px;color:#475569;font-weight:700;margin-right:2px">FEEDS:</span>
+                      <%= for v <- src.variables do %>
+                        <span style="font-size:10px;padding:1px 5px;background:#111827;border:1px solid #1e3a5f;border-radius:8px;color:#60a5fa;font-family:monospace"><%= v %></span>
+                      <% end %>
+                    </div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
                       <%= if src.url_placeholder != "" do %>
                         <div>
@@ -3154,6 +3177,28 @@ defmodule TradingDesk.ScenarioLive do
                       </div>
                     </div>
                   </form>
+                <% end %>
+              </div>
+
+              <%!-- Free / public APIs (read-only display) --%>
+              <div style="font-size:12px;color:#64748b;letter-spacing:1px;margin-bottom:6px">PUBLIC APIs — NO KEY REQUIRED</div>
+              <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px">
+                <%= for src <- free_apis do %>
+                  <div style="background:#0a0f18;border:1px solid #1e293b;border-radius:8px;padding:8px 12px">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                      <span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#10b981"></span>
+                      <span style="font-size:12px;font-weight:700;color:#e2e8f0"><%= src.label %></span>
+                      <span style="font-size:10px;font-weight:700;letter-spacing:0.5px;color:#10b981">PUBLIC</span>
+                    </div>
+                    <div style="font-size:10px;color:#475569;margin-bottom:4px"><%= src.note %></div>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                      <span style="font-size:10px;color:#334155;font-family:monospace"><%= src.url_placeholder %></span>
+                      <span style="font-size:10px;color:#475569;font-weight:700;margin-left:6px;margin-right:2px">FEEDS:</span>
+                      <%= for v <- src.variables do %>
+                        <span style="font-size:10px;padding:1px 5px;background:#111827;border:1px solid #1e3a5f;border-radius:8px;color:#60a5fa;font-family:monospace"><%= v %></span>
+                      <% end %>
+                    </div>
+                  </div>
                 <% end %>
               </div>
 
