@@ -685,45 +685,51 @@ fn write_u32(buf: []u8, off: *usize, val: u32) void {
 // ============================================================
 // Port Protocol
 // ============================================================
-fn read_packet(reader: anytype, buf: []u8) !usize {
-    var len_buf: [4]u8 = undefined;
-    var read: usize = 0;
-    while (read < 4) {
-        const n = reader.read(len_buf[read..]) catch return error.EndOfStream;
+fn read_exact(fd: std.posix.fd_t, buf: []u8) !void {
+    var done: usize = 0;
+    while (done < buf.len) {
+        const n = std.posix.read(fd, buf[done..]) catch return error.EndOfStream;
         if (n == 0) return error.EndOfStream;
-        read += n;
+        done += n;
     }
+}
+
+fn write_all(fd: std.posix.fd_t, data: []const u8) !void {
+    var done: usize = 0;
+    while (done < data.len) {
+        const n = std.posix.write(fd, data[done..]) catch return error.BrokenPipe;
+        done += n;
+    }
+}
+
+fn read_packet(fd: std.posix.fd_t, buf: []u8) !usize {
+    var len_buf: [4]u8 = undefined;
+    try read_exact(fd, &len_buf);
     const len = std.mem.readInt(u32, &len_buf, .big);
     if (len > buf.len) return error.PacketTooLarge;
-
-    read = 0;
-    while (read < len) {
-        const n = reader.read(buf[read..len]) catch return error.EndOfStream;
-        if (n == 0) return error.EndOfStream;
-        read += n;
-    }
+    try read_exact(fd, buf[0..len]);
     return len;
 }
 
-fn write_packet(writer: anytype, data: []const u8) !void {
+fn write_packet(fd: std.posix.fd_t, data: []const u8) !void {
     var len_buf: [4]u8 = undefined;
     std.mem.writeInt(u32, &len_buf, @intCast(data.len), .big);
-    try writer.writeAll(&len_buf);
-    try writer.writeAll(data);
+    try write_all(fd, &len_buf);
+    try write_all(fd, data);
 }
 
 // ============================================================
 // Main Loop
 // ============================================================
 pub fn main() !void {
-    const stdin = std.io.getStdIn().reader();
-    const stdout = std.io.getStdOut().writer();
+    const in_fd = std.posix.STDIN_FILENO;
+    const out_fd = std.posix.STDOUT_FILENO;
 
     var buf: [131072]u8 = undefined; // 128KB — enough for large model descriptors
     var resp: [16384]u8 = undefined;
 
     while (true) {
-        const len = read_packet(stdin, &buf) catch break;
+        const len = read_packet(in_fd, &buf) catch break;
         if (len < 1) continue;
 
         const cmd = buf[0];
@@ -738,7 +744,7 @@ pub fn main() !void {
                 const vars = parse_variables(payload, &off, model.n_vars);
                 const result = solve_one(&model, vars[0..model.n_vars]);
                 const resp_len = encode_solve_result(&result, &resp);
-                write_packet(stdout, resp[0..resp_len]) catch break;
+                write_packet(out_fd, resp[0..resp_len]) catch break;
             },
             // cmd 2: monte carlo
             // payload: n_scenarios(u32) + model_descriptor + center_variables
@@ -749,7 +755,7 @@ pub fn main() !void {
                 const center = parse_variables(payload, &off, model.n_vars);
                 const mc = run_monte_carlo(&model, center[0..model.n_vars], n_scenarios);
                 const resp_len = encode_monte_carlo(&mc, &resp);
-                write_packet(stdout, resp[0..resp_len]) catch break;
+                write_packet(out_fd, resp[0..resp_len]) catch break;
             },
             else => {},
         }
