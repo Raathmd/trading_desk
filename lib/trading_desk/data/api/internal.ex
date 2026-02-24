@@ -65,6 +65,11 @@ defmodule TradingDesk.Data.API.Internal do
       {:error, _} -> results
     end
 
+    results = case fetch_outages() do
+      {:ok, outages} -> Map.merge(results, outages)
+      {:error, _} -> results
+    end
+
     if map_size(results) > 0 do
       {:ok, Map.put(results, :source, :individual_systems)}
     else
@@ -244,6 +249,58 @@ defmodule TradingDesk.Data.API.Internal do
       end
     else
       {:error, :sap_not_configured}
+    end
+  end
+
+  # ──────────────────────────────────────────────────────────
+  # INSIGHT — TERMINAL OUTAGES
+  # ──────────────────────────────────────────────────────────
+
+  @doc """
+  Fetch terminal outage status from Insight.
+
+  Maps to `mer_outage` and `nio_outage` solver variables.
+  Uses the same INSIGHT_API_URL / INSIGHT_API_KEY as inventory.
+
+  Expected response: `{"meredosia_outage": false, "niota_outage": true}`
+  or `{"mer_outage": false, "nio_outage": true}`.
+
+  Returns `{:error, :insight_not_configured}` if not configured,
+  which causes the caller to keep the last known value (or trader-set value).
+  """
+  @spec fetch_outages() :: {:ok, map()} | {:error, term()}
+  def fetch_outages do
+    insight_url = TradingDesk.ApiConfig.get_url("insight", "INSIGHT_API_URL")
+    insight_key = TradingDesk.ApiConfig.get_credential("insight", "INSIGHT_API_KEY")
+
+    if insight_url not in [nil, ""] do
+      full_url = "#{insight_url}/api/terminals/outages"
+
+      headers =
+        if insight_key not in [nil, ""] do
+          [{"Authorization", "Bearer #{insight_key}"}, {"Accept", "application/json"}]
+        else
+          [{"Accept", "application/json"}]
+        end
+
+      case http_get(full_url, headers) do
+        {:ok, body} ->
+          case Jason.decode(body) do
+            {:ok, data} when is_map(data) ->
+              {:ok, %{
+                mer_outage: Map.get(data, "meredosia_outage", false) || Map.get(data, "mer_outage", false),
+                nio_outage: Map.get(data, "niota_outage", false) || Map.get(data, "nio_outage", false)
+              }}
+
+            _ ->
+              {:error, :outage_parse_failed}
+          end
+
+        {:error, _} = err ->
+          err
+      end
+    else
+      {:error, :insight_not_configured}
     end
   end
 
