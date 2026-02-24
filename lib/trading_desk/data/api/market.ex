@@ -50,6 +50,9 @@ defmodule TradingDesk.Data.API.Market do
   @spec fetch() :: {:ok, map()} | {:error, term()}
   def fetch do
     cond do
+      delivered_prices_configured?() ->
+        fetch_delivered_prices()
+
       argus_configured?() ->
         fetch_argus()
 
@@ -66,14 +69,69 @@ defmodule TradingDesk.Data.API.Market do
   end
 
   # ──────────────────────────────────────────────────────────
+  # DELIVERED PRICES (direct feed — all three variables in one response)
+  # ──────────────────────────────────────────────────────────
+
+  @doc """
+  Fetch nola_buy, sell_stl, and sell_mem directly from a configured endpoint.
+
+  This is the highest-priority source. Configure `DELIVERED_PRICES_URL`
+  (or set it via the API tab) to point to any endpoint that returns:
+
+      {"nola_buy": 320.0, "sell_stl": 410.0, "sell_mem": 385.0}
+
+  If not configured, the poller falls through to Argus → ICIS → custom feed,
+  which derive sell_stl/sell_mem from nola_buy + spread.
+  """
+  @spec fetch_delivered_prices() :: {:ok, map()} | {:error, term()}
+  def fetch_delivered_prices do
+    url     = TradingDesk.ApiConfig.get_url("delivered_prices", "DELIVERED_PRICES_URL")
+    api_key = TradingDesk.ApiConfig.get_credential("delivered_prices", "DELIVERED_PRICES_KEY")
+
+    headers =
+      if api_key not in [nil, ""] do
+        [{"Authorization", "Bearer #{api_key}"}, {"Accept", "application/json"}]
+      else
+        [{"Accept", "application/json"}]
+      end
+
+    case http_get(url, headers) do
+      {:ok, body} -> parse_delivered_prices(body)
+      {:error, _} = err -> err
+    end
+  end
+
+  defp parse_delivered_prices(body) do
+    case Jason.decode(body) do
+      {:ok, data} when is_map(data) ->
+        nola = parse_num(data["nola_buy"] || data["nh3_nola"] || data["nola"])
+        stl  = parse_num(data["sell_stl"] || data["nh3_stl"]  || data["stl_delivered"])
+        mem  = parse_num(data["sell_mem"] || data["nh3_mem"]  || data["mem_delivered"])
+
+        if nola && stl && mem do
+          {:ok, %{nola_buy: nola, sell_stl: stl, sell_mem: mem, source: :delivered_prices}}
+        else
+          {:error, :missing_delivered_prices}
+        end
+
+      _ ->
+        {:error, :parse_failed}
+    end
+  end
+
+  defp delivered_prices_configured? do
+    TradingDesk.ApiConfig.get_url("delivered_prices", "DELIVERED_PRICES_URL") not in [nil, ""]
+  end
+
+  # ──────────────────────────────────────────────────────────
   # ARGUS MEDIA
   # ──────────────────────────────────────────────────────────
 
   @doc "Fetch from Argus Media API."
   @spec fetch_argus() :: {:ok, map()} | {:error, term()}
   def fetch_argus do
-    api_key = System.get_env("ARGUS_API_KEY")
-    base_url = System.get_env("ARGUS_API_URL") || "https://api.argusmedia.com/v2"
+    api_key = TradingDesk.ApiConfig.get_credential("argus", "ARGUS_API_KEY")
+    base_url = TradingDesk.ApiConfig.get_url("argus", "ARGUS_API_URL", "https://api.argusmedia.com/v2")
 
     url = "#{base_url}/prices?" <>
       URI.encode_query(%{
@@ -141,8 +199,8 @@ defmodule TradingDesk.Data.API.Market do
   @doc "Fetch from ICIS/Profercy API."
   @spec fetch_icis() :: {:ok, map()} | {:error, term()}
   def fetch_icis do
-    api_key = System.get_env("ICIS_API_KEY")
-    base_url = System.get_env("ICIS_API_URL") || "https://api.icis.com/v1"
+    api_key = TradingDesk.ApiConfig.get_credential("icis", "ICIS_API_KEY")
+    base_url = TradingDesk.ApiConfig.get_url("icis", "ICIS_API_URL", "https://api.icis.com/v1")
 
     url = "#{base_url}/prices/ammonia?" <>
       URI.encode_query(%{
@@ -194,8 +252,8 @@ defmodule TradingDesk.Data.API.Market do
   @doc "Fetch from a custom/internal price feed."
   @spec fetch_custom_feed() :: {:ok, map()} | {:error, term()}
   def fetch_custom_feed do
-    url = System.get_env("MARKET_FEED_URL")
-    api_key = System.get_env("MARKET_FEED_KEY")
+    url = TradingDesk.ApiConfig.get_url("market", "MARKET_FEED_URL")
+    api_key = TradingDesk.ApiConfig.get_credential("market", "MARKET_FEED_KEY")
 
     headers = if api_key do
       [{"Authorization", "Bearer #{api_key}"}, {"Accept", "application/json"}]
@@ -240,9 +298,9 @@ defmodule TradingDesk.Data.API.Market do
   # Typical NOLA→Memphis delivered spread
   defp default_mem_spread, do: 65.0  # $/ton
 
-  defp argus_configured?, do: System.get_env("ARGUS_API_KEY") not in [nil, ""]
-  defp icis_configured?, do: System.get_env("ICIS_API_KEY") not in [nil, ""]
-  defp custom_feed_configured?, do: System.get_env("MARKET_FEED_URL") not in [nil, ""]
+  defp argus_configured?, do: TradingDesk.ApiConfig.get_credential("argus", "ARGUS_API_KEY") not in [nil, ""]
+  defp icis_configured?, do: TradingDesk.ApiConfig.get_credential("icis", "ICIS_API_KEY") not in [nil, ""]
+  defp custom_feed_configured?, do: TradingDesk.ApiConfig.get_url("market", "MARKET_FEED_URL") not in [nil, ""]
 
   defp parse_num(nil), do: nil
   defp parse_num(v) when is_number(v), do: v / 1.0

@@ -91,10 +91,10 @@ defmodule TradingDesk.Data.API.VesselTracking do
         AISStreamConnector.has_data?() ->
           {:ok, AISStreamConnector.get_vessels()}
 
-        has_key?("MARINETRAFFIC_API_KEY") ->
+        TradingDesk.ApiConfig.get_credential("marinetraffic", "MARINETRAFFIC_API_KEY") not in [nil, ""] ->
           fetch_marinetraffic(tracked)
 
-        has_key?("AISHUB_API_KEY") ->
+        TradingDesk.ApiConfig.get_credential("aishub", "AISHUB_API_KEY") not in [nil, ""] ->
           fetch_aishub(tracked)
 
         true ->
@@ -169,7 +169,7 @@ defmodule TradingDesk.Data.API.VesselTracking do
   # ──────────────────────────────────────────────────────────
 
   defp fetch_marinetraffic(tracked_vessels) do
-    api_key = System.get_env("MARINETRAFFIC_API_KEY")
+    api_key = TradingDesk.ApiConfig.get_credential("marinetraffic", "MARINETRAFFIC_API_KEY")
 
     # PS06 — Vessel Positions in Area
     url =
@@ -230,7 +230,7 @@ defmodule TradingDesk.Data.API.VesselTracking do
   # ──────────────────────────────────────────────────────────
 
   defp fetch_aishub(tracked_vessels) do
-    api_key = System.get_env("AISHUB_API_KEY")
+    api_key = TradingDesk.ApiConfig.get_credential("aishub", "AISHUB_API_KEY")
 
     url =
       "https://data.aishub.net/ws.php?username=#{api_key}&format=1&output=json" <>

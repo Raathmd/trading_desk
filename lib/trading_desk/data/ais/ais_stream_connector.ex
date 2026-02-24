@@ -40,7 +40,7 @@ defmodule TradingDesk.Data.AIS.AISStreamConnector do
 
   @doc "Start the connector. Returns {:ignore} if AISSTREAM_API_KEY is not set."
   def start_link(_opts \\ []) do
-    api_key = System.get_env("AISSTREAM_API_KEY")
+    api_key = TradingDesk.ApiConfig.get_credential("aisstream", "AISSTREAM_API_KEY")
 
     if api_key in [nil, ""] do
       :ignore

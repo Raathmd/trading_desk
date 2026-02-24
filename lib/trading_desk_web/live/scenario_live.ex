@@ -115,6 +115,8 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:ammonia_prices, TradingDesk.Data.AmmoniaPrices.price_summary())
       |> assign(:contracts_data, load_contracts_data())
       |> assign(:api_status, load_api_status())
+      |> assign(:api_configs, TradingDesk.ApiConfig.get_entries("global"))
+      |> assign(:api_config_flash, nil)
       |> assign(:solve_history, [])
       |> assign(:history_stats, nil)
       |> assign(:ingestion_running, false)
@@ -689,6 +691,21 @@ defmodule TradingDesk.ScenarioLive do
       end
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("save_api_config", %{"source" => source, "url" => url, "key" => key}, socket) do
+    case TradingDesk.ApiConfig.update_source("global", source, String.trim(url), String.trim(key)) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> assign(:api_configs, TradingDesk.ApiConfig.get_entries("global"))
+         |> assign(:api_config_flash, "#{source} saved")
+         |> assign(:api_status, load_api_status())}
+
+      {:error, _} ->
+        {:noreply, assign(socket, :api_config_flash, "Save failed for #{source}")}
+    end
   end
 
   @impl true
@@ -3063,6 +3080,125 @@ defmodule TradingDesk.ScenarioLive do
                         ERROR: <%= inspect(api.error) %>
                       </div>
                     <% end %>
+                  </div>
+                <% end %>
+              </div>
+
+              <%!-- ── API KEY CONFIGURATION ── --%>
+              <div style="font-size:12px;color:#f97316;letter-spacing:1px;margin-bottom:8px;margin-top:4px">
+                API KEY CONFIGURATION
+                <span style="color:#7b8fa4;font-weight:400;font-size:11px;margin-left:8px">· stored in database · overrides env vars · takes effect on next poll</span>
+              </div>
+
+              <%= if @api_config_flash do %>
+                <div style="margin-bottom:10px;padding:6px 10px;background:#0a2317;border:1px solid #065f46;border-radius:6px;font-size:11px;color:#4ade80;font-family:monospace">
+                  <%= @api_config_flash %>
+                </div>
+              <% end %>
+
+              <%
+                # free: true  → public API, no key required, URL is hardcoded (read-only display)
+                # free: false → subscription/private API, URL + key both configurable
+                api_key_sources = [
+                  # ── Market & Price Data ─────────────────────────────────────────────────
+                  %{id: "delivered_prices", free: false, label: "Delivered Prices (direct)", url_placeholder: "https://prices.example.com/delivered", key_placeholder: "DELIVERED_PRICES_KEY", variables: ~w(nola_buy sell_stl sell_mem),              note: "Returns nola_buy + sell_stl + sell_mem in one call · takes priority over Argus/ICIS"},
+                  %{id: "eia",           free: false, label: "EIA (Natural Gas)",        url_placeholder: "https://api.eia.gov/v2",               key_placeholder: "EIA_API_KEY",           variables: ~w(nat_gas),                                       note: "Free key at eia.gov/opendata"},
+                  %{id: "argus",         free: false, label: "Argus Media",              url_placeholder: "https://api.argusmedia.com/v2",        key_placeholder: "ARGUS_API_KEY",         variables: ~w(nola_buy sell_stl sell_mem),                     note: "Subscription — NH3 NOLA/Tampa/Yuzhnyy · fallback if delivered_prices not set"},
+                  %{id: "icis",          free: false, label: "ICIS / Profercy",          url_placeholder: "https://api.icis.com/v1",              key_placeholder: "ICIS_API_KEY",          variables: ~w(nola_buy sell_stl sell_mem),                     note: "Subscription — Nitrogen Index · fallback to Argus"},
+                  %{id: "market",        free: false, label: "Custom Market Feed",       url_placeholder: "https://your-feed.example.com",        key_placeholder: "MARKET_FEED_KEY",       variables: ~w(nola_buy sell_stl sell_mem),                     note: "Internal or third-party feed · fallback to Argus & ICIS"},
+                  # ── Freight & Fleet ────────────────────────────────────────────────────
+                  %{id: "broker",        free: false, label: "Broker Freight API",       url_placeholder: "https://broker.example.com",           key_placeholder: "BROKER_API_KEY",        variables: ~w(fr_mer_stl fr_mer_mem fr_nio_stl fr_nio_mem),   note: "Barge freight rates for 4 routes"},
+                  %{id: "tms",           free: false, label: "TMS (Transport Mgmt)",     url_placeholder: "https://tms.example.com",              key_placeholder: "TMS_API_KEY",           variables: ~w(barge_count fr_mer_stl fr_mer_mem fr_nio_stl fr_nio_mem), note: "Selected barge count + freight rates · fallback to Broker API"},
+                  # ── Inventory, Outages & Capital ───────────────────────────────────────
+                  %{id: "insight",       free: false, label: "Insight (Trammo TMS)",     url_placeholder: "https://insight.trammo.com",           key_placeholder: "INSIGHT_API_KEY",       variables: ~w(inv_mer inv_nio mer_outage nio_outage),          note: "Terminal inventory + outage status · /api/terminals/balances + /api/terminals/outages"},
+                  %{id: "sap",           free: false, label: "SAP S/4HANA FI",           url_placeholder: "https://sap.example.com",              key_placeholder: "SAP_API_KEY",           variables: ~w(working_cap),                                   note: "Available working capital — SAP Finance module"},
+                  # ── Vessel Tracking ────────────────────────────────────────────────────
+                  %{id: "aisstream",     free: false, label: "AISStream (primary)",      url_placeholder: "wss://stream.aisstream.io/v0/stream",  key_placeholder: "AISSTREAM_API_KEY",     variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Free at aisstream.io — real-time WebSocket"},
+                  %{id: "marinetraffic", free: false, label: "MarineTraffic (fallback)", url_placeholder: "",                                     key_placeholder: "MARINETRAFFIC_API_KEY", variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #1"},
+                  %{id: "aishub",        free: false, label: "AISHub (fallback)",        url_placeholder: "",                                     key_placeholder: "AISHUB_API_KEY",        variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #2"},
+                  # ── AI / LLM ───────────────────────────────────────────────────────────
+                  %{id: "anthropic",     free: false, label: "Anthropic Claude",         url_placeholder: "https://api.anthropic.com",            key_placeholder: "ANTHROPIC_API_KEY",     variables: ~w(analyst_explanation intent_map),                note: "Analyst explanations & intent mapper"},
+                  %{id: "copilot",       free: false, label: "Copilot / LLM",            url_placeholder: "https://api.openai.com/v1",            key_placeholder: "COPILOT_API_KEY",       variables: ~w(contract_extraction),                           note: "Contract extraction (OpenAI-compatible endpoint)"},
+                  # ── Free / Public APIs (no key — URL hardcoded) ────────────────────────
+                  %{id: "usgs",          free: true,  label: "USGS Water Services",      url_placeholder: "https://waterservices.usgs.gov/nwis/iv/", key_placeholder: "",                   variables: ~w(river_stage),                                   note: "Public API — 4 Mississippi gauges · no key required"},
+                  %{id: "noaa",          free: true,  label: "NOAA Weather",             url_placeholder: "https://api.weather.gov/",             key_placeholder: "",                      variables: ~w(temp_f wind_mph vis_mi precip_in),               note: "Public API — stations KBTR KMEM KSTL KVKS · no key required"},
+                  %{id: "usace",         free: true,  label: "USACE Locks (NDC)",        url_placeholder: "https://corpslocks.usace.army.mil/",   key_placeholder: "",                      variables: ~w(lock_hrs),                                      note: "Public API — lock status & delays · no key required"},
+                  %{id: "tides",         free: true,  label: "NOAA Tides & Currents",    url_placeholder: "https://api.tidesandcurrents.noaa.gov/api/prod/", key_placeholder: "",          variables: ~w(supplementary),                                 note: "Public API — tidal data used for weather enrichment · no key required"}
+                ]
+
+                configurable = Enum.reject(api_key_sources, & &1.free)
+                free_apis    = Enum.filter(api_key_sources, & &1.free)
+              %>
+
+              <%!-- Configurable APIs (need keys) --%>
+              <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+                <%= for src <- configurable do %>
+                  <%
+                    saved = Map.get(@api_configs, src.id, %{})
+                    saved_url = Map.get(saved, "url", "")
+                    saved_key = Map.get(saved, "api_key", "")
+                    has_key = saved_key not in [nil, ""]
+                  %>
+                  <form phx-submit="save_api_config" style={"background:#0a0f18;border:1px solid #{if has_key, do: "#1e3a5f", else: "#1e293b"};border-radius:8px;padding:10px 12px"}>
+                    <input type="hidden" name="source" value={src.id} />
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <span style={"width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#{if has_key, do: "#10b981", else: "#475569"}"}></span>
+                        <span style="font-size:12px;font-weight:700;color:#e2e8f0"><%= src.label %></span>
+                        <span style={"font-size:10px;font-weight:700;letter-spacing:0.5px;color:#{if has_key, do: "#10b981", else: "#64748b"}"}><%= if has_key, do: "KEY SET", else: "NO KEY" %></span>
+                      </div>
+                      <button type="submit"
+                        style="font-size:10px;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:700;border:1px solid #1e3a5f;background:#0d1f3c;color:#60a5fa">
+                        SAVE
+                      </button>
+                    </div>
+                    <div style="font-size:10px;color:#475569;margin-bottom:5px"><%= src.note %></div>
+                    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px">
+                      <span style="font-size:10px;color:#475569;font-weight:700;margin-right:2px">FEEDS:</span>
+                      <%= for v <- src.variables do %>
+                        <span style="font-size:10px;padding:1px 5px;background:#111827;border:1px solid #1e3a5f;border-radius:8px;color:#60a5fa;font-family:monospace"><%= v %></span>
+                      <% end %>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                      <%= if src.url_placeholder != "" do %>
+                        <div>
+                          <label style="font-size:10px;color:#64748b;font-weight:600;display:block;margin-bottom:2px">ENDPOINT URL</label>
+                          <input type="text" name="url" value={saved_url} placeholder={src.url_placeholder}
+                            style="width:100%;background:#111827;border:1px solid #1e293b;border-radius:4px;color:#c8d6e5;padding:4px 6px;font-size:10px;box-sizing:border-box;font-family:monospace" />
+                        </div>
+                      <% else %>
+                        <input type="hidden" name="url" value={saved_url} />
+                        <div></div>
+                      <% end %>
+                      <div>
+                        <label style="font-size:10px;color:#64748b;font-weight:600;display:block;margin-bottom:2px">API KEY</label>
+                        <input type="password" name="key" value={saved_key} placeholder={src.key_placeholder}
+                          autocomplete="new-password"
+                          style="width:100%;background:#111827;border:1px solid #1e293b;border-radius:4px;color:#c8d6e5;padding:4px 6px;font-size:10px;box-sizing:border-box;font-family:monospace" />
+                      </div>
+                    </div>
+                  </form>
+                <% end %>
+              </div>
+
+              <%!-- Free / public APIs (read-only display) --%>
+              <div style="font-size:12px;color:#64748b;letter-spacing:1px;margin-bottom:6px">PUBLIC APIs — NO KEY REQUIRED</div>
+              <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:16px">
+                <%= for src <- free_apis do %>
+                  <div style="background:#0a0f18;border:1px solid #1e293b;border-radius:8px;padding:8px 12px">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                      <span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:#10b981"></span>
+                      <span style="font-size:12px;font-weight:700;color:#e2e8f0"><%= src.label %></span>
+                      <span style="font-size:10px;font-weight:700;letter-spacing:0.5px;color:#10b981">PUBLIC</span>
+                    </div>
+                    <div style="font-size:10px;color:#475569;margin-bottom:4px"><%= src.note %></div>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                      <span style="font-size:10px;color:#334155;font-family:monospace"><%= src.url_placeholder %></span>
+                      <span style="font-size:10px;color:#475569;font-weight:700;margin-left:6px;margin-right:2px">FEEDS:</span>
+                      <%= for v <- src.variables do %>
+                        <span style="font-size:10px;padding:1px 5px;background:#111827;border:1px solid #1e3a5f;border-radius:8px;color:#60a5fa;font-family:monospace"><%= v %></span>
+                      <% end %>
+                    </div>
                   </div>
                 <% end %>
               </div>
