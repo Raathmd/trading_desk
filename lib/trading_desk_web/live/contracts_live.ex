@@ -227,6 +227,20 @@ defmodule TradingDesk.ContractsLive do
     {:noreply, assign(socket, :pipeline_status, "Validating all templates...")}
   end
 
+  # --- Events: Folder Scan & Reimport ---
+
+  @impl true
+  def handle_event("scan_folder", _params, socket) do
+    TradingDesk.Contracts.FolderScanner.scan_async(socket.assigns.product_group)
+    {:noreply, assign(socket, :pipeline_status, "Scanning contract folder...")}
+  end
+
+  @impl true
+  def handle_event("reimport_all", _params, socket) do
+    TradingDesk.Contracts.FolderScanner.reimport_all_async(socket.assigns.product_group)
+    {:noreply, assign(socket, :pipeline_status, "Reimporting all contracts — clearing schedules...")}
+  end
+
   # --- Events: Trader ---
 
   @impl true
@@ -704,7 +718,7 @@ defmodule TradingDesk.ContractsLive do
       <div style="font-size:11px;color:#94a3b8;letter-spacing:1px;margin-bottom:12px">
         OPERATIONS — <%= @product_group |> to_string() |> String.upcase() %>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
         <button phx-click="validate_all_templates"
           style="padding:10px;border:none;border-radius:6px;font-weight:600;font-size:11px;background:#312e81;color:#a78bfa;cursor:pointer">
           VALIDATE TEMPLATES
@@ -716,6 +730,17 @@ defmodule TradingDesk.ContractsLive do
         <button phx-click="refresh_positions"
           style="padding:10px;border:none;border-radius:6px;font-weight:600;font-size:11px;background:#0c4a6e;color:#38bdf8;cursor:pointer">
           REFRESH POSITIONS
+        </button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button phx-click="scan_folder"
+          style="padding:10px;border:none;border-radius:6px;font-weight:600;font-size:11px;background:#065f46;color:#34d399;cursor:pointer">
+          SCAN FOLDER
+        </button>
+        <button phx-click="reimport_all"
+          style="padding:10px;border:none;border-radius:6px;font-weight:600;font-size:11px;background:#7f1d1d;color:#fca5a5;cursor:pointer"
+          data-confirm="This will clear ALL scheduled deliveries and reimport every contract file. Continue?">
+          REIMPORT ALL
         </button>
       </div>
     </div>
@@ -851,6 +876,10 @@ defmodule TradingDesk.ContractsLive do
   defp format_pipeline_event(:product_group_extraction_complete, p), do: "Extracted #{p.total} contracts"
   defp format_pipeline_event(:product_group_validation_complete, _), do: "SAP validation complete"
   defp format_pipeline_event(:product_group_template_validation_complete, _), do: "Template validation complete"
+  defp format_pipeline_event(:folder_scan_started, p), do: "Scanning folder: #{p.directory}..."
+  defp format_pipeline_event(:folder_scan_complete, p), do: "Scan complete: #{p.new_ingested} new, #{p.re_ingested} updated, #{p.removed} removed, #{p.unchanged} unchanged"
+  defp format_pipeline_event(:reimport_started, _), do: "Reimporting all contracts..."
+  defp format_pipeline_event(:reimport_complete, p), do: "Reimport complete: #{p.new_ingested} ingested, #{Map.get(p, :schedules_cleared, 0)} schedules cleared"
   defp format_pipeline_event(event, _), do: "#{event}"
 
   # Colors

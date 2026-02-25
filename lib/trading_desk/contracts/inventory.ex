@@ -128,6 +128,12 @@ defmodule TradingDesk.Contracts.Inventory do
             "(#{length(clauses)} clauses, hash=#{String.slice(file_hash, 0, 12)}...)"
           )
 
+          # Generate scheduled deliveries for this contract (async, non-blocking)
+          Task.Supervisor.start_child(
+            TradingDesk.Contracts.TaskSupervisor,
+            fn -> TradingDesk.Schedule.DeliveryScheduler.generate_from_contract(stored) end
+          )
+
           {:ok, stored}
 
         {:error, reason} ->
@@ -427,8 +433,12 @@ defmodule TradingDesk.Contracts.Inventory do
     end
   end
 
-  # Derive counterparty name from filename convention
-  # e.g., "Koch_Fertilizer_purchase_2026.docx" → "Koch Fertilizer"
+  @doc """
+  Derive counterparty name from filename convention.
+  e.g., "Koch_Fertilizer_purchase_2026.docx" → "Koch Fertilizer"
+  """
+  def derive_counterparty_from_filename(filename), do: derive_counterparty(filename)
+
   defp derive_counterparty(filename) do
     filename
     |> Path.rootname()

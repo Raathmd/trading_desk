@@ -20,6 +20,10 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
   require Logger
 
   alias TradingDesk.Contracts.SapPositions
+  alias TradingDesk.DB.ScheduledDelivery
+  alias TradingDesk.Repo
+
+  import Ecto.Query
 
   # Maps counterparty name → destination atom for solver constraint routing
   @counterparty_destinations %{
@@ -96,6 +100,131 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
     TradingDesk.Analyst.prompt(prompt, max_tokens: 700)
   rescue
     e -> {:error, Exception.message(e)}
+  end
+
+  # ── Contract-based schedule generation (persisted to DB) ─────────────────
+
+  @doc """
+  Generate and persist scheduled deliveries for an ingested contract.
+
+  Creates delivery lines based on the contract's open position and term type,
+  links them to the contract via `contract_id` and `contract_hash` (file SHA-256).
+
+  If deliveries already exist for this contract_hash, they are skipped (idempotent).
+  """
+  @spec generate_from_contract(map()) :: {:ok, [map()]} | {:error, term()}
+  def generate_from_contract(%{} = contract) do
+    contract_hash = contract.file_hash
+
+    unless contract_hash do
+      {:error, :no_file_hash}
+    else
+      # Skip if deliveries already exist for this hash
+      existing = Repo.aggregate(
+        from(sd in ScheduledDelivery, where: sd.contract_hash == ^contract_hash),
+        :count
+      )
+
+      if existing > 0 do
+        {:ok, []}
+      else
+        open_qty = contract.open_position || 0.0
+
+        if open_qty <= 0 do
+          {:ok, []}
+        else
+          today = Date.utc_today()
+          term_type = to_string(contract.term_type || :spot)
+          direction = to_string(contract.template_type || contract.counterparty_type)
+
+          # Determine direction string
+          dir = cond do
+            direction in ["purchase", "spot_purchase", "supplier"] -> "purchase"
+            true -> "sale"
+          end
+
+          lines = case term_type do
+            "long_term" -> spread_annual(open_qty, today, contract)
+            _ -> spread_spot(open_qty, today, contract)
+          end
+
+          now = DateTime.utc_now() |> DateTime.truncate(:second)
+          dest = Map.get(@counterparty_destinations, contract.counterparty, :unknown)
+
+          records =
+            lines
+            |> Enum.with_index(1)
+            |> Enum.map(fn {{date, qty}, idx} ->
+              %{
+                contract_id: contract.id,
+                contract_hash: contract_hash,
+                counterparty: contract.counterparty,
+                contract_number: contract.contract_number,
+                sap_contract_id: contract.sap_contract_id,
+                direction: dir,
+                product_group: to_string(contract.product_group),
+                incoterm: if(contract.incoterm, do: to_string(contract.incoterm)),
+                quantity_mt: Float.round(qty * 1.0, 0),
+                required_date: date,
+                estimated_date: date,
+                delay_days: 0,
+                status: "on_track",
+                delivery_index: idx,
+                total_deliveries: length(lines),
+                destination: to_string(dest),
+                notes: nil,
+                inserted_at: now,
+                updated_at: now
+              }
+            end)
+
+          {count, _} = Repo.insert_all(ScheduledDelivery, records)
+
+          Logger.info(
+            "DeliveryScheduler: generated #{count} delivery lines for " <>
+            "#{contract.counterparty} (hash=#{String.slice(contract_hash, 0, 12)}...)"
+          )
+
+          {:ok, records}
+        end
+      end
+    end
+  rescue
+    e ->
+      Logger.error("DeliveryScheduler.generate_from_contract failed: #{Exception.message(e)}")
+      {:error, e}
+  end
+
+  @doc """
+  List all persisted scheduled deliveries for a product group.
+  """
+  @spec list_deliveries(atom()) :: [map()]
+  def list_deliveries(product_group) do
+    pg = to_string(product_group)
+
+    from(sd in ScheduledDelivery,
+      where: sd.product_group == ^pg,
+      order_by: [asc: sd.required_date]
+    )
+    |> Repo.all()
+  end
+
+  defp spread_annual(open_qty, today, contract) do
+    months = remaining_months(today)
+    n = max(length(months), 1)
+    qtys = spread_quantities(open_qty / n, n, contract.contract_number || "unknown")
+    Enum.zip(months, qtys)
+  end
+
+  defp spread_spot(open_qty, today, contract) do
+    n = cond do
+      open_qty > 15_000 -> 3
+      open_qty > 5_000  -> 2
+      true              -> 1
+    end
+    dates = spot_dates(today, n, contract.contract_number || "unknown")
+    qtys = spread_quantities(open_qty / n, n, contract.contract_number || "unknown")
+    Enum.zip(dates, qtys)
   end
 
   # ── Private — line generation ─────────────────────────────────────────────
