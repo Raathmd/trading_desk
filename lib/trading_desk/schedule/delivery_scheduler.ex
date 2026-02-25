@@ -119,7 +119,7 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
     unless contract_hash do
       {:error, :no_file_hash}
     else
-      # Skip if deliveries already exist for this hash
+      # Skip if deliveries already exist for this hash (idempotent)
       existing = Repo.aggregate(
         from(sd in ScheduledDelivery, where: sd.contract_hash == ^contract_hash),
         :count
@@ -128,65 +128,7 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
       if existing > 0 do
         {:ok, []}
       else
-        open_qty = contract.open_position || 0.0
-
-        if open_qty <= 0 do
-          {:ok, []}
-        else
-          today = Date.utc_today()
-          term_type = to_string(contract.term_type || :spot)
-          direction = to_string(contract.template_type || contract.counterparty_type)
-
-          # Determine direction string
-          dir = cond do
-            direction in ["purchase", "spot_purchase", "supplier"] -> "purchase"
-            true -> "sale"
-          end
-
-          lines = case term_type do
-            "long_term" -> spread_annual(open_qty, today, contract)
-            _ -> spread_spot(open_qty, today, contract)
-          end
-
-          now = DateTime.utc_now() |> DateTime.truncate(:second)
-          dest = Map.get(@counterparty_destinations, contract.counterparty, :unknown)
-
-          records =
-            lines
-            |> Enum.with_index(1)
-            |> Enum.map(fn {{date, qty}, idx} ->
-              %{
-                contract_id: contract.id,
-                contract_hash: contract_hash,
-                counterparty: contract.counterparty,
-                contract_number: contract.contract_number,
-                sap_contract_id: contract.sap_contract_id,
-                direction: dir,
-                product_group: to_string(contract.product_group),
-                incoterm: if(contract.incoterm, do: to_string(contract.incoterm)),
-                quantity_mt: Float.round(qty * 1.0, 0),
-                required_date: date,
-                estimated_date: date,
-                delay_days: 0,
-                status: "on_track",
-                delivery_index: idx,
-                total_deliveries: length(lines),
-                destination: to_string(dest),
-                notes: nil,
-                inserted_at: now,
-                updated_at: now
-              }
-            end)
-
-          {count, _} = Repo.insert_all(ScheduledDelivery, records)
-
-          Logger.info(
-            "DeliveryScheduler: generated #{count} delivery lines for " <>
-            "#{contract.counterparty} (hash=#{String.slice(contract_hash, 0, 12)}...)"
-          )
-
-          {:ok, records}
-        end
+        do_generate(contract)
       end
     end
   rescue
@@ -195,34 +137,123 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
       {:error, e}
   end
 
+  # Shared generation logic for both initial and regeneration paths
+  defp do_generate(contract) do
+    open_qty = contract.open_position || 0.0
+
+    if open_qty <= 0 do
+      {:ok, []}
+    else
+      today = Date.utc_today()
+      term_type = to_string(contract.term_type || :spot)
+      direction = to_string(contract.template_type || contract.counterparty_type)
+
+      dir = cond do
+        direction in ["purchase", "spot_purchase", "supplier"] -> "purchase"
+        true -> "sale"
+      end
+
+      lines = case term_type do
+        "long_term" -> spread_annual(open_qty, today, contract)
+        _ -> spread_spot(open_qty, today, contract)
+      end
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      dest = Map.get(@counterparty_destinations, contract.counterparty, :unknown)
+      contract_hash = contract.file_hash || "no_hash"
+
+      records =
+        lines
+        |> Enum.with_index(1)
+        |> Enum.map(fn {{date, qty}, idx} ->
+          %{
+            contract_id: contract.id,
+            contract_hash: contract_hash,
+            counterparty: contract.counterparty,
+            contract_number: contract.contract_number,
+            sap_contract_id: contract.sap_contract_id,
+            direction: dir,
+            product_group: to_string(contract.product_group),
+            incoterm: if(contract.incoterm, do: to_string(contract.incoterm)),
+            quantity_mt: Float.round(qty * 1.0, 0),
+            required_date: date,
+            estimated_date: date,
+            delay_days: 0,
+            status: "on_track",
+            delivery_index: idx,
+            total_deliveries: length(lines),
+            destination: to_string(dest),
+            notes: nil,
+            inserted_at: now,
+            updated_at: now
+          }
+        end)
+
+      {count, _} = Repo.insert_all(ScheduledDelivery, records)
+
+      Logger.info(
+        "DeliveryScheduler: generated #{count} delivery lines for " <>
+        "#{contract.counterparty} (open=#{open_qty} MT, hash=#{String.slice(contract_hash, 0, 12)}...)"
+      )
+
+      {:ok, records}
+    end
+  end
+
   @doc """
   Build the delivery schedule from persisted `scheduled_deliveries` records.
 
-  Returns the same map shape as `build_schedule/0` so the Schedule tab
-  can use either source interchangeably. Falls back to `build_schedule/0`
-  (SAP-position-based) when no DB records exist.
+  This is the single source of truth for the Schedule tab. Returns maps in
+  the shape the LiveView template expects (atom keys for direction, status, etc.).
+  Returns an empty list when no records exist — the user must run a folder scan
+  or seed to populate.
   """
   @spec build_schedule_from_db(atom()) :: [map()]
   def build_schedule_from_db(product_group \\ :ammonia) do
     pg = to_string(product_group)
 
-    records =
-      from(sd in ScheduledDelivery,
-        where: sd.product_group == ^pg,
-        order_by: [asc: sd.required_date]
-      )
-      |> Repo.all()
-
-    if records == [] do
-      # Fallback to in-memory SAP-position-based schedule
-      build_schedule()
-    else
-      Enum.map(records, &db_record_to_line/1)
-    end
+    from(sd in ScheduledDelivery,
+      where: sd.product_group == ^pg,
+      order_by: [asc: sd.required_date]
+    )
+    |> Repo.all()
+    |> Enum.map(&db_record_to_line/1)
   rescue
     e ->
       Logger.error("build_schedule_from_db failed: #{Exception.message(e)}")
-      build_schedule()
+      []
+  end
+
+  @doc """
+  Regenerate scheduled deliveries for a specific contract.
+
+  Called when SAP open position changes. Deletes old schedule lines for
+  this contract_id and creates new ones using the current open_position.
+  """
+  @spec regenerate_for_contract(map()) :: {:ok, [map()]} | {:error, term()}
+  def regenerate_for_contract(%{} = contract) do
+    contract_id = contract.id
+
+    if contract_id do
+      # Delete existing schedule lines for this contract
+      {deleted, _} =
+        from(sd in ScheduledDelivery, where: sd.contract_id == ^contract_id)
+        |> Repo.delete_all()
+
+      Logger.info(
+        "DeliveryScheduler: cleared #{deleted} old lines for #{contract.counterparty} " <>
+        "(open_position=#{contract.open_position || 0})"
+      )
+
+      # Generate fresh lines with current open_position
+      do_generate(contract)
+    else
+      {:error, :no_contract_id}
+    end
+  rescue
+    e ->
+      Logger.error("DeliveryScheduler.regenerate_for_contract failed: #{Exception.message(e)}")
+      {:error, e}
   end
 
   @doc """

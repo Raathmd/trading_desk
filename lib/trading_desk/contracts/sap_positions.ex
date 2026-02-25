@@ -566,8 +566,31 @@ defmodule TradingDesk.Contracts.SapPositions do
 
   defp sync_positions_to_store(positions, product_group) do
     Enum.reduce(positions, 0, fn {counterparty, pos}, count ->
+      # Get the old position before updating
+      old_position = case Store.get_active(counterparty, product_group) do
+        {:ok, contract} -> contract.open_position
+        _ -> nil
+      end
+
       case Store.update_open_position(counterparty, product_group, pos.open_qty_mt) do
-        {:ok, _} -> count + 1
+        {:ok, updated_contract} ->
+          # If open position changed, regenerate the delivery schedule
+          if old_position != pos.open_qty_mt do
+            Logger.info(
+              "SAP position changed for #{counterparty}: " <>
+              "#{old_position || "nil"} → #{pos.open_qty_mt} MT — regenerating schedule"
+            )
+
+            Task.Supervisor.start_child(
+              TradingDesk.Contracts.TaskSupervisor,
+              fn ->
+                TradingDesk.Schedule.DeliveryScheduler.regenerate_for_contract(updated_contract)
+              end
+            )
+          end
+
+          count + 1
+
         {:error, _} -> count
       end
     end)

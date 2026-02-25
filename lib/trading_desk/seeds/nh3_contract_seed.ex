@@ -98,6 +98,10 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         case Store.ingest(contract) do
           {:ok, versioned} ->
             Writer.persist_contract(versioned)
+
+            # Generate scheduled deliveries for this contract
+            TradingDesk.Schedule.DeliveryScheduler.generate_from_contract(versioned)
+
             Logger.info("NH3ContractSeed: seeded #{versioned.counterparty} v#{versioned.version} (#{versioned.family_id})")
             {:ok, versioned}
 

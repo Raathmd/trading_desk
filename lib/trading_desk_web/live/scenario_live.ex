@@ -1137,8 +1137,13 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_info({:sap_position_changed, _payload}, socket) do
-    # SAP pushed a position update — refresh API status and contracts data
-    {:noreply, assign(socket, api_status: load_api_status(), contracts_data: load_contracts_data())}
+    # SAP pushed a position update — refresh API status, contracts, and schedule
+    pg = socket.assigns.product_group
+    {:noreply, assign(socket,
+      api_status: load_api_status(),
+      contracts_data: load_contracts_data(),
+      schedule_lines: DeliveryScheduler.build_schedule_from_db(pg)
+    )}
   end
 
   @impl true
@@ -2341,10 +2346,10 @@ defmodule TradingDesk.ScenarioLive do
                 <%!-- Empty state --%>
                 <div style="padding:40px;text-align:center;color:#7b8fa4">
                   <div style="font-size:32px;margin-bottom:12px">📋</div>
-                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No delivery lines loaded</div>
+                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No scheduled deliveries</div>
                   <div style="font-size:12px;margin-bottom:16px">
-                    Click <strong style="color:#f472b6">Reload</strong> to generate the schedule from SAP contract positions,
-                    or run a solve from the Trader tab to populate automatically.
+                    Ingest contracts via <strong style="color:#10b981">Scan Folder</strong> on the Contracts page,
+                    or run the seed to populate initial delivery lines.
                   </div>
                   <button phx-click="reload_schedule"
                     style="padding:10px 24px;border:none;border-radius:8px;background:#831843;color:#fce7f3;font-size:13px;font-weight:700;cursor:pointer">
@@ -2621,10 +2626,10 @@ defmodule TradingDesk.ScenarioLive do
                 <%!-- Empty state --%>
                 <div style="padding:40px;text-align:center;color:#7b8fa4">
                   <div style="font-size:32px;margin-bottom:12px">⚙️</div>
-                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No delivery lines loaded</div>
+                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No scheduled deliveries</div>
                   <div style="font-size:12px;margin-bottom:16px">
-                    Switch to the <strong style="color:#f472b6">Schedule</strong> tab and click Reload,
-                    or run and save a solve from the Trader tab.
+                    Ingest contracts via <strong style="color:#10b981">Scan Folder</strong> on the Contracts page,
+                    or run the seed to populate initial delivery lines.
                   </div>
                 </div>
               <% end %>
