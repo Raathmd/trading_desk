@@ -10,9 +10,12 @@ defmodule TradingDesk.Solver.Pipeline do
        b. Fetch changed files, extract via contract LLM, ingest
        c. Reload contract-derived variables
     3. Snapshot active contracts + variable sources (for audit)
-    4. Run the LP solve (single or Monte Carlo) with current data
-    5. Write audit record (immutable — contract versions, variables, result)
-    6. Return result
+    4. Frame solver input — LLM reads contract clauses + trader notes +
+       current data and produces variable adjustments (falls back to
+       mechanical ConstraintBridge if LLM unavailable)
+    5. Run the LP solve (single or Monte Carlo) with framed data
+    6. Write audit record (immutable — contract versions, variables, result)
+    7. Return result
 
   Every pipeline execution writes a `SolveAudit` record capturing exactly
   which contract versions and variable values were used. This enables:
@@ -26,9 +29,12 @@ defmodule TradingDesk.Solver.Pipeline do
   events and updates as each phase completes:
 
     :pipeline_started       — solve requested, checking contracts
-    :pipeline_contracts_ok  — contracts current, solving now
+    :pipeline_contracts_ok  — contracts current, framing now
     :pipeline_ingesting     — N contracts changed, ingesting first
-    :pipeline_ingest_done   — ingestion complete, solving now
+    :pipeline_ingest_done   — ingestion complete, framing now
+    :pipeline_framing       — LLM framing solver input from contracts + notes
+    :pipeline_framed        — framing complete, N adjustments applied
+    :pipeline_solving       — running solver with framed variables
     :pipeline_solve_done    — solve complete, result available
     :pipeline_error         — something failed
 
@@ -44,6 +50,7 @@ defmodule TradingDesk.Solver.Pipeline do
 
   alias TradingDesk.Contracts.{ScanCoordinator, NetworkScanner, Store, SapPositions}
   alias TradingDesk.Solver.{Port, SolveAudit, SolveAuditStore}
+  alias TradingDesk.LLM.PresolveFramer
   alias TradingDesk.Data.LiveState
   alias TradingDesk.ProductGroup
 
@@ -64,6 +71,8 @@ defmodule TradingDesk.Solver.Pipeline do
     :mode            — :solve or :monte_carlo (default: :solve)
     :n_scenarios     — Monte Carlo scenario count (default: 1000)
     :skip_contracts  — skip contract check (default: false)
+    :skip_framing    — skip LLM presolve framing (default: false)
+    :trader_notes    — free-text instructions from the trader (passed to LLM framer)
     :caller_ref      — opaque reference passed through to events
     :trader_id       — who triggered this solve (nil for auto-runner)
     :trigger         — :dashboard | :auto_runner | :api | :scheduled
@@ -74,6 +83,8 @@ defmodule TradingDesk.Solver.Pipeline do
     mode = Keyword.get(opts, :mode, :solve)
     n_scenarios = Keyword.get(opts, :n_scenarios, 1000)
     skip_contracts = Keyword.get(opts, :skip_contracts, false)
+    skip_framing = Keyword.get(opts, :skip_framing, false)
+    trader_notes = Keyword.get(opts, :trader_notes)
     caller_ref = Keyword.get(opts, :caller_ref)
     trader_id = Keyword.get(opts, :trader_id)
     trigger = Keyword.get(opts, :trigger, :dashboard)
@@ -121,118 +132,69 @@ defmodule TradingDesk.Solver.Pipeline do
       contracts_checked_at: if(audit.contracts_checked, do: DateTime.utc_now())
     }
 
-    case contract_result do
-      {:ok, _} ->
-        # Phase 2: Solve
-        broadcast(:pipeline_solving, %{
-          run_id: run_id,
-          mode: mode,
-          caller_ref: caller_ref
-        })
-
-        audit = %{audit | solve_started_at: DateTime.utc_now()}
-        solve_result = execute_solve(variables, product_group, mode, n_scenarios, solver_opts)
-
-        case solve_result do
-          {:ok, result} ->
-            completed_at = DateTime.utc_now()
-            audit = %{audit |
-              result: result,
-              result_status: extract_result_status(result, mode),
-              completed_at: completed_at
-            }
-
-            # Write the audit record
-            write_audit(audit)
-
-            broadcast(:pipeline_solve_done, %{
-              run_id: run_id,
-              mode: mode,
-              result: result,
-              audit_id: run_id,
-              caller_ref: caller_ref,
-              completed_at: completed_at
-            })
-
-            {:ok, %{
-              run_id: run_id,
-              audit_id: run_id,
-              result: result,
-              mode: mode,
-              contracts_checked: audit.contracts_checked,
-              completed_at: completed_at
-            }}
-
-          {:error, reason} ->
-            audit = %{audit |
-              result_status: :error,
-              completed_at: DateTime.utc_now()
-            }
-            write_audit(audit)
-
-            broadcast(:pipeline_error, %{
-              run_id: run_id,
-              phase: :solve,
-              error: reason,
-              caller_ref: caller_ref
-            })
-            {:error, {:solve_failed, reason}}
-        end
-
+    # Mark contract check result in audit
+    audit = case contract_result do
       {:error, reason} ->
-        # Contract check failed — solve anyway with stale data
         Logger.warning("Pipeline #{run_id}: contract check failed (#{inspect(reason)}), solving with existing data")
+        broadcast(:pipeline_contracts_stale, %{run_id: run_id, reason: reason, caller_ref: caller_ref})
+        %{audit | contracts_stale: true, contracts_stale_reason: reason}
+      {:ok, _} -> audit
+    end
 
+    # Phase 2: Presolve framing — LLM reads contracts + trader notes → variable adjustments
+    {framed_variables, framing_report, audit} =
+      frame_variables(variables, run_id, product_group, trader_notes, skip_framing, caller_ref, audit)
+
+    # Phase 3: Solve with framed variables
+    broadcast(:pipeline_solving, %{run_id: run_id, mode: mode, caller_ref: caller_ref})
+
+    audit = %{audit | solve_started_at: DateTime.utc_now()}
+    solve_result = execute_solve(framed_variables, product_group, mode, n_scenarios, solver_opts)
+
+    case solve_result do
+      {:ok, result} ->
+        completed_at = DateTime.utc_now()
         audit = %{audit |
-          contracts_stale: true,
-          contracts_stale_reason: reason
+          result: result,
+          result_status: extract_result_status(result, mode),
+          completed_at: completed_at
         }
 
-        broadcast(:pipeline_contracts_stale, %{
+        write_audit(audit)
+
+        broadcast(:pipeline_solve_done, %{
           run_id: run_id,
-          reason: reason,
-          caller_ref: caller_ref
+          mode: mode,
+          result: result,
+          audit_id: run_id,
+          caller_ref: caller_ref,
+          completed_at: completed_at,
+          contracts_stale: audit.contracts_stale,
+          framing_report: framing_report
         })
 
-        audit = %{audit | solve_started_at: DateTime.utc_now()}
-        solve_result = execute_solve(variables, product_group, mode, n_scenarios, solver_opts)
+        {:ok, %{
+          run_id: run_id,
+          audit_id: run_id,
+          result: result,
+          mode: mode,
+          contracts_checked: audit.contracts_checked,
+          contracts_stale: audit.contracts_stale,
+          framing_report: framing_report,
+          completed_at: completed_at
+        }}
 
-        case solve_result do
-          {:ok, result} ->
-            completed_at = DateTime.utc_now()
-            audit = %{audit |
-              result: result,
-              result_status: extract_result_status(result, mode),
-              completed_at: completed_at
-            }
+      {:error, reason} ->
+        audit = %{audit | result_status: :error, completed_at: DateTime.utc_now()}
+        write_audit(audit)
 
-            write_audit(audit)
-
-            broadcast(:pipeline_solve_done, %{
-              run_id: run_id,
-              mode: mode,
-              result: result,
-              contracts_stale: true,
-              audit_id: run_id,
-              caller_ref: caller_ref,
-              completed_at: completed_at
-            })
-
-            {:ok, %{
-              run_id: run_id,
-              audit_id: run_id,
-              result: result,
-              mode: mode,
-              contracts_checked: false,
-              contracts_stale_reason: reason,
-              completed_at: completed_at
-            }}
-
-          {:error, reason} ->
-            audit = %{audit | result_status: :error, completed_at: DateTime.utc_now()}
-            write_audit(audit)
-            {:error, {:solve_failed, reason}}
-        end
+        broadcast(:pipeline_error, %{
+          run_id: run_id,
+          phase: :solve,
+          error: reason,
+          caller_ref: caller_ref
+        })
+        {:error, {:solve_failed, reason}}
     end
   end
 
@@ -347,14 +309,67 @@ defmodule TradingDesk.Solver.Pipeline do
   end
 
   # ──────────────────────────────────────────────────────────
-  # PHASE 2: EXECUTE SOLVE
+  # PHASE 2: PRESOLVE FRAMING
   # ──────────────────────────────────────────────────────────
 
-  defp execute_solve(%TradingDesk.Variables{} = variables, product_group, mode, n_scenarios, solver_opts) do
-    # Convert struct to map so it takes the frame-ordered encoding path with solver_opts
-    var_map = Map.merge(ProductGroup.default_values(product_group || :ammonia_domestic), Map.from_struct(variables))
-    execute_solve(var_map, product_group || :ammonia_domestic, mode, n_scenarios, solver_opts)
+  defp frame_variables(variables, run_id, product_group, _trader_notes, true = _skip, _caller_ref, audit) do
+    Logger.info("Pipeline #{run_id}: skipping presolve framing")
+    var_map = ensure_var_map(variables, product_group)
+    {var_map, nil, audit}
   end
+
+  defp frame_variables(variables, run_id, product_group, trader_notes, _skip, caller_ref, audit) do
+    var_map = ensure_var_map(variables, product_group)
+
+    broadcast(:pipeline_framing, %{
+      run_id: run_id,
+      product_group: product_group,
+      has_trader_notes: trader_notes != nil and trader_notes != "",
+      caller_ref: caller_ref
+    })
+
+    Logger.info("Pipeline #{run_id}: presolve framing (contracts + trader notes → variable adjustments)")
+
+    case PresolveFramer.frame(var_map, product_group: product_group, trader_notes: trader_notes) do
+      {:ok, %{variables: framed, adjustments: adjustments} = report} ->
+        n_adj = length(adjustments)
+
+        broadcast(:pipeline_framed, %{
+          run_id: run_id,
+          adjustments: n_adj,
+          warnings: length(Map.get(report, :warnings, [])),
+          framing_notes: Map.get(report, :framing_notes),
+          caller_ref: caller_ref
+        })
+
+        Logger.info("Pipeline #{run_id}: framing complete — #{n_adj} adjustment(s)")
+        {framed, report, %{audit | framing_report: report, framing_completed_at: DateTime.utc_now()}}
+
+      {:error, reason} ->
+        Logger.warning("Pipeline #{run_id}: framing failed (#{inspect(reason)}), solving with unframed variables")
+
+        broadcast(:pipeline_framed, %{
+          run_id: run_id,
+          adjustments: 0,
+          warnings: ["Framing failed: #{inspect(reason)}"],
+          caller_ref: caller_ref
+        })
+
+        {var_map, nil, audit}
+    end
+  end
+
+  defp ensure_var_map(%TradingDesk.Variables{} = variables, product_group) do
+    Map.merge(
+      ProductGroup.default_values(product_group || :ammonia_domestic),
+      Map.from_struct(variables)
+    )
+  end
+  defp ensure_var_map(variables, _product_group) when is_map(variables), do: variables
+
+  # ──────────────────────────────────────────────────────────
+  # PHASE 3: EXECUTE SOLVE
+  # ──────────────────────────────────────────────────────────
 
   defp execute_solve(variables, product_group, :solve, _n_scenarios, solver_opts) when is_map(variables) do
     Port.solve(product_group, variables, solver_opts)

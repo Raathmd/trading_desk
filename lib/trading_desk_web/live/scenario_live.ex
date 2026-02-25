@@ -155,6 +155,11 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:show_presolve_explanations, false)
       |> assign(:hf_postsolve_explanations, [])
       |> assign(:hf_postsolve_loading, false)
+      # Presolve framing
+      |> assign(:framing_report, nil)
+      |> assign(:framing_preview, nil)
+      |> assign(:framing_preview_loading, false)
+      |> assign(:show_framing_preview, false)
 
     # Build the initial model summary from the fully-assigned socket
     socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
@@ -231,6 +236,37 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def handle_event("close_presolve_explanations", _params, socket) do
     {:noreply, assign(socket, show_presolve_explanations: false)}
+  end
+
+  @impl true
+  def handle_event("preview_framing", _params, socket) do
+    lv_pid = self()
+    vars = socket.assigns.current_vars
+    pg = socket.assigns.product_group
+    notes = socket.assigns[:scenario_description]
+    socket = assign(socket, framing_preview_loading: true, framing_preview: nil, show_framing_preview: true)
+
+    spawn(fn ->
+      try do
+        result = TradingDesk.LLM.PresolveFramer.frame(vars, product_group: pg, trader_notes: notes)
+        send(lv_pid, {:framing_preview_result, result})
+      rescue
+        e ->
+          Logger.error("PresolveFramer preview crashed: #{Exception.message(e)}")
+          send(lv_pid, {:framing_preview_result, {:error, :crash}})
+      catch
+        kind, reason ->
+          Logger.error("PresolveFramer preview error: #{kind} #{inspect(reason)}")
+          send(lv_pid, {:framing_preview_result, {:error, reason}})
+      end
+    end)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("close_framing_preview", _params, socket) do
+    {:noreply, assign(socket, show_framing_preview: false)}
   end
 
   @impl true
@@ -934,8 +970,11 @@ defmodule TradingDesk.ScenarioLive do
     vars = socket.assigns.current_vars
     pg = socket.assigns.product_group
     obj = socket.assigns.objective_mode
+    notes = socket.assigns[:scenario_description]
     solver_opts = [objective: obj]
-    Pipeline.solve_async(vars, product_group: pg, caller_ref: :trader_solve, solver_opts: solver_opts)
+    Pipeline.solve_async(vars,
+      product_group: pg, caller_ref: :trader_solve,
+      solver_opts: solver_opts, trader_notes: notes)
     {:noreply, socket}
   end
 
@@ -944,8 +983,11 @@ defmodule TradingDesk.ScenarioLive do
     vars = socket.assigns.current_vars
     pg = socket.assigns.product_group
     obj = socket.assigns.objective_mode
+    notes = socket.assigns[:scenario_description]
     solver_opts = [objective: obj]
-    Pipeline.monte_carlo_async(vars, product_group: pg, caller_ref: :trader_mc, solver_opts: solver_opts)
+    Pipeline.monte_carlo_async(vars,
+      product_group: pg, caller_ref: :trader_mc,
+      solver_opts: solver_opts, trader_notes: notes)
     {:noreply, socket}
   end
 
@@ -972,12 +1014,22 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, assign(socket, pipeline_phase: :solving, contracts_stale: true)}
   end
 
+  def handle_info({:pipeline_event, :pipeline_framing, %{caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
+    {:noreply, assign(socket, pipeline_phase: :framing, pipeline_detail: "LLM framing solver input from contracts")}
+  end
+
+  def handle_info({:pipeline_event, :pipeline_framed, %{adjustments: n, caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
+    detail = if n > 0, do: "#{n} contract adjustment#{if n != 1, do: "s", else: ""} applied", else: nil
+    {:noreply, assign(socket, pipeline_phase: :solving, pipeline_detail: detail)}
+  end
+
   def handle_info({:pipeline_event, :pipeline_solving, %{caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
     {:noreply, assign(socket, pipeline_phase: :solving)}
   end
 
   def handle_info({:pipeline_event, :pipeline_solve_done, %{mode: :solve, result: result, caller_ref: :trader_solve} = payload}, socket) do
     contracts_stale = Map.get(payload, :contracts_stale, false) or socket.assigns.contracts_stale
+    framing_report = Map.get(payload, :framing_report)
     delivery_impact = compute_delivery_impact(socket.assigns.intent, socket.assigns.product_group)
     socket = assign(socket,
       result: result,
@@ -985,6 +1037,7 @@ defmodule TradingDesk.ScenarioLive do
       pipeline_phase: nil,
       pipeline_detail: nil,
       contracts_stale: contracts_stale,
+      framing_report: framing_report,
       explanation: nil,
       explaining: true,
       delivery_impact: delivery_impact,
@@ -1059,6 +1112,7 @@ defmodule TradingDesk.ScenarioLive do
 
   def handle_info({:pipeline_event, :pipeline_solve_done, %{mode: :monte_carlo, result: dist, caller_ref: :trader_mc} = payload}, socket) do
     contracts_stale = Map.get(payload, :contracts_stale, false) or socket.assigns.contracts_stale
+    framing_report = Map.get(payload, :framing_report)
     pg = socket.assigns.product_group
     socket = assign(socket,
       distribution: dist,
@@ -1066,6 +1120,7 @@ defmodule TradingDesk.ScenarioLive do
       pipeline_phase: nil,
       pipeline_detail: nil,
       contracts_stale: contracts_stale,
+      framing_report: framing_report,
       explanation: nil,
       explaining: true,
       active_tab: :trader,
@@ -1240,6 +1295,14 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def handle_info({:hf_presolve_results, results}, socket) do
     {:noreply, assign(socket, hf_presolve_explanations: results, hf_presolve_loading: false)}
+  end
+
+  def handle_info({:framing_preview_result, result}, socket) do
+    preview = case result do
+      {:ok, report} -> report
+      {:error, _} -> %{adjustments: [], warnings: ["Framing failed — LLM may be unavailable"], framing_notes: "Error"}
+    end
+    {:noreply, assign(socket, framing_preview: preview, framing_preview_loading: false)}
   end
 
   @impl true
@@ -4417,15 +4480,24 @@ defmodule TradingDesk.ScenarioLive do
               </div>
             </div>
 
-            <%!-- HuggingFace Presolve Explanation --%>
-            <div style="margin-bottom:12px">
+            <%!-- Presolve LLM Actions --%>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+              <button phx-click="preview_framing"
+                disabled={@framing_preview_loading}
+                style={"width:100%;padding:10px;border:1px solid #0891b2;border-radius:8px;font-weight:700;font-size:11px;cursor:#{if @framing_preview_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#67e8f9;background:linear-gradient(135deg,#0a2540,#164e63)"}>
+                <%= if @framing_preview_loading do %>
+                  FRAMING...
+                <% else %>
+                  PREVIEW CONTRACT FRAMING
+                <% end %>
+              </button>
               <button phx-click="explain_presolve"
                 disabled={@hf_presolve_loading}
-                style={"width:100%;padding:10px;border:1px solid #6d28d9;border-radius:8px;font-weight:700;font-size:12px;cursor:#{if @hf_presolve_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#c4b5fd;background:linear-gradient(135deg,#1e1045,#2d1b69)"}>
+                style={"width:100%;padding:10px;border:1px solid #6d28d9;border-radius:8px;font-weight:700;font-size:11px;cursor:#{if @hf_presolve_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#c4b5fd;background:linear-gradient(135deg,#1e1045,#2d1b69)"}>
                 <%= if @hf_presolve_loading do %>
-                  GENERATING PRESOLVE EXPLANATIONS...
+                  EXPLAINING...
                 <% else %>
-                  EXPLAIN PRESOLVE MODEL (Local Mistral 7B)
+                  EXPLAIN MODEL
                 <% end %>
               </button>
             </div>
@@ -4479,7 +4551,82 @@ defmodule TradingDesk.ScenarioLive do
 
               <%= if @hf_presolve_explanations == [] and not @hf_presolve_loading do %>
                 <div style="font-size:13px;color:#7b8fa4;font-style:italic;padding:20px 0;text-align:center">
-                  Click "Explain Presolve Model" to generate explanations
+                  Click "Explain Model" to generate explanations
+                </div>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      <% end %>
+
+      <%!-- === CONTRACT FRAMING PREVIEW POPUP === --%>
+      <%= if @show_framing_preview do %>
+        <div style="position:fixed;inset:0;z-index:1100">
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.8)"
+               phx-click="close_framing_preview"></div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+            <div style="background:#111827;border:1px solid #0891b2;border-radius:12px;padding:24px;width:700px;max-height:85vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.6);pointer-events:auto">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <span style="font-size:14px;font-weight:700;color:#67e8f9;letter-spacing:1px">CONTRACT FRAMING PREVIEW</span>
+                <button phx-click="close_framing_preview" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
+              </div>
+
+              <%= if @framing_preview_loading do %>
+                <div style="display:flex;gap:8px;align-items:center;padding:20px 0">
+                  <div style="width:8px;height:8px;border-radius:50%;background:#22d3ee;animation:pulse 1s infinite"></div>
+                  <span style="font-size:13px;color:#94a3b8;font-style:italic">LLM reading contracts + trader notes, computing variable adjustments...</span>
+                </div>
+              <% end %>
+
+              <%= if @framing_preview do %>
+                <%!-- Adjustments table --%>
+                <%= if length(Map.get(@framing_preview, :adjustments, [])) > 0 do %>
+                  <div style="margin-bottom:14px">
+                    <div style="font-size:11px;color:#22d3ee;letter-spacing:1px;font-weight:700;margin-bottom:8px">VARIABLE ADJUSTMENTS (<%= length(@framing_preview.adjustments) %>)</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:12px">
+                      <thead><tr style="border-bottom:1px solid #1e293b">
+                        <th style="text-align:left;padding:4px;color:#7b8fa4">Variable</th>
+                        <th style="text-align:right;padding:4px;color:#7b8fa4">Current</th>
+                        <th style="text-align:right;padding:4px;color:#7b8fa4">Adjusted</th>
+                        <th style="text-align:left;padding:4px;color:#7b8fa4">Reason</th>
+                      </tr></thead>
+                      <tbody>
+                        <%= for adj <- @framing_preview.adjustments do %>
+                          <tr style="border-bottom:1px solid #1e293b11">
+                            <td style="padding:4px;color:#e2e8f0;font-weight:600;font-family:monospace"><%= adj.variable %></td>
+                            <td style="text-align:right;padding:4px;font-family:monospace;color:#94a3b8"><%= format_framing_value(adj.original) %></td>
+                            <td style={"text-align:right;padding:4px;font-family:monospace;font-weight:600;color:#{framing_delta_color(adj.original, adj.adjusted)}"}><%= format_framing_value(adj.adjusted) %></td>
+                            <td style="padding:4px;color:#94a3b8;font-size:11px"><%= adj.reason %></td>
+                          </tr>
+                        <% end %>
+                      </tbody>
+                    </table>
+                  </div>
+                <% else %>
+                  <div style="font-size:13px;color:#7b8fa4;font-style:italic;padding:12px 0">No variable adjustments from contracts.</div>
+                <% end %>
+
+                <%!-- Warnings --%>
+                <%= if length(Map.get(@framing_preview, :warnings, [])) > 0 do %>
+                  <div style="margin-bottom:14px">
+                    <div style="font-size:11px;color:#f59e0b;letter-spacing:1px;font-weight:700;margin-bottom:6px">WARNINGS</div>
+                    <%= for w <- @framing_preview.warnings do %>
+                      <div style="font-size:12px;color:#fbbf24;padding:4px 8px;background:#1c1305;border-radius:4px;margin-bottom:4px;border-left:2px solid #f59e0b"><%= w %></div>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <%!-- Framing notes --%>
+                <%= if Map.get(@framing_preview, :framing_notes) do %>
+                  <div style="font-size:12px;color:#94a3b8;line-height:1.5;padding:8px;background:#0a0f18;border-radius:6px;border:1px solid #1e293b">
+                    <span style="font-size:11px;color:#67e8f9;font-weight:700">LLM NOTE: </span><%= @framing_preview.framing_notes %>
+                  </div>
+                <% end %>
+              <% end %>
+
+              <%= if @framing_preview == nil and not @framing_preview_loading do %>
+                <div style="font-size:13px;color:#7b8fa4;font-style:italic;padding:20px 0;text-align:center">
+                  Click "Preview Contract Framing" to see how contracts will adjust solver variables
                 </div>
               <% end %>
             </div>
@@ -5114,18 +5261,31 @@ defmodule TradingDesk.ScenarioLive do
 
   defp pipeline_phase_text(:checking_contracts), do: "Checking contract hashes"
   defp pipeline_phase_text(:ingesting), do: "Waiting for contract LLM to ingest changes"
+  defp pipeline_phase_text(:framing), do: "LLM framing solver input from contracts"
   defp pipeline_phase_text(:solving), do: "Running solver"
   defp pipeline_phase_text(_), do: "Working"
 
   defp pipeline_bg(:checking_contracts), do: "#0c1629"
   defp pipeline_bg(:ingesting), do: "#1a1400"
+  defp pipeline_bg(:framing), do: "#0a2540"
   defp pipeline_bg(:solving), do: "#0c1629"
   defp pipeline_bg(_), do: "#0c1629"
 
   defp pipeline_border(:checking_contracts), do: "#1e3a5f"
   defp pipeline_border(:ingesting), do: "#78350f"
+  defp pipeline_border(:framing), do: "#0891b2"
   defp pipeline_border(:solving), do: "#1e3a5f"
   defp pipeline_border(_), do: "#1e293b"
+
+  defp format_framing_value(nil), do: "—"
+  defp format_framing_value(v) when is_float(v), do: :erlang.float_to_binary(v, decimals: 2)
+  defp format_framing_value(v) when is_integer(v), do: Integer.to_string(v)
+  defp format_framing_value(v), do: inspect(v)
+
+  defp framing_delta_color(original, adjusted) when is_number(original) and is_number(adjusted) do
+    if adjusted > original, do: "#4ade80", else: "#f87171"
+  end
+  defp framing_delta_color(_, _), do: "#e2e8f0"
 
   defp pipeline_dot(:checking_contracts), do: "#38bdf8"
   defp pipeline_dot(:ingesting), do: "#f59e0b"
