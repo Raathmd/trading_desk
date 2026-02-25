@@ -3,9 +3,7 @@ defmodule TradingDesk.LLM.PresolveFramer do
   LLM-driven presolve framing: translates contract clauses + live data +
   trader free-text into concrete solver variable adjustments.
 
-  The ConstraintBridge handled two mechanical paths (direct bounds and
-  penalty margin). This module replaces that with a local LLM call that
-  can reason about:
+  Uses the local Mistral 7B model (via Bumblebee/Nx.Serving) to reason about:
 
     - Formula-based pricing ("NOLA spot + $15 premium")
     - Conditional triggers ("if river stage < 5ft, price escalates")
@@ -27,14 +25,12 @@ defmodule TradingDesk.LLM.PresolveFramer do
         │
         ▼
       Apply adjustments to variable map → return framed variables
-
-  Falls back to mechanical ConstraintBridge if LLM is unavailable.
   """
 
   require Logger
 
   alias TradingDesk.LLM.Pool
-  alias TradingDesk.Contracts.{Store, Clause}
+  alias TradingDesk.Contracts.Store
   alias TradingDesk.ProductGroup
 
   @default_model :mistral_7b
@@ -79,8 +75,7 @@ defmodule TradingDesk.LLM.PresolveFramer do
           apply_framing(variables, response, product_group)
 
         {:error, reason} ->
-          Logger.warning("PresolveFramer: LLM unavailable (#{inspect(reason)}), falling back to ConstraintBridge")
-          fallback_mechanical(variables, product_group)
+          {:error, reason}
       end
     end
   end
@@ -312,139 +307,6 @@ defmodule TradingDesk.LLM.PresolveFramer do
       warnings: warnings,
       framing_notes: framing_notes
     }}
-  end
-
-  # ──────────────────────────────────────────────────────────
-  # FALLBACK: MECHANICAL CONSTRAINT BRIDGE
-  # ──────────────────────────────────────────────────────────
-
-  defp fallback_mechanical(variables, product_group) do
-    active = Store.get_active_set(product_group)
-
-    {adjusted_vars, applied} =
-      Enum.reduce(active, {variables, []}, fn contract, {vars, acc} ->
-        apply_contract_mechanical(vars, contract, acc)
-      end)
-
-    {adjusted_vars, penalty_applied} =
-      apply_penalty_mechanical(adjusted_vars, active)
-
-    all_applied = applied ++ penalty_applied
-
-    if length(all_applied) > 0 do
-      Logger.info("PresolveFramer fallback: applied #{length(all_applied)} mechanical constraint(s)")
-    end
-
-    {:ok, %{
-      variables: adjusted_vars,
-      adjustments: Enum.map(all_applied, fn a ->
-        %{variable: a[:parameter], original: a[:original], adjusted: a[:applied], reason: "mechanical fallback"}
-      end),
-      warnings: ["LLM unavailable — using mechanical constraint application only"],
-      framing_notes: "Fallback: mechanical ConstraintBridge logic (direct bounds + penalty margin)"
-    }}
-  end
-
-  defp apply_contract_mechanical(vars, contract, applied) do
-    (contract.clauses || [])
-    |> Enum.filter(fn clause ->
-      Clause.parameter(clause) != nil and Clause.operator(clause) != nil
-    end)
-    |> Enum.reduce({vars, applied}, fn clause, {v, acc} ->
-      param = Clause.parameter(clause)
-      current = Map.get(v, param)
-
-      if is_nil(current) do
-        {v, acc}
-      else
-        new_value = compute_bound(clause, current)
-
-        if new_value != current do
-          {Map.put(v, param, new_value),
-           [%{parameter: param, original: current, applied: new_value,
-              counterparty: contract.counterparty, clause_id: clause.clause_id} | acc]}
-        else
-          {v, acc}
-        end
-      end
-    end)
-  end
-
-  defp compute_bound(clause, current) do
-    op = Clause.operator(clause)
-    val = Clause.value(clause)
-
-    case op do
-      :>= when is_number(val) -> max(current, val)
-      :<= when is_number(val) -> min(current, val)
-      :== when is_number(val) -> val
-      :between ->
-        upper = Clause.value_upper(clause)
-        if is_number(val) and is_number(upper) do
-          current |> max(val) |> min(upper)
-        else
-          current
-        end
-      _ -> current
-    end
-  end
-
-  defp apply_penalty_mechanical(vars, contracts) do
-    # Weighted-average penalty reduction on sell prices
-    {stl_num, stl_den, mem_num, mem_den} =
-      Enum.reduce(contracts, {0.0, 0.0, 0.0, 0.0}, fn contract, acc ->
-        if contract.counterparty_type == :customer do
-          penalties = extract_penalties(contract)
-          rate = Enum.reduce(penalties, 0.0, fn {_type, r}, a -> a + r end)
-          open = max(contract.open_position || 0, 0) / 1.0
-
-          if rate > 0 and open > 0 do
-            {sn, sd, mn, md} = acc
-            # Split equally when destination unknown
-            half = open / 2.0
-            {sn + half * rate, sd + half, mn + half * rate, md + half}
-          else
-            acc
-          end
-        else
-          acc
-        end
-      end)
-
-    stl_reduction = if stl_den > 0, do: Float.round(stl_num / stl_den, 2), else: 0.0
-    mem_reduction = if mem_den > 0, do: Float.round(mem_num / mem_den, 2), else: 0.0
-
-    sell_stl = Map.get(vars, :sell_stl)
-    sell_mem = Map.get(vars, :sell_mem)
-    stl_adj = if is_number(sell_stl), do: min(stl_reduction, sell_stl * 0.10), else: 0.0
-    mem_adj = if is_number(sell_mem), do: min(mem_reduction, sell_mem * 0.10), else: 0.0
-
-    Enum.reduce(
-      [{:sell_stl, stl_adj}, {:sell_mem, mem_adj}],
-      {vars, []},
-      fn {param, adj}, {v, acc} ->
-        current = Map.get(v, param)
-        if is_number(current) and adj > 0 do
-          new_val = Float.round(current - adj, 2)
-          {Map.put(v, param, new_val),
-           [%{parameter: param, original: current, applied: new_val,
-              counterparty: "penalty_adjustment", clause_id: "PENALTY_MARGIN"} | acc]}
-        else
-          {v, acc}
-        end
-      end
-    )
-  end
-
-  defp extract_penalties(contract) do
-    (contract.clauses || [])
-    |> Enum.filter(fn clause ->
-      rate = Clause.penalty_per_unit(clause)
-      is_number(rate) and rate > 0
-    end)
-    |> Enum.map(fn clause ->
-      {clause.clause_id || "general_penalty", Clause.penalty_per_unit(clause)}
-    end)
   end
 
   # ──────────────────────────────────────────────────────────
