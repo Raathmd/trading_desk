@@ -563,11 +563,13 @@ defmodule TradingDesk.ScenarioLive do
         :fleet ->
           assign_fleet(socket, socket.assigns.fleet_pg_filter)
         :schedule ->
-          assign(socket, schedule_lines: DeliveryScheduler.build_schedule())
+          pg = socket.assigns.product_group
+          assign(socket, schedule_lines: DeliveryScheduler.build_schedule_from_db(pg))
         :workflow ->
           # Load schedule lines if not yet loaded (shared source of truth with schedule tab)
+          pg = socket.assigns.product_group
           socket = if socket.assigns.schedule_lines == [],
-            do: assign(socket, schedule_lines: DeliveryScheduler.build_schedule()),
+            do: assign(socket, schedule_lines: DeliveryScheduler.build_schedule_from_db(pg)),
             else: socket
           pg = to_string(socket.assigns.product_group)
           changes = safe_call(fn -> PendingDeliveryChange.list_for_product_group(pg, socket.assigns.workflow_status_filter) end, [])
@@ -585,8 +587,8 @@ defmodule TradingDesk.ScenarioLive do
   def handle_event("refresh_schedule_summary", _params, socket) do
     lines = case socket.assigns.schedule_lines do
       [] ->
-        loaded = DeliveryScheduler.build_schedule()
-        loaded
+        pg = socket.assigns.product_group
+        DeliveryScheduler.build_schedule_from_db(pg)
       existing -> existing
     end
 
@@ -605,7 +607,8 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_event("reload_schedule", _params, socket) do
-    lines = DeliveryScheduler.build_schedule()
+    pg = socket.assigns.product_group
+    lines = DeliveryScheduler.build_schedule_from_db(pg)
     {:noreply, assign(socket, schedule_lines: lines, schedule_summary: nil)}
   end
 

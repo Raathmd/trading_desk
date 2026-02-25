@@ -196,7 +196,37 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
   end
 
   @doc """
-  List all persisted scheduled deliveries for a product group.
+  Build the delivery schedule from persisted `scheduled_deliveries` records.
+
+  Returns the same map shape as `build_schedule/0` so the Schedule tab
+  can use either source interchangeably. Falls back to `build_schedule/0`
+  (SAP-position-based) when no DB records exist.
+  """
+  @spec build_schedule_from_db(atom()) :: [map()]
+  def build_schedule_from_db(product_group \\ :ammonia) do
+    pg = to_string(product_group)
+
+    records =
+      from(sd in ScheduledDelivery,
+        where: sd.product_group == ^pg,
+        order_by: [asc: sd.required_date]
+      )
+      |> Repo.all()
+
+    if records == [] do
+      # Fallback to in-memory SAP-position-based schedule
+      build_schedule()
+    else
+      Enum.map(records, &db_record_to_line/1)
+    end
+  rescue
+    e ->
+      Logger.error("build_schedule_from_db failed: #{Exception.message(e)}")
+      build_schedule()
+  end
+
+  @doc """
+  List raw persisted scheduled delivery records for a product group.
   """
   @spec list_deliveries(atom()) :: [map()]
   def list_deliveries(product_group) do
@@ -207,6 +237,41 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
       order_by: [asc: sd.required_date]
     )
     |> Repo.all()
+  end
+
+  # Convert a DB ScheduledDelivery record to the map shape the Schedule tab expects
+  defp db_record_to_line(%ScheduledDelivery{} = sd) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    %{
+      id:               "#{sd.contract_number || "?"}-#{String.pad_leading("#{sd.delivery_index || 0}", 2, "0")}",
+      counterparty:     sd.counterparty,
+      contract_number:  sd.contract_number,
+      sap_contract_id:  sd.sap_contract_id,
+      direction:        safe_atom(sd.direction, :sale),
+      incoterm:         safe_atom(sd.incoterm, :fob),
+      product_group:    safe_atom(sd.product_group, :ammonia),
+      quantity_mt:      sd.quantity_mt || 0.0,
+      required_date:    sd.required_date,
+      estimated_date:   sd.estimated_date || sd.required_date,
+      delay_days:       sd.delay_days || 0,
+      status:           safe_atom(sd.status, :on_track),
+      delivery_status:  :open,
+      delivery_index:   sd.delivery_index || 1,
+      total_deliveries: sd.total_deliveries || 1,
+      destination:      safe_atom(sd.destination, :unknown),
+      notes:            sd.notes,
+      sap_created_at:   sd.inserted_at || now,
+      sap_updated_at:   sd.updated_at || now
+    }
+  end
+
+  defp safe_atom(nil, default), do: default
+  defp safe_atom(val, _default) when is_atom(val), do: val
+  defp safe_atom(val, default) when is_binary(val) do
+    String.to_existing_atom(val)
+  rescue
+    ArgumentError -> default
   end
 
   defp spread_annual(open_qty, today, contract) do
