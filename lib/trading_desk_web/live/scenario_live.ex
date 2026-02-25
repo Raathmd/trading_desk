@@ -149,6 +149,12 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:model_summary, "")
       |> assign(:scenario_description, "")
       |> assign(:trader_sub_tab, :scenario)
+      # HuggingFace multi-model explanations
+      |> assign(:hf_presolve_explanations, [])
+      |> assign(:hf_presolve_loading, false)
+      |> assign(:show_presolve_explanations, false)
+      |> assign(:hf_postsolve_explanations, [])
+      |> assign(:hf_postsolve_loading, false)
 
     # Build the initial model summary from the fully-assigned socket
     socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
@@ -193,6 +199,38 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def handle_event("toggle_anon_preview", _params, socket) do
     {:noreply, assign(socket, :show_anon_preview, !socket.assigns.show_anon_preview)}
+  end
+
+  @impl true
+  def handle_event("explain_presolve", _params, socket) do
+    # Launch HF models to explain the presolve frame
+    lv_pid = self()
+    model_summary = socket.assigns.model_summary
+    objective = socket.assigns.objective_mode
+    socket = assign(socket, hf_presolve_loading: true, hf_presolve_explanations: [], show_presolve_explanations: true)
+
+    spawn(fn ->
+      try do
+        book = TradingDesk.Contracts.SapPositions.book_summary()
+        results = TradingDesk.LLM.PresolveExplainer.explain_all(model_summary, book, objective)
+        send(lv_pid, {:hf_presolve_results, results})
+      rescue
+        e ->
+          Logger.error("PresolveExplainer crashed: #{Exception.message(e)}")
+          send(lv_pid, {:hf_presolve_results, []})
+      catch
+        kind, reason ->
+          Logger.error("PresolveExplainer error: #{kind} #{inspect(reason)}")
+          send(lv_pid, {:hf_presolve_results, []})
+      end
+    end)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("close_presolve_explanations", _params, socket) do
+    {:noreply, assign(socket, show_presolve_explanations: false)}
   end
 
   @impl true
@@ -949,7 +987,9 @@ defmodule TradingDesk.ScenarioLive do
       delivery_impact: delivery_impact,
       ops_sent: false,
       active_tab: :trader,
-      trader_sub_tab: :response
+      trader_sub_tab: :response,
+      hf_postsolve_explanations: [],
+      hf_postsolve_loading: true
     )
     vars = socket.assigns.current_vars
     intent = socket.assigns.intent
@@ -958,6 +998,7 @@ defmodule TradingDesk.ScenarioLive do
     trader_action  = socket.assigns.trader_action || ""
     trader_scenario = if scenario_desc != "", do: scenario_desc, else: trader_action
     objective = socket.assigns.objective_mode
+    pg = socket.assigns.product_group
     lv_pid = self()
 
     # Update delivery schedule estimated dates based on this solve result
@@ -971,7 +1012,7 @@ defmodule TradingDesk.ScenarioLive do
         socket
       end
 
-    # Spawn explanation + post-solve impact analysis
+    # Spawn explanation + post-solve impact analysis (Claude)
     spawn(fn ->
       try do
         case TradingDesk.Analyst.explain_solve_with_impact(vars, result, intent, trader_scenario, objective) do
@@ -994,11 +1035,28 @@ defmodule TradingDesk.ScenarioLive do
           send(lv_pid, {:explanation_result, {:error, "#{kind}: #{inspect(reason)}"}})
       end
     end)
+
+    # Spawn HuggingFace model explanations in parallel
+    spawn(fn ->
+      try do
+        results = TradingDesk.LLM.PostsolveExplainer.explain_all(vars, result, pg, objective)
+        send(lv_pid, {:hf_postsolve_results, results})
+      rescue
+        e ->
+          Logger.error("HF PostsolveExplainer crashed: #{Exception.message(e)}")
+          send(lv_pid, {:hf_postsolve_results, []})
+      catch
+        kind, reason ->
+          Logger.error("HF PostsolveExplainer error: #{kind} #{inspect(reason)}")
+          send(lv_pid, {:hf_postsolve_results, []})
+      end
+    end)
     {:noreply, socket}
   end
 
   def handle_info({:pipeline_event, :pipeline_solve_done, %{mode: :monte_carlo, result: dist, caller_ref: :trader_mc} = payload}, socket) do
     contracts_stale = Map.get(payload, :contracts_stale, false) or socket.assigns.contracts_stale
+    pg = socket.assigns.product_group
     socket = assign(socket,
       distribution: dist,
       solving: false,
@@ -1008,7 +1066,9 @@ defmodule TradingDesk.ScenarioLive do
       explanation: nil,
       explaining: true,
       active_tab: :trader,
-      trader_sub_tab: :response
+      trader_sub_tab: :response,
+      hf_postsolve_explanations: [],
+      hf_postsolve_loading: true
     )
     vars = socket.assigns.current_vars
     lv_pid = self()
@@ -1042,6 +1102,22 @@ defmodule TradingDesk.ScenarioLive do
         kind, reason ->
           Logger.error("Analyst explain_distribution crashed: #{kind} #{inspect(reason)}")
           send(lv_pid, {:explanation_result, {:error, "#{kind}: #{inspect(reason)}"}})
+      end
+    end)
+
+    # Spawn HuggingFace model explanations for MC distribution
+    spawn(fn ->
+      try do
+        results = TradingDesk.LLM.PostsolveExplainer.explain_distribution_all(vars, dist, pg)
+        send(lv_pid, {:hf_postsolve_results, results})
+      rescue
+        e ->
+          Logger.error("HF PostsolveExplainer MC crashed: #{Exception.message(e)}")
+          send(lv_pid, {:hf_postsolve_results, []})
+      catch
+        kind, reason ->
+          Logger.error("HF PostsolveExplainer MC error: #{kind} #{inspect(reason)}")
+          send(lv_pid, {:hf_postsolve_results, []})
       end
     end)
     {:noreply, socket}
@@ -1151,6 +1227,16 @@ defmodule TradingDesk.ScenarioLive do
 
   def handle_info({:explanation_result, text}, socket) do
     {:noreply, assign(socket, explanation: text, explaining: false)}
+  end
+
+  @impl true
+  def handle_info({:hf_presolve_results, results}, socket) do
+    {:noreply, assign(socket, hf_presolve_explanations: results, hf_presolve_loading: false)}
+  end
+
+  @impl true
+  def handle_info({:hf_postsolve_results, results}, socket) do
+    {:noreply, assign(socket, hf_postsolve_explanations: results, hf_postsolve_loading: false)}
   end
 
   @impl true
@@ -1605,6 +1691,39 @@ defmodule TradingDesk.ScenarioLive do
                   <div style="font-size:13px;color:#7b8fa4;font-style:italic">Analysis will appear here after SOLVE or MONTE CARLO</div>
               <% end %>
             </div>
+
+            <%!-- HuggingFace Model Explanations --%>
+            <%= if @hf_postsolve_loading or @hf_postsolve_explanations != [] do %>
+              <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:10px;padding:20px;margin-bottom:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                  <span style="font-size:12px;color:#a78bfa;font-weight:700;letter-spacing:1px">HF MODEL EXPLANATIONS</span>
+                  <%= if @hf_postsolve_loading do %>
+                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating from HuggingFace models...</span>
+                  <% end %>
+                </div>
+
+                <%= for {_model_id, model_name, result} <- @hf_postsolve_explanations do %>
+                  <div style="background:#060a11;border:1px solid #1e293b;border-radius:8px;padding:14px;margin-bottom:10px">
+                    <div style="font-size:11px;color:#c4b5fd;letter-spacing:1px;font-weight:700;margin-bottom:6px"><%= model_name %></div>
+                    <%= case result do %>
+                      <% {:ok, text} -> %>
+                        <div style="font-size:13px;color:#e2e8f0;line-height:1.7;white-space:pre-wrap"><%= text %></div>
+                      <% {:error, {:model_loading, wait}} -> %>
+                        <div style="font-size:12px;color:#fbbf24">Model is loading (estimated ~<%= round(wait) %>s). Re-run after it warms up.</div>
+                      <% {:error, _reason} -> %>
+                        <div style="font-size:12px;color:#f87171">Model unavailable — check HUGGINGFACE_API_KEY</div>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <%= if @hf_postsolve_loading and @hf_postsolve_explanations == [] do %>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <div style="width:6px;height:6px;border-radius:50%;background:#a78bfa;animation:pulse 1s infinite"></div>
+                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">Waiting for HuggingFace model responses...</span>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
 
             <%!-- Solve result: optimal --%>
             <%= if @result && @result.status == :optimal do %>
@@ -3118,6 +3237,7 @@ defmodule TradingDesk.ScenarioLive do
                   %{id: "aishub",        free: false, label: "AISHub (fallback)",        url_placeholder: "",                                     key_placeholder: "AISHUB_API_KEY",        variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #2"},
                   # ── AI / LLM ───────────────────────────────────────────────────────────
                   %{id: "anthropic",     free: false, label: "Anthropic Claude",         url_placeholder: "https://api.anthropic.com",            key_placeholder: "ANTHROPIC_API_KEY",     variables: ~w(analyst_explanation intent_map),                note: "Analyst explanations & intent mapper"},
+                  %{id: "huggingface",   free: false, label: "HuggingFace Inference",    url_placeholder: "https://api-inference.huggingface.co",  key_placeholder: "HUGGINGFACE_API_KEY",   variables: ~w(presolve_explanation postsolve_explanation),    note: "HF model explanations (Mistral 7B + add more in ModelRegistry)"},
                   %{id: "copilot",       free: false, label: "Copilot / LLM",            url_placeholder: "https://api.openai.com/v1",            key_placeholder: "COPILOT_API_KEY",       variables: ~w(contract_extraction),                           note: "Contract extraction (OpenAI-compatible endpoint)"},
                   # ── Free / Public APIs (no key — URL hardcoded) ────────────────────────
                   %{id: "usgs",          free: true,  label: "USGS Water Services",      url_placeholder: "https://waterservices.usgs.gov/nwis/iv/", key_placeholder: "",                   variables: ~w(river_stage),                                   note: "Public API — 4 Mississippi gauges · no key required"},
@@ -4289,6 +4409,19 @@ defmodule TradingDesk.ScenarioLive do
               </div>
             </div>
 
+            <%!-- HuggingFace Presolve Explanation --%>
+            <div style="margin-bottom:12px">
+              <button phx-click="explain_presolve"
+                disabled={@hf_presolve_loading}
+                style={"width:100%;padding:10px;border:1px solid #6d28d9;border-radius:8px;font-weight:700;font-size:12px;cursor:#{if @hf_presolve_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#c4b5fd;background:linear-gradient(135deg,#1e1045,#2d1b69)"}>
+                <%= if @hf_presolve_loading do %>
+                  GENERATING PRESOLVE EXPLANATIONS...
+                <% else %>
+                  EXPLAIN PRESOLVE MODEL (HuggingFace)
+                <% end %>
+              </button>
+            </div>
+
             <%!-- Action buttons --%>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
               <button phx-click="cancel_review"
@@ -4300,6 +4433,47 @@ defmodule TradingDesk.ScenarioLive do
                 CONFIRM <%= if @review_mode == :monte_carlo, do: "MONTE CARLO", else: "SOLVE" %>
               </button>
             </div>
+            </div>
+          </div>
+        </div>
+      <% end %>
+
+      <%!-- === PRESOLVE EXPLANATIONS POPUP === --%>
+      <%= if @show_presolve_explanations do %>
+        <div style="position:fixed;inset:0;z-index:1100">
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.8)"
+               phx-click="close_presolve_explanations"></div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+            <div style="background:#111827;border:1px solid #6d28d9;border-radius:12px;padding:24px;width:700px;max-height:85vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.6);pointer-events:auto">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <span style="font-size:14px;font-weight:700;color:#c4b5fd;letter-spacing:1px">PRESOLVE MODEL EXPLANATIONS</span>
+                <button phx-click="close_presolve_explanations" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
+              </div>
+
+              <%= if @hf_presolve_loading do %>
+                <div style="display:flex;gap:8px;align-items:center;padding:20px 0">
+                  <div style="width:8px;height:8px;border-radius:50%;background:#a78bfa;animation:pulse 1s infinite"></div>
+                  <span style="font-size:13px;color:#94a3b8;font-style:italic">Generating explanations from HuggingFace models...</span>
+                </div>
+              <% end %>
+
+              <%= for {model_id, model_name, result} <- @hf_presolve_explanations do %>
+                <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:8px;padding:14px;margin-bottom:12px">
+                  <div style="font-size:11px;color:#a78bfa;letter-spacing:1px;font-weight:700;margin-bottom:8px"><%= model_name %></div>
+                  <%= case result do %>
+                    <% {:ok, text} -> %>
+                      <div style="font-size:13px;color:#e2e8f0;line-height:1.7;white-space:pre-wrap"><%= text %></div>
+                    <% {:error, reason} -> %>
+                      <div style="font-size:12px;color:#f87171"><%= hf_error_text(model_id, reason) %></div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <%= if @hf_presolve_explanations == [] and not @hf_presolve_loading do %>
+                <div style="font-size:13px;color:#7b8fa4;font-style:italic;padding:20px 0;text-align:center">
+                  Click "Explain Presolve Model" to generate explanations
+                </div>
+              <% end %>
             </div>
           </div>
         </div>
@@ -4911,6 +5085,14 @@ defmodule TradingDesk.ScenarioLive do
   defp analyst_error_text(:request_failed), do: "Could not reach Claude API. Check network connectivity."
   defp analyst_error_text(msg) when is_binary(msg), do: "Analyst crashed: #{msg}"
   defp analyst_error_text(reason), do: "Analyst error: #{inspect(reason)}"
+
+  defp hf_error_text(_model_id, :no_api_key), do: "HUGGINGFACE_API_KEY not set. Export it to enable HF model explanations."
+  defp hf_error_text(_model_id, {:model_loading, wait}), do: "Model is loading (estimated ~#{round(wait)}s). Try again shortly."
+  defp hf_error_text(_model_id, :rate_limited), do: "Rate limited by HuggingFace. Wait a moment and retry."
+  defp hf_error_text(_model_id, {:api_error, status}), do: "HuggingFace API error (HTTP #{status}). Check logs."
+  defp hf_error_text(_model_id, :request_failed), do: "Could not reach HuggingFace API. Check network."
+  defp hf_error_text(_model_id, :timeout), do: "Model timed out. It may be loading — try again."
+  defp hf_error_text(_model_id, reason), do: "HF model error: #{inspect(reason)}"
 
   defp pipeline_button_text(false, _, label), do: "⚡ #{label}"
   defp pipeline_button_text(true, :checking_contracts, _), do: "📋 CHECKING CONTRACTS..."
