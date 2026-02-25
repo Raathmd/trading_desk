@@ -7,19 +7,20 @@ defmodule TradingDesk.Contracts.FolderScanner do
   1. Scan configured folder for supported files (.pdf, .docx, .docm, .txt)
   2. Compute SHA-256 hash for each file on disk
   3. Compare against contracts in the database:
-     - **New file** (hash not in DB)        → extract via Copilot LLM (fallback: Parser)
-     - **Changed file** (same name, new hash) → re-extract via Copilot, delete old schedules
+     - **New file** (hash not in DB)        → extract clauses via local LLM
+     - **Changed file** (same name, new hash) → re-extract clauses, delete old schedules
      - **Missing file** (in DB, not on disk)  → soft-delete (set deleted_at)
-  4. Generate scheduled deliveries for each ingested contract
+  4. Store contract with clauses directly into Store (contracts table)
+  5. Generate scheduled deliveries for each ingested contract
+  6. SAP-closed contracts are also soft-deleted
 
   ## Clause extraction
 
-  New and changed files are sent through **CopilotClient LLM extraction** first,
-  which captures nuanced clause changes (pricing, penalties, delivery terms) that
-  affect solver input via the ConstraintBridge. If Copilot is unavailable, falls
-  back to the deterministic Parser via Inventory.ingest_file/2.
-
-  5. SAP-closed contracts are also soft-deleted
+  Contract text is read via DocumentReader, then sent to the **local LLM**
+  (Mistral 7B via Bumblebee/Nx.Serving) for structured clause extraction.
+  The LLM returns JSON with clause data that maps directly to Clause structs
+  used by the solver's ConstraintBridge. Falls back to the deterministic
+  Parser if the local LLM is unavailable.
 
   ## Contract key
 
@@ -34,16 +35,18 @@ defmodule TradingDesk.Contracts.FolderScanner do
   """
 
   alias TradingDesk.Contracts.{
-    CopilotClient,
-    CopilotIngestion,
+    Clause,
+    Contract,
     DocumentReader,
     HashVerifier,
-    Inventory,
+    Parser,
     SapPositions,
-    Store
+    Store,
+    TemplateRegistry
   }
 
   alias TradingDesk.DB.ScheduledDelivery
+  alias TradingDesk.LLM.{Pool, ModelRegistry}
   alias TradingDesk.Schedule.DeliveryScheduler
   alias TradingDesk.Repo
 
@@ -85,12 +88,12 @@ defmodule TradingDesk.Contracts.FolderScanner do
 
       # Ingest new files
       new_results = Enum.map(new_files, fn {path, _hash} ->
-        ingest_new(path, product_group, opts)
+        ingest_new(path, product_group)
       end)
 
-      # Re-ingest changed files (delete old schedules, create new)
+      # Re-ingest changed files (delete old schedules, re-extract clauses)
       changed_results = Enum.map(changed_files, fn {path, _new_hash, contract} ->
-        reingest_changed(path, contract, product_group, opts)
+        reingest_changed(path, contract, product_group)
       end)
 
       # Soft-delete contracts whose files are missing from disk
@@ -129,12 +132,9 @@ defmodule TradingDesk.Contracts.FolderScanner do
     Logger.info("FolderScanner: REIMPORT ALL for #{product_group}")
     broadcast(:reimport_started, %{product_group: product_group})
 
-    # Step 1: Delete all scheduled deliveries for this product group
     deleted_count = clear_schedules(product_group)
     Logger.info("FolderScanner: cleared #{deleted_count} scheduled deliveries")
 
-    # Step 2: Full scan (will ingest everything as new since we don't
-    # reset the contracts table — but changed hashes create new versions)
     result = scan(product_group, opts)
 
     case result do
@@ -186,6 +186,23 @@ defmodule TradingDesk.Contracts.FolderScanner do
   def watch_dir do
     System.get_env("CONTRACT_WATCH_DIR") ||
       Path.join(:code.priv_dir(:trading_desk) |> to_string(), "contracts")
+  end
+
+  @doc """
+  Derive counterparty name from filename convention.
+  e.g., "Koch_Fertilizer_purchase_2026.docx" -> "Koch Fertilizer"
+  """
+  def derive_counterparty(filename) do
+    filename
+    |> Path.rootname()
+    |> String.replace(~r/[_-]/, " ")
+    |> String.replace(~r/\b(purchase|sale|spot|fob|cfr|cif|dap|cpt|\d{4})\b/i, "")
+    |> String.replace(~r/\s{2,}/, " ")
+    |> String.trim()
+    |> case do
+      "" -> "Unknown"
+      name -> name
+    end
   end
 
   # ──────────────────────────────────────────────────────────
@@ -249,11 +266,8 @@ defmodule TradingDesk.Contracts.FolderScanner do
   # ──────────────────────────────────────────────────────────
 
   defp classify(disk_files, db_contracts) do
-    # Build lookups
     by_hash = Map.new(db_contracts, fn c -> {c.file_hash, c} end)
     by_source = Map.new(db_contracts, fn c -> {c.source_file, c} end)
-
-    # Track which DB contracts are accounted for
     matched_ids = MapSet.new()
 
     {new, changed, unchanged, matched_ids} =
@@ -261,23 +275,19 @@ defmodule TradingDesk.Contracts.FolderScanner do
         filename = Path.basename(path)
 
         cond do
-          # Exact hash match — file unchanged
           Map.has_key?(by_hash, disk_hash) ->
             contract = by_hash[disk_hash]
             {n, ch, [{path, disk_hash, contract} | unch], MapSet.put(matched, contract.id)}
 
-          # Same filename but different hash — file changed
           Map.has_key?(by_source, filename) ->
             contract = by_source[filename]
             {n, [{path, disk_hash, contract} | ch], unch, MapSet.put(matched, contract.id)}
 
-          # Not in DB at all — new file
           true ->
             {[{path, disk_hash} | n], ch, unch, matched}
         end
       end)
 
-    # Contracts in DB but not on disk (and not soft-deleted already)
     missing =
       db_contracts
       |> Enum.reject(fn c -> MapSet.member?(matched_ids, c.id) end)
@@ -292,17 +302,21 @@ defmodule TradingDesk.Contracts.FolderScanner do
 
   # ──────────────────────────────────────────────────────────
   # PRIVATE: INGESTION
+  #
+  # Both new and changed files go through extract_and_store/3
+  # which reads the file, extracts clauses via local LLM,
+  # builds a %Contract{}, and stores it directly in the
+  # contracts table.
   # ──────────────────────────────────────────────────────────
 
-  defp ingest_new(path, product_group, _opts) do
+  defp ingest_new(path, product_group) do
     filename = Path.basename(path)
     Logger.info("FolderScanner: ingesting new file #{filename}")
 
-    result = copilot_extract_and_ingest(path, product_group, [
-      counterparty: Inventory.derive_counterparty_from_filename(filename),
-      counterparty_type: :customer,
-      network_path: path
-    ])
+    result = extract_and_store(path, product_group, %{
+      counterparty: derive_counterparty(filename),
+      counterparty_type: :customer
+    })
 
     case result do
       {:ok, contract} ->
@@ -313,7 +327,6 @@ defmodule TradingDesk.Contracts.FolderScanner do
           reason: :new_file,
           clause_count: length(contract.clauses || [])
         })
-
         {:ok, contract}
 
       error ->
@@ -321,7 +334,7 @@ defmodule TradingDesk.Contracts.FolderScanner do
     end
   end
 
-  defp reingest_changed(path, old_contract, product_group, _opts) do
+  defp reingest_changed(path, old_contract, product_group) do
     filename = Path.basename(path)
     Logger.info("FolderScanner: re-ingesting changed file #{filename} (was v#{old_contract.version})")
 
@@ -331,7 +344,7 @@ defmodule TradingDesk.Contracts.FolderScanner do
       Logger.info("FolderScanner: cleared #{cleared} old schedule records for hash #{String.slice(old_contract.file_hash, 0, 12)}...")
     end
 
-    result = copilot_extract_and_ingest(path, product_group, [
+    result = extract_and_store(path, product_group, %{
       counterparty: old_contract.counterparty,
       counterparty_type: old_contract.counterparty_type,
       template_type: old_contract.template_type,
@@ -340,9 +353,8 @@ defmodule TradingDesk.Contracts.FolderScanner do
       company: old_contract.company,
       contract_date: old_contract.contract_date,
       expiry_date: old_contract.expiry_date,
-      sap_contract_id: old_contract.sap_contract_id,
-      network_path: path
-    ])
+      sap_contract_id: old_contract.sap_contract_id
+    })
 
     case result do
       {:ok, contract} ->
@@ -354,7 +366,6 @@ defmodule TradingDesk.Contracts.FolderScanner do
           previous_version: old_contract.version,
           clause_count: length(contract.clauses || [])
         })
-
         {:ok, contract}
 
       error ->
@@ -363,62 +374,282 @@ defmodule TradingDesk.Contracts.FolderScanner do
   end
 
   # ──────────────────────────────────────────────────────────
-  # PRIVATE: COPILOT-FIRST EXTRACTION
+  # PRIVATE: LOCAL LLM EXTRACTION → CONTRACT → STORE
   #
-  # Tries CopilotClient LLM extraction first so clause changes
-  # (pricing, penalties, delivery terms) are fully captured for
-  # the solver's ConstraintBridge. Falls back to deterministic
-  # Parser via Inventory.ingest_file if Copilot is unavailable.
+  # 1. Read file text via DocumentReader
+  # 2. Send to local LLM (Mistral 7B) for clause extraction
+  # 3. Parse JSON response into %Clause{} structs
+  # 4. Build %Contract{} with clauses attached
+  # 5. Store.ingest → contracts table (ETS + Postgres async)
+  # 6. Generate scheduled deliveries async
+  #
+  # Falls back to deterministic Parser if LLM unavailable.
   # ──────────────────────────────────────────────────────────
 
-  defp copilot_extract_and_ingest(path, product_group, opts) do
+  defp extract_and_store(path, product_group, meta) do
     filename = Path.basename(path)
 
-    case extract_via_copilot(path) do
-      {:ok, extraction} ->
-        Logger.info("FolderScanner: Copilot extraction succeeded for #{filename}")
-        ingest_copilot_extraction(path, extraction, product_group, opts)
+    with {:hash, {:ok, file_hash, file_size}} <- {:hash, HashVerifier.compute_file_hash(path)},
+         {:read, {:ok, text}} <- {:read, DocumentReader.read(path)} do
+
+      # Try local LLM extraction, fall back to deterministic parser
+      clauses = case extract_clauses_via_llm(text, product_group) do
+        {:ok, llm_clauses} ->
+          Logger.info("FolderScanner: local LLM extracted #{length(llm_clauses)} clauses from #{filename}")
+          llm_clauses
+
+        {:error, reason} ->
+          Logger.info("FolderScanner: LLM unavailable (#{inspect(reason)}), using deterministic parser for #{filename}")
+          {parser_clauses, _warnings, _family} = Parser.parse(text)
+          parser_clauses
+      end
+
+      # Detect contract family from text
+      {family_id, family_direction, family_incoterm, family_term_type} =
+        case TemplateRegistry.detect_family(text) do
+          {:ok, fid, family} ->
+            {fid, family.direction, List.first(family.default_incoterms), family.term_type}
+          _ ->
+            {nil, nil, nil, nil}
+        end
+
+      contract_number = extract_contract_number(text)
+      counterparty = meta[:counterparty]
+      previous_hash = get_previous_hash(counterparty, product_group)
+
+      contract = %Contract{
+        counterparty: counterparty,
+        counterparty_type: meta[:counterparty_type] || :customer,
+        product_group: product_group,
+        template_type: meta[:template_type] || family_direction,
+        incoterm: meta[:incoterm] || family_incoterm,
+        term_type: meta[:term_type] || family_term_type,
+        company: meta[:company],
+        source_file: filename,
+        source_format: detect_format(path),
+        clauses: clauses,
+        contract_date: meta[:contract_date],
+        expiry_date: meta[:expiry_date],
+        sap_contract_id: meta[:sap_contract_id],
+        contract_number: contract_number,
+        family_id: family_id,
+        file_hash: file_hash,
+        file_size: file_size,
+        network_path: path,
+        verification_status: :pending,
+        previous_hash: previous_hash
+      }
+
+      case Store.ingest(contract) do
+        {:ok, stored} ->
+          Logger.info(
+            "FolderScanner: stored #{counterparty} #{contract_number || "?"} " <>
+            "(#{length(clauses)} clauses, hash=#{String.slice(file_hash, 0, 12)}...)"
+          )
+          schedule_deliveries_async(stored)
+          {:ok, stored}
+
+        {:error, reason} ->
+          {:error, {:store_failed, reason}}
+      end
+    else
+      {:hash, {:error, reason}} -> {:error, {:hash_failed, reason}}
+      {:read, {:error, reason}} -> {:error, {:read_failed, reason}}
+    end
+  end
+
+  # ──────────────────────────────────────────────────────────
+  # PRIVATE: LOCAL LLM CLAUSE EXTRACTION
+  #
+  # Sends contract text to the local Mistral 7B model via
+  # LLM.Pool with a structured extraction prompt. Parses
+  # the JSON response into %Clause{} structs.
+  # ──────────────────────────────────────────────────────────
+
+  defp extract_clauses_via_llm(text, _product_group) do
+    model = ModelRegistry.default()
+
+    if is_nil(model) do
+      {:error, :no_model_registered}
+    else
+      prompt = build_extraction_prompt(text)
+
+      case Pool.generate(model.id, prompt, max_tokens: 1024) do
+        {:ok, raw_text} ->
+          parse_llm_clauses(raw_text)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp build_extraction_prompt(contract_text) do
+    inventory = clause_inventory_text()
+
+    # Truncate to fit within Mistral's context window
+    max_chars = 3000
+    truncated = if String.length(contract_text) > max_chars do
+      String.slice(contract_text, 0, max_chars) <> "\n[...truncated...]"
+    else
+      contract_text
+    end
+
+    """
+    Extract structured clause data from this commodity trading contract.
+    Return ONLY valid JSON with this exact structure:
+
+    {"clauses":[{"clause_id":"PRICE","category":"commercial","source_text":"exact quote","value":340.0,"unit":"$/ton","operator":"==","confidence":"high"},{"clause_id":"QUANTITY_TOLERANCE","category":"core_terms","source_text":"exact quote","value":25000,"unit":"tons","operator":">=","confidence":"high"}]}
+
+    Known clause IDs: #{inventory}
+
+    For penalty clauses (PENALTY_VOLUME_SHORTFALL, PENALTY_LATE_DELIVERY, LAYTIME_DEMURRAGE), include "penalty_rate" with the $/ton or $/day rate.
+    For price clauses, "value" is the price in $/ton.
+    For quantity clauses, "value" is the quantity in metric tons.
+    For delivery date clauses, use "source_text" for the window description.
+    For tolerance clauses, "value" and "value_upper" for the range.
+
+    CONTRACT TEXT:
+    #{truncated}
+    """
+  end
+
+  defp clause_inventory_text do
+    TemplateRegistry.canonical_clauses()
+    |> Enum.sort_by(fn {id, _} -> id end)
+    |> Enum.map_join(", ", fn {id, _} -> id end)
+  end
+
+  # Parse LLM JSON response into %Clause{} structs
+  defp parse_llm_clauses(raw_text) do
+    json_str = extract_json(raw_text)
+    now = DateTime.utc_now()
+
+    case Jason.decode(json_str) do
+      {:ok, %{"clauses" => clauses}} when is_list(clauses) ->
+        built = Enum.map(clauses, fn c ->
+          clause_id = get_str(c, "clause_id")
+
+          %Clause{
+            id: Clause.generate_id(),
+            clause_id: clause_id,
+            type: map_clause_type(get_str(c, "category")),
+            category: safe_atom(get_str(c, "category")),
+            description: get_str(c, "source_text") || "",
+            reference_section: get_str(c, "section_ref"),
+            confidence: safe_atom(get_str(c, "confidence") || "high"),
+            anchors_matched: [],
+            extracted_fields: %{},
+            extracted_at: now,
+            parameter: lp_parameter_for(clause_id),
+            operator: parse_operator(get_str(c, "operator")),
+            value: get_num(c, "value"),
+            value_upper: get_num(c, "value_upper"),
+            unit: get_str(c, "unit"),
+            penalty_per_unit: get_num(c, "penalty_rate") || get_num(c, "demurrage_rate"),
+            period: safe_atom(get_str(c, "period"))
+          }
+        end)
+
+        {:ok, built}
+
+      {:ok, _} ->
+        {:error, :no_clauses_in_response}
 
       {:error, reason} ->
-        Logger.info(
-          "FolderScanner: Copilot unavailable for #{filename} (#{inspect(reason)}), " <>
-          "falling back to deterministic parser"
-        )
-
-        Inventory.ingest_file(path, Keyword.put(opts, :product_group, product_group))
+        {:error, {:json_parse_failed, reason}}
     end
   end
 
-  # Read local file → send text to Copilot LLM for clause extraction
-  defp extract_via_copilot(path) do
-    with {:ok, text} <- DocumentReader.read(path),
-         {:ok, extraction} <- CopilotClient.extract_text(text) do
-      {:ok, extraction}
+  # Extract the first JSON object from LLM output (handles markdown fences etc.)
+  defp extract_json(text) do
+    cond do
+      String.contains?(text, "```json") ->
+        text
+        |> String.split("```json")
+        |> Enum.at(1, "")
+        |> String.split("```")
+        |> List.first("")
+        |> String.trim()
+
+      String.contains?(text, "{") ->
+        case :binary.match(text, "{") do
+          {pos, _} ->
+            String.slice(text, pos..-1//1) |> find_balanced_json()
+          :nomatch ->
+            text
+        end
+
+      true ->
+        text
     end
   end
 
-  # Ingest Copilot extraction as a versioned contract, then generate schedule
-  defp ingest_copilot_extraction(path, extraction, product_group, opts) do
-    copilot_opts = [
-      product_group: product_group,
-      network_path: Keyword.get(opts, :network_path, path),
-      sap_contract_id: Keyword.get(opts, :sap_contract_id)
-    ]
+  defp find_balanced_json(text) do
+    text
+    |> String.graphemes()
+    |> Enum.reduce_while({0, []}, fn char, {depth, acc} ->
+      new_depth = case char do
+        "{" -> depth + 1
+        "}" -> depth - 1
+        _ -> depth
+      end
 
-    case CopilotIngestion.ingest(path, extraction, copilot_opts) do
-      {:ok, contract} ->
-        # Generate scheduled deliveries (same as Inventory does, but CopilotIngestion doesn't)
-        schedule_deliveries_async(contract)
-        {:ok, contract}
+      new_acc = [char | acc]
 
-      {:error, reason} ->
-        Logger.warning("FolderScanner: Copilot ingestion failed (#{inspect(reason)}), falling back to parser")
-        fallback_opts = Keyword.put(opts, :product_group, product_group)
-        Inventory.ingest_file(path, fallback_opts)
+      if new_depth == 0 and depth > 0 do
+        {:halt, {0, new_acc}}
+      else
+        {:cont, {new_depth, new_acc}}
+      end
+    end)
+    |> case do
+      {_, chars} -> chars |> Enum.reverse() |> Enum.join()
+      _ -> text
     end
   end
 
-  # Fetch SAP open position and generate scheduled deliveries (async, non-blocking)
+  # ──────────────────────────────────────────────────────────
+  # PRIVATE: CLAUSE MAPPING HELPERS
+  # ──────────────────────────────────────────────────────────
+
+  defp map_clause_type("commercial"), do: :price_term
+  defp map_clause_type("core_terms"), do: :obligation
+  defp map_clause_type("logistics"), do: :delivery
+  defp map_clause_type("logistics_cost"), do: :penalty
+  defp map_clause_type("risk_events"), do: :condition
+  defp map_clause_type("credit_legal"), do: :condition
+  defp map_clause_type("legal"), do: :legal
+  defp map_clause_type("compliance"), do: :compliance
+  defp map_clause_type("operational"), do: :operational
+  defp map_clause_type("metadata"), do: :metadata
+  defp map_clause_type("determination"), do: :condition
+  defp map_clause_type("documentation"), do: :metadata
+  defp map_clause_type("risk_allocation"), do: :condition
+  defp map_clause_type("risk_costs"), do: :condition
+  defp map_clause_type("incorporation"), do: :metadata
+  defp map_clause_type(nil), do: :condition
+  defp map_clause_type(_), do: :condition
+
+  # Look up LP parameter from the canonical clause's lp_mapping
+  defp lp_parameter_for(clause_id) when is_binary(clause_id) do
+    case TemplateRegistry.get_clause(clause_id) do
+      %{lp_mapping: [first | _]} -> first
+      _ -> nil
+    end
+  end
+  defp lp_parameter_for(_), do: nil
+
+  defp parse_operator(">="), do: :>=
+  defp parse_operator("<="), do: :<=
+  defp parse_operator("=="), do: :==
+  defp parse_operator("between"), do: :between
+  defp parse_operator(_), do: nil
+
+  # ──────────────────────────────────────────────────────────
+  # PRIVATE: SCHEDULE GENERATION
+  # ──────────────────────────────────────────────────────────
+
   defp schedule_deliveries_async(contract) do
     Task.Supervisor.start_child(
       TradingDesk.Contracts.TaskSupervisor,
@@ -458,10 +689,7 @@ defmodule TradingDesk.Contracts.FolderScanner do
         updated_at: now
       }
 
-      # Update in ETS
       Store.soft_delete(contract.id, reason)
-
-      # Update in Postgres
       TradingDesk.DB.Writer.persist_contract(updated)
 
       Logger.info("FolderScanner: soft-deleted #{contract.counterparty} v#{contract.version} (#{reason})")
@@ -469,6 +697,74 @@ defmodule TradingDesk.Contracts.FolderScanner do
 
     length(contracts)
   end
+
+  # ──────────────────────────────────────────────────────────
+  # PRIVATE: HELPERS
+  # ──────────────────────────────────────────────────────────
+
+  defp extract_contract_number(text) do
+    patterns = [
+      ~r/Contract\s+No\.?\s*:?\s*([A-Z]+-[A-Z0-9]+-\d{4}-\d+)/i,
+      ~r/Contract\s+(?:Number|Ref)\.?\s*:?\s*([A-Z0-9][A-Z0-9-]+)/i
+    ]
+
+    Enum.find_value(patterns, fn pattern ->
+      case Regex.run(pattern, text) do
+        [_, number] -> String.trim(number)
+        _ -> nil
+      end
+    end)
+  end
+
+  defp get_previous_hash(counterparty, product_group) do
+    case Store.list_versions(counterparty, product_group) do
+      [latest | _] -> latest.file_hash
+      [] -> nil
+    end
+  end
+
+  defp detect_format(path) do
+    case Path.extname(path) |> String.downcase() do
+      ".pdf" -> :pdf
+      ".docx" -> :docx
+      ".docm" -> :docm
+      ".txt" -> :txt
+      _ -> nil
+    end
+  end
+
+  defp get_str(map, key) when is_map(map) do
+    case Map.get(map, key) do
+      nil -> nil
+      val when is_binary(val) -> val
+      val -> to_string(val)
+    end
+  end
+  defp get_str(_, _), do: nil
+
+  defp get_num(map, key) when is_map(map) do
+    case Map.get(map, key) do
+      nil -> nil
+      val when is_number(val) -> val
+      val when is_binary(val) ->
+        case Float.parse(val) do
+          {n, _} -> n
+          :error -> nil
+        end
+      _ -> nil
+    end
+  end
+  defp get_num(_, _), do: nil
+
+  defp safe_atom(nil), do: nil
+  defp safe_atom(""), do: nil
+  defp safe_atom(str) when is_binary(str) do
+    str
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_]/, "_")
+    |> String.to_atom()
+  end
+  defp safe_atom(atom) when is_atom(atom), do: atom
 
   # ──────────────────────────────────────────────────────────
   # PRIVATE: PUBSUB
