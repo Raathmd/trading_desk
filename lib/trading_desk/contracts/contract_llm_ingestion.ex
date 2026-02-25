@@ -185,9 +185,11 @@ defmodule TradingDesk.Contracts.ContractLlmIngestion do
   # ──────────────────────────────────────────────────────────
   # CLAUSE BUILDING — convert LLM JSON to %Clause{} structs
   #
-  # The LLM returns solver-ready fields directly: parameter,
-  # operator, value, unit, penalty_per_unit. No intermediate
-  # mapping through a template registry or contract_term_map.
+  # The Clause struct stores identity + content fields.
+  # Everything the LLM extracts goes into extracted_fields
+  # (a flexible map). Solver-relevant keys like "parameter",
+  # "operator", "value" are just entries in that map — read
+  # out at solve time by the ConstraintBridge.
   # ──────────────────────────────────────────────────────────
 
   defp build_clauses(%{"clauses" => clauses}) when is_list(clauses) do
@@ -195,6 +197,22 @@ defmodule TradingDesk.Contracts.ContractLlmIngestion do
 
     built =
       Enum.map(clauses, fn clause_data ->
+        # Merge top-level solver fields into extracted_fields so
+        # everything the LLM returns is in one place.
+        base_fields = get_map(clause_data, "extracted_fields") || %{}
+
+        merged_fields =
+          base_fields
+          |> maybe_put("parameter", get_string(clause_data, "parameter"))
+          |> maybe_put("operator", get_string(clause_data, "operator"))
+          |> maybe_put("value", get_number(clause_data, "value"))
+          |> maybe_put("value_upper", get_number(clause_data, "value_upper"))
+          |> maybe_put("unit", get_string(clause_data, "unit"))
+          |> maybe_put("penalty_per_unit", get_number(clause_data, "penalty_per_unit"))
+          |> maybe_put("penalty_cap", get_number(clause_data, "penalty_cap"))
+          |> maybe_put("period", get_string(clause_data, "period"))
+          |> maybe_put("anchors_matched", get_list(clause_data, "anchors_matched"))
+
         %Clause{
           id: Clause.generate_id(),
           clause_id: get_string(clause_data, "clause_id"),
@@ -203,18 +221,8 @@ defmodule TradingDesk.Contracts.ContractLlmIngestion do
           description: get_string(clause_data, "source_text") || "",
           reference_section: get_string(clause_data, "section_ref"),
           confidence: safe_atom(get_string(clause_data, "confidence") || "high"),
-          anchors_matched: get_list(clause_data, "anchors_matched") || [],
-          extracted_fields: get_map(clause_data, "extracted_fields") || %{},
-          extracted_at: now,
-          # Solver-ready fields — provided directly by the LLM
-          parameter: safe_atom(get_string(clause_data, "parameter")),
-          operator: safe_operator(get_string(clause_data, "operator")),
-          value: get_number(clause_data, "value") || get_nested_number(clause_data, "extracted_fields", "price_value"),
-          value_upper: get_number(clause_data, "value_upper"),
-          unit: get_string(clause_data, "unit") || get_nested_string(clause_data, "extracted_fields", "price_uom"),
-          penalty_per_unit: get_number(clause_data, "penalty_per_unit") || get_nested_number(clause_data, "extracted_fields", "demurrage_rate"),
-          penalty_cap: get_number(clause_data, "penalty_cap"),
-          period: safe_atom(get_string(clause_data, "period"))
+          extracted_fields: merged_fields,
+          extracted_at: now
         }
       end)
 
@@ -222,6 +230,10 @@ defmodule TradingDesk.Contracts.ContractLlmIngestion do
   end
 
   defp build_clauses(_), do: {:error, :no_clauses_in_extraction}
+
+  # Put key into map only if value is non-nil
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put_new(map, key, value)
 
   # ──────────────────────────────────────────────────────────
   # CONTRACT BUILDING
@@ -276,14 +288,6 @@ defmodule TradingDesk.Contracts.ContractLlmIngestion do
     end
   end
   defp map_clause_type(_), do: :condition
-
-  # Convert LLM operator string to atom
-  defp safe_operator(nil), do: nil
-  defp safe_operator("=="), do: :==
-  defp safe_operator(">="), do: :>=
-  defp safe_operator("<="), do: :<=
-  defp safe_operator("between"), do: :between
-  defp safe_operator(_), do: nil
 
   # --- Data access helpers (handle string keys from JSON) ---
 

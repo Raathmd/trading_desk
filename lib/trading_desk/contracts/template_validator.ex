@@ -15,7 +15,7 @@ defmodule TradingDesk.Contracts.TemplateValidator do
   from the TemplateRegistry, rather than the old contract_type + incoterm system.
   """
 
-  alias TradingDesk.Contracts.{Contract, TemplateRegistry}
+  alias TradingDesk.Contracts.{Clause, Contract, TemplateRegistry}
   alias TradingDesk.ProductGroup
 
   require Logger
@@ -194,7 +194,7 @@ defmodule TradingDesk.Contracts.TemplateValidator do
         level: :low_confidence,
         clause_id: clause.clause_id,
         clause_type: clause.type,
-        parameter_class: clause.parameter,
+        parameter_class: Clause.parameter(clause),
         message: "Low confidence extraction: #{clause.clause_id} (section #{clause.reference_section})"
       } | acc]
     end)
@@ -204,26 +204,29 @@ defmodule TradingDesk.Contracts.TemplateValidator do
     ranges = value_ranges_for(product_group)
 
     Enum.reduce(clauses, findings, fn clause, acc ->
-      case Map.get(ranges, clause.parameter) do
-        {min, max} when is_number(clause.value) ->
+      param = Clause.parameter(clause)
+      val = Clause.value(clause)
+
+      case Map.get(ranges, param) do
+        {min, max} when is_number(val) ->
           cond do
-            clause.value < min * 0.1 ->
+            val < min * 0.1 ->
               [%{
                 level: :value_suspicious,
                 clause_id: clause.clause_id,
                 clause_type: clause.type,
-                parameter_class: clause.parameter,
-                message: "Value #{clause.value} for #{clause.parameter} is far below " <>
+                parameter_class: param,
+                message: "Value #{val} for #{param} is far below " <>
                          "normal range (#{min}-#{max})"
               } | acc]
 
-            clause.value > max * 10 ->
+            val > max * 10 ->
               [%{
                 level: :value_suspicious,
                 clause_id: clause.clause_id,
                 clause_type: clause.type,
-                parameter_class: clause.parameter,
-                message: "Value #{clause.value} for #{clause.parameter} is far above " <>
+                parameter_class: param,
+                message: "Value #{val} for #{param} is far above " <>
                          "normal range (#{min}-#{max})"
               } | acc]
 

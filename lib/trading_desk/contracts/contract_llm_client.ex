@@ -198,12 +198,18 @@ defmodule TradingDesk.Contracts.ContractLlmClient do
 
     """
     You are a contract extraction specialist for Trammo's commodity trading desk.
-    Extract ALL clauses from commodity trading contracts and return them in
-    solver-ready format.
+    Extract ALL clauses from commodity trading contracts and return them with
+    the data needed for solver framing.
 
-    Your job is to identify every clause that could affect trading optimization
-    and map each to the appropriate solver variable with the correct operator
-    and numeric value.
+    Your job is to identify every clause that could affect trading optimization.
+    For each clause, extract the raw data (text, values, rates) AND indicate
+    how it maps to solver variables when applicable.
+
+    All extracted data goes into the "extracted_fields" map on each clause.
+    Include solver mapping fields (parameter, operator, value) alongside the
+    raw extracted data. At solve time, the system reads these fields from
+    stored clauses, combines them with live API data and user instructions,
+    and frames the solver input.
 
     Return a JSON object with the exact structure specified in the user prompt.
     Be precise with numerical values. Preserve original units and currencies.
@@ -274,18 +280,22 @@ defmodule TradingDesk.Contracts.ContractLlmClient do
         {
           "clause_id": "SHORT_UPPERCASE_ID",
           "category": "commercial|core_terms|logistics|logistics_cost|risk_events|credit_legal|legal|compliance|operational|metadata",
-          "extracted_fields": {"price_value": 340.00, "price_uom": "$/ton"},
           "source_text": "exact contract text for this clause",
           "section_ref": "Section 5",
           "confidence": "high|medium|low",
-          "parameter": "solver_variable_key or null",
-          "operator": "== or >= or <= or between or null",
-          "value": 340.00,
-          "value_upper": null,
-          "unit": "$/ton",
-          "penalty_per_unit": null,
-          "penalty_cap": null,
-          "period": "monthly|quarterly|annual|spot|null"
+          "extracted_fields": {
+            "parameter": "solver_variable_key or null",
+            "operator": "== or >= or <= or between or null",
+            "value": 340.00,
+            "value_upper": null,
+            "unit": "$/ton",
+            "penalty_per_unit": null,
+            "penalty_cap": null,
+            "period": "monthly|quarterly|annual|spot|null",
+            "price_value": 340.00,
+            "price_uom": "$/ton",
+            "...any other fields relevant to this clause..."
+          }
         }
       ]
     }
@@ -296,10 +306,14 @@ defmodule TradingDesk.Contracts.ContractLlmClient do
       vessel requirements, compliance, and any other provisions
     - Include exact source_text from the contract
     - Precise numerical values (prices, quantities, percentages, rates)
+    - ALL extracted data goes into extracted_fields — include solver mapping
+      fields (parameter, operator, value) alongside raw clause data
     - Map each clause to a solver variable (parameter) when it constrains one
     - Set operator and value for clauses that bound solver variables
-    - Set penalty_per_unit for ANY clause with a penalty/damages rate — these
-      reduce effective sell prices in the solver's margin calculation
+    - Set penalty_per_unit for ANY clause with a penalty/damages rate
+    - Include any additional context in extracted_fields that could help
+      frame the solver input (e.g., pricing formulas, tolerance percentages,
+      delivery windows, nomination deadlines, escalation triggers)
     - A clause can have BOTH parameter+operator AND penalty_per_unit
     - Set parameter and operator to null only for purely informational clauses
     - confidence: "low" if uncertain about extraction or mapping

@@ -13,6 +13,7 @@ defmodule TradingDesk.ContractsLive do
   use Phoenix.LiveView
 
   alias TradingDesk.Contracts.{
+    Clause,
     Store,
     Pipeline,
     LegalReview,
@@ -671,8 +672,8 @@ defmodule TradingDesk.ContractsLive do
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
               <span style="font-size:11px;font-weight:700;color:#e2e8f0">
                 <%= clause.type |> to_string() |> String.upcase() %>
-                <%= if clause.parameter do %>
-                  <span style="color:#38bdf8;font-weight:400;margin-left:6px"><%= clause.parameter %></span>
+                <%= if Clause.parameter(clause) do %>
+                  <span style="color:#38bdf8;font-weight:400;margin-left:6px"><%= Clause.parameter(clause) %></span>
                 <% end %>
               </span>
               <div style="display:flex;gap:6px;align-items:center">
@@ -682,16 +683,16 @@ defmodule TradingDesk.ContractsLive do
                 <span style="font-size:12px;color:#7b8fa4"><%= clause.reference_section %></span>
               </div>
             </div>
-            <%= if clause.value do %>
+            <%= if Clause.value(clause) do %>
               <div style="display:flex;gap:16px;margin-bottom:6px;font-size:12px">
-                <%= if clause.operator do %>
-                  <span style="color:#94a3b8"><%= clause.operator %> <span style="color:#e2e8f0;font-family:monospace;font-weight:600"><%= format_val(clause.value) %></span> <span style="color:#94a3b8"><%= clause.unit %></span></span>
+                <%= if Clause.operator(clause) do %>
+                  <span style="color:#94a3b8"><%= Clause.operator(clause) %> <span style="color:#e2e8f0;font-family:monospace;font-weight:600"><%= format_val(Clause.value(clause)) %></span> <span style="color:#94a3b8"><%= Clause.unit(clause) %></span></span>
                 <% end %>
-                <%= if clause.penalty_per_unit do %>
-                  <span style="color:#ef4444">Penalty: $<%= clause.penalty_per_unit %>/<%= clause.unit || "unit" %></span>
+                <%= if Clause.penalty_per_unit(clause) do %>
+                  <span style="color:#ef4444">Penalty: $<%= Clause.penalty_per_unit(clause) %>/<%= Clause.unit(clause) || "unit" %></span>
                 <% end %>
-                <%= if clause.period do %>
-                  <span style="color:#94a3b8"><%= clause.period %></span>
+                <%= if Clause.period(clause) do %>
+                  <span style="color:#94a3b8"><%= Clause.period(clause) %></span>
                 <% end %>
               </div>
             <% end %>
@@ -817,10 +818,10 @@ defmodule TradingDesk.ContractsLive do
             <%= for clause <- (c.clauses || []) do %>
               <tr style="border-bottom:1px solid #1e293b11">
                 <td style="padding:4px"><%= clause.type %></td>
-                <td style="padding:4px;color:#e2e8f0"><%= clause.parameter %></td>
-                <td style="padding:4px;text-align:center"><%= clause.operator %></td>
-                <td style="padding:4px;text-align:right;font-family:monospace;font-weight:600"><%= format_val(clause.value) %></td>
-                <td style="padding:4px;color:#94a3b8"><%= clause.unit %></td>
+                <td style="padding:4px;color:#e2e8f0"><%= Clause.parameter(clause) %></td>
+                <td style="padding:4px;text-align:center"><%= Clause.operator(clause) %></td>
+                <td style="padding:4px;text-align:right;font-family:monospace;font-weight:600"><%= format_val(Clause.value(clause)) %></td>
+                <td style="padding:4px;color:#94a3b8"><%= Clause.unit(clause) %></td>
                 <td style={"padding:4px;text-align:center;color:#{confidence_color(clause.confidence)}"}><%= clause.confidence %></td>
               </tr>
             <% end %>

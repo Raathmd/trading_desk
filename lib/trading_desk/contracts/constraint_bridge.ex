@@ -28,7 +28,7 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   the contract wins (floor is raised to 5,000).
   """
 
-  alias TradingDesk.Contracts.{Store, Readiness, Contract}
+  alias TradingDesk.Contracts.{Store, Readiness, Contract, Clause}
   alias TradingDesk.Variables
 
   require Logger
@@ -79,19 +79,20 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
       (contract.clauses || [])
       |> Enum.filter(&applicable?/1)
       |> Enum.map(fn clause ->
-        current = get_variable(vars, clause.parameter)
+        param = Clause.parameter(clause)
+        current = get_variable(vars, param)
         proposed = compute_bound(clause, current)
 
         %{
           counterparty: contract.counterparty,
           clause_type: clause.type,
-          parameter: clause.parameter,
-          operator: clause.operator,
-          clause_value: clause.value,
+          parameter: param,
+          operator: Clause.operator(clause),
+          clause_value: Clause.value(clause),
           current_value: current,
           proposed_value: proposed,
           would_change: current != proposed,
-          penalty_exposure: clause.penalty_per_unit
+          penalty_exposure: Clause.penalty_per_unit(clause)
         }
       end)
     end)
@@ -303,14 +304,16 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
     (contract.clauses || [])
     |> Enum.filter(&applicable?/1)
     |> Enum.reduce({vars, applied}, fn clause, {v, acc} ->
+      param = Clause.parameter(clause)
+
       case apply_clause(v, clause) do
         {:changed, new_vars} ->
           {new_vars, [%{
             counterparty: contract.counterparty,
             clause_id: clause.id,
-            parameter: clause.parameter,
-            original: get_variable(v, clause.parameter),
-            applied: get_variable(new_vars, clause.parameter)
+            parameter: param,
+            original: get_variable(v, param),
+            applied: get_variable(new_vars, param)
           } | acc]}
 
         :unchanged ->
@@ -320,9 +323,10 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   end
 
   # --- Clause application logic ---
+  # Reads solver fields from Clause accessor helpers (which read from extracted_fields).
 
   defp apply_clause(vars, clause) do
-    param = clause.parameter
+    param = Clause.parameter(clause)
     current = get_variable(vars, param)
 
     if is_nil(current) do
@@ -338,32 +342,32 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
     end
   end
 
-  # Contract constraints only tighten, never loosen
-  defp compute_bound(%{operator: :>=, value: min}, current) do
-    max(current, min)
+  # Contract constraints only tighten, never loosen.
+  # Reads operator/value from Clause accessor helpers.
+  defp compute_bound(clause, current) do
+    op = Clause.operator(clause)
+    val = Clause.value(clause)
+
+    case op do
+      :>= when is_number(val) -> max(current, val)
+      :<= when is_number(val) -> min(current, val)
+      :== when is_number(val) -> val
+      :between ->
+        upper = Clause.value_upper(clause)
+        if is_number(val) and is_number(upper) do
+          current |> max(val) |> min(upper)
+        else
+          current
+        end
+      _ -> current
+    end
   end
 
-  defp compute_bound(%{operator: :<=, value: max_val}, current) do
-    min(current, max_val)
+  # A clause is applicable for direct variable binding when the LLM
+  # provided both a solver parameter and an operator in extracted_fields.
+  defp applicable?(clause) do
+    Clause.parameter(clause) != nil and Clause.operator(clause) != nil
   end
-
-  defp compute_bound(%{operator: :==, value: fixed}, _current) do
-    fixed
-  end
-
-  defp compute_bound(%{operator: :between, value: lower, value_upper: upper}, current) do
-    current |> max(lower) |> min(upper)
-  end
-
-  defp compute_bound(_clause, current), do: current
-
-  # A clause is applicable for direct variable binding when the LLM mapped it
-  # to a real solver variable with an operator. Clauses with parameter: nil
-  # or operator: nil are either informational or penalty-only (handled by
-  # apply_penalty_margin_adjustment/2 via the penalty_per_unit field).
-  defp applicable?(%{parameter: nil}), do: false
-  defp applicable?(%{operator: nil}), do: false
-  defp applicable?(_clause), do: true
 
   # ──────────────────────────────────────────────────────────
   # HELPERS — extract structured data from contracts
@@ -372,7 +376,7 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   defp extract_incoterm(%Contract{incoterm: incoterm}) when not is_nil(incoterm), do: incoterm
   defp extract_incoterm(%Contract{clauses: clauses}) when is_list(clauses) do
     case Enum.find(clauses, &(&1.clause_id == "INCOTERMS")) do
-      %{extracted_fields: %{incoterm_rule: rule}} when not is_nil(rule) ->
+      %{extracted_fields: %{"incoterm_rule" => rule}} when is_binary(rule) ->
         rule |> String.downcase() |> String.to_atom()
       _ -> nil
     end
@@ -381,7 +385,11 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
 
   defp extract_contract_qty(%Contract{clauses: clauses}) when is_list(clauses) do
     case Enum.find(clauses, &(&1.clause_id == "QUANTITY_TOLERANCE")) do
-      %{value: qty} when is_number(qty) -> qty
+      clause when not is_nil(clause) ->
+        case Clause.value(clause) do
+          qty when is_number(qty) -> qty
+          _ -> 0.0
+        end
       _ -> 0.0
     end
   end
@@ -393,11 +401,12 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   defp extract_penalty_clauses(%Contract{clauses: clauses}) when is_list(clauses) do
     clauses
     |> Enum.filter(fn clause ->
-      is_number(clause.penalty_per_unit) and clause.penalty_per_unit > 0
+      rate = Clause.penalty_per_unit(clause)
+      is_number(rate) and rate > 0
     end)
     |> Enum.map(fn clause ->
       penalty_type = clause_id_to_penalty_type(clause.clause_id)
-      {penalty_type, clause.penalty_per_unit}
+      {penalty_type, Clause.penalty_per_unit(clause)}
     end)
   end
   defp extract_penalty_clauses(_), do: []
