@@ -36,7 +36,8 @@ defmodule TradingDesk.Contracts.CopilotClient do
     COPILOT_TIMEOUT   — request timeout in ms (default: 120000)
   """
 
-  alias TradingDesk.Contracts.{TemplateRegistry, DocumentReader}
+  alias TradingDesk.Contracts.DocumentReader
+  alias TradingDesk.ProductGroup
 
   require Logger
 
@@ -62,11 +63,12 @@ defmodule TradingDesk.Contracts.CopilotClient do
           {:ok, map()} | {:error, term()}
   def extract_file(drive_id, item_id, graph_token, opts \\ []) do
     filename = Keyword.get(opts, :filename, "document")
+    product_group = Keyword.get(opts, :product_group, :ammonia_domestic)
 
     with {:ok, config} <- get_config(),
          {:ok, content} <- download_from_graph(drive_id, item_id, graph_token),
          {:ok, text} <- extract_text_from_binary(content, filename),
-         {:ok, extraction} <- call_llm(text, config) do
+         {:ok, extraction} <- call_llm(text, config, product_group) do
       {:ok, Map.merge(extraction, %{
         "graph_drive_id" => drive_id,
         "graph_item_id" => item_id,
@@ -86,7 +88,9 @@ defmodule TradingDesk.Contracts.CopilotClient do
     [{%{name: "Koch.pdf", ...}, {:ok, extraction}}, ...]
   """
   @spec extract_files([map()], String.t(), keyword()) :: [{map(), {:ok, map()} | {:error, term()}}]
-  def extract_files(files, graph_token, _opts \\ []) do
+  def extract_files(files, graph_token, opts \\ []) do
+    product_group = Keyword.get(opts, :product_group, :ammonia_domestic)
+
     files
     |> Task.async_stream(
       fn file ->
@@ -94,7 +98,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
         item_id = file["item_id"] || file[:item_id]
         name = file["name"] || file[:name] || "document"
 
-        result = extract_file(drive_id, item_id, graph_token, filename: name)
+        result = extract_file(drive_id, item_id, graph_token, filename: name, product_group: product_group)
         {file, result}
       end,
       max_concurrency: @max_concurrent_extractions,
@@ -113,9 +117,11 @@ defmodule TradingDesk.Contracts.CopilotClient do
   Used when text is already available (e.g. local file test).
   """
   @spec extract_text(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def extract_text(contract_text, _opts \\ []) do
+  def extract_text(contract_text, opts \\ []) do
+    product_group = Keyword.get(opts, :product_group, :ammonia_domestic)
+
     with {:ok, config} <- get_config() do
-      call_llm(contract_text, config)
+      call_llm(contract_text, config, product_group)
     end
   end
 
@@ -140,11 +146,11 @@ defmodule TradingDesk.Contracts.CopilotClient do
   # LLM CALL
   # ──────────────────────────────────────────────────────────
 
-  defp call_llm(contract_text, config) do
+  defp call_llm(contract_text, config, product_group) do
     body = %{
       model: config.model,
       messages: [
-        %{role: "system", content: system_prompt()},
+        %{role: "system", content: system_prompt(product_group)},
         %{role: "user", content: extraction_prompt(contract_text)}
       ],
       temperature: 0.1,
@@ -184,28 +190,56 @@ defmodule TradingDesk.Contracts.CopilotClient do
   # PROMPTS
   # ──────────────────────────────────────────────────────────
 
-  defp system_prompt do
-    inventory = clause_inventory_text()
-    families = family_signatures_text()
+  defp system_prompt(product_group) do
+    solver_variables = solver_variables_text(product_group)
+    routes = solver_routes_text(product_group)
+    constraints = solver_constraints_text(product_group)
 
     """
-    You are a contract extraction specialist for Trammo's ammonia trading desk.
-    Extract structured clause data from commodity trading contracts.
+    You are a contract extraction specialist for Trammo's commodity trading desk.
+    Extract ALL clauses from commodity trading contracts and return them in
+    solver-ready format.
+
+    Your job is to identify every clause that could affect trading optimization
+    and map each to the appropriate solver variable with the correct operator
+    and numeric value.
 
     Return a JSON object with the exact structure specified in the user prompt.
     Be precise with numerical values. Preserve original units and currencies.
 
-    ## Known Clause Inventory
-    #{inventory}
+    ## Solver Variables
+    These are the variables in the LP solver. Map extracted clause values to
+    the matching variable key when the clause constrains that variable.
 
-    ## Known Contract Families
-    #{families}
+    #{solver_variables}
+
+    ## Solver Routes
+    #{routes}
+
+    ## Solver Constraints
+    #{constraints}
+
+    ## Operator Rules
+    - "==" : clause fixes the variable to an exact value (e.g. contract price)
+    - ">=" : clause sets a minimum floor (e.g. minimum volume commitment)
+    - "<=" : clause sets a maximum ceiling (e.g. capacity limit)
+    - "between" : clause sets both a floor and ceiling (use value + value_upper)
+    - null : clause is informational, does not constrain a solver variable
+
+    ## Penalty Clauses
+    For penalty clauses (demurrage, volume shortfall, late delivery, take-or-pay),
+    set penalty_per_unit to the $/ton or $/day rate. These are used to adjust
+    effective margins but are not directly applied as variable bounds.
     """
   end
 
   defp extraction_prompt(contract_text) do
     """
-    Extract all clauses from this contract. Return JSON:
+    Extract ALL clauses from this contract. Do not limit yourself to known clause
+    types — extract every provision, term, or obligation that could affect trading
+    decisions or solver optimization.
+
+    Return JSON:
 
     {
       "contract_number": "string or null",
@@ -217,27 +251,40 @@ defmodule TradingDesk.Contracts.CopilotClient do
       "company": "trammo_inc" or "trammo_sas" or "trammo_dmcc",
       "effective_date": "YYYY-MM-DD or null",
       "expiry_date": "YYYY-MM-DD or null",
-      "family_id": "matched family ID or null",
+      "family_id": "descriptive family like VESSEL_SPOT_PURCHASE or null",
       "clauses": [
         {
-          "clause_id": "PRICE",
-          "category": "commercial",
+          "clause_id": "SHORT_UPPERCASE_ID",
+          "category": "commercial|core_terms|logistics|logistics_cost|risk_events|credit_legal|legal|compliance|operational|metadata",
           "extracted_fields": {"price_value": 340.00, "price_uom": "$/ton"},
-          "source_text": "exact contract text",
+          "source_text": "exact contract text for this clause",
           "section_ref": "Section 5",
-          "confidence": "high",
-          "anchors_matched": ["Price", "US $"]
+          "confidence": "high|medium|low",
+          "parameter": "solver_variable_key or null",
+          "operator": "== or >= or <= or between or null",
+          "value": 340.00,
+          "value_upper": null,
+          "unit": "$/ton",
+          "penalty_per_unit": null,
+          "penalty_cap": null,
+          "period": "monthly|quarterly|annual|spot|null"
         }
-      ],
-      "new_clause_definitions": []
+      ]
     }
 
     Rules:
-    - Extract EVERY identifiable clause, not just known types
+    - Extract EVERY identifiable clause — pricing, quantities, tolerances,
+      penalties, delivery terms, payment terms, force majeure, insurance,
+      vessel requirements, compliance, and any other provisions
     - Include exact source_text from the contract
-    - Precise numerical values (prices, quantities, percentages)
-    - confidence: "low" if uncertain
-    - new_clause_definitions only for clauses NOT in the inventory
+    - Precise numerical values (prices, quantities, percentages, rates)
+    - Map each clause to a solver variable (parameter) when applicable
+    - Set operator and value for solver-constraining clauses
+    - For penalty clauses, set penalty_per_unit to the rate
+    - Set parameter to null for informational/legal clauses that do not
+      directly constrain a solver variable
+    - confidence: "low" if uncertain about extraction or mapping
+    - Use descriptive UPPERCASE_SNAKE_CASE for clause_id
 
     CONTRACT:
     ---
@@ -246,24 +293,43 @@ defmodule TradingDesk.Contracts.CopilotClient do
     """
   end
 
-  defp clause_inventory_text do
-    TemplateRegistry.canonical_clauses()
-    |> Enum.sort_by(fn {id, _} -> id end)
-    |> Enum.map(fn {id, d} ->
-      "- #{id} (#{d.category}): anchors=[#{Enum.join(d.anchors, ", ")}], " <>
-      "fields=[#{Enum.join(Enum.map(d.extract_fields, &to_string/1), ", ")}]"
-    end)
-    |> Enum.join("\n")
+  defp solver_variables_text(product_group) do
+    case ProductGroup.variables(product_group) do
+      [] -> "No solver frame configured for this product group."
+      vars ->
+        vars
+        |> Enum.map(fn v ->
+          "- #{v[:key]} (#{v[:label]}): unit=#{v[:unit]}, range=[#{v[:min]}..#{v[:max]}], " <>
+          "source=#{v[:source]}, group=#{v[:group]}"
+        end)
+        |> Enum.join("\n")
+    end
   end
 
-  defp family_signatures_text do
-    TemplateRegistry.family_signatures()
-    |> Enum.sort_by(fn {id, _} -> id end)
-    |> Enum.map(fn {id, f} ->
-      "- #{id}: #{f.direction}/#{f.term_type}/#{f.transport}, " <>
-      "incoterms=[#{Enum.join(Enum.map(f.default_incoterms, &to_string/1), ", ")}]"
-    end)
-    |> Enum.join("\n")
+  defp solver_routes_text(product_group) do
+    case ProductGroup.routes(product_group) do
+      [] -> "No routes configured."
+      routes ->
+        routes
+        |> Enum.map(fn r ->
+          "- #{r[:key]} (#{r[:name]}): buy=#{r[:buy_variable]}, sell=#{r[:sell_variable]}, " <>
+          "freight=#{r[:freight_variable]}, transit=#{r[:typical_transit_days]}d"
+        end)
+        |> Enum.join("\n")
+    end
+  end
+
+  defp solver_constraints_text(product_group) do
+    case ProductGroup.constraints(product_group) do
+      [] -> "No constraints configured."
+      constraints ->
+        constraints
+        |> Enum.map(fn c ->
+          "- #{c[:key]} (#{c[:name]}): type=#{c[:type]}, bound=#{c[:bound_variable]}, " <>
+          "routes=#{inspect(c[:routes])}"
+        end)
+        |> Enum.join("\n")
+    end
   end
 
   # ──────────────────────────────────────────────────────────

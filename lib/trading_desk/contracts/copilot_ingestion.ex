@@ -1,19 +1,22 @@
 defmodule TradingDesk.Contracts.CopilotIngestion do
   @moduledoc """
-  Accepts pre-extracted clause data from Copilot (or any external extraction
-  service) and ingests it into the contract system.
+  Accepts pre-extracted clause data from the LLM extraction service
+  and ingests it into the contract system.
 
-  This is the primary extraction path. Copilot reads the actual contract
-  document, extracts clauses, maps them to the canonical inventory (or
-  introduces new clause types), and returns structured JSON. This module
-  accepts that output and creates a fully tracked contract in the Store.
+  This is the sole extraction path. The LLM reads the actual contract
+  document, extracts ALL clauses it can identify, maps them directly to
+  solver variables with operator/value/unit, and returns structured JSON.
+  This module accepts that output and creates a fully tracked contract
+  in the Store.
 
-  The app's deterministic parser runs as a cross-check verification layer
-  after Copilot extraction, NOT as the primary extraction engine.
+  The LLM is not constrained to a fixed clause inventory — it extracts
+  every provision, term, or obligation from the contract. Clauses that
+  map to solver variables include solver-ready fields (parameter, operator,
+  value) so the constraint bridge can apply them directly.
 
-  ## Copilot extraction payload format
+  ## LLM extraction payload format
 
-  Copilot returns a map (or JSON) with this structure:
+  The LLM returns a map (or JSON) with this structure:
 
       %{
         "contract_number" => "TRAMMO-LTP-2026-0001",
@@ -37,25 +40,19 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
             },
             "source_text" => "Purchase Price: US $340.00 per metric ton...",
             "section_ref" => "Section 5",
-            "confidence" => "high"
+            "confidence" => "high",
+            "parameter" => "nola_buy",
+            "operator" => "==",
+            "value" => 340.00,
+            "value_upper" => nil,
+            "unit" => "$/ton",
+            "penalty_per_unit" => nil,
+            "penalty_cap" => nil,
+            "period" => nil
           },
           ...
-        ],
-        "new_clause_definitions" => [
-          %{
-            "clause_id" => "SANCTIONS_COMPLIANCE",
-            "category" => "compliance",
-            "anchors" => ["Sanctions", "OFAC", "restricted party"],
-            "extract_fields" => ["sanctioned_parties_check", "ofac_screening"],
-            "lp_mapping" => nil,
-            "level_default" => "expected"
-          }
         ]
       }
-
-  New clause definitions (if any) are automatically registered in the
-  TemplateRegistry so the deterministic parser can verify them on
-  subsequent passes.
   """
 
   alias TradingDesk.Contracts.{
@@ -63,12 +60,8 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
     Contract,
     Store,
     HashVerifier,
-    CurrencyTracker,
-    TemplateRegistry,
-    Parser
+    CurrencyTracker
   }
-
-  alias TradingDesk.ProductGroup
 
   require Logger
 
@@ -80,48 +73,36 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
   # ──────────────────────────────────────────────────────────
 
   @doc """
-  Ingest a contract from Copilot's extraction output.
+  Ingest a contract from the LLM's extraction output.
 
   `file_path` is the path to the original document (for hashing).
-  `extraction` is the structured map from Copilot (see moduledoc).
+  `extraction` is the structured map from the LLM (see moduledoc).
   `opts` are overrides for product_group, network_path, sap_contract_id.
 
   Returns {:ok, contract} with:
-    - All clauses from Copilot stored as %Clause{} structs
+    - All clauses stored as solver-ready %Clause{} structs
     - Document hash computed and stored
-    - New clause types registered in TemplateRegistry
-    - Deterministic parser cross-check results attached
   """
   @spec ingest(String.t(), map(), keyword()) :: {:ok, Contract.t()} | {:error, term()}
   def ingest(file_path, extraction, opts \\ []) do
-    product_group = Keyword.get(opts, :product_group, :ammonia_domestic)
-
     with {:hash, {:ok, file_hash, file_size}} <- {:hash, HashVerifier.compute_file_hash(file_path)},
-         {:extract, {:ok, clauses}} <- {:extract, build_clauses(extraction, product_group)} do
+         {:extract, {:ok, clauses}} <- {:extract, build_clauses(extraction)} do
 
-      # Register any new clause types Copilot discovered
-      register_new_clauses(extraction)
-
-      # Build the contract
       contract = build_contract(extraction, clauses, file_path, file_hash, file_size, opts)
 
       case Store.ingest(contract) do
         {:ok, stored} ->
           CurrencyTracker.stamp(stored.id, :parsed_at)
 
-          # Run deterministic parser as cross-check (async, non-blocking)
-          cross_check = run_parser_cross_check(file_path, clauses)
-
-          broadcast(:copilot_ingestion_complete, %{
+          broadcast(:ingestion_complete, %{
             contract_id: stored.id,
             contract_number: stored.contract_number,
             counterparty: stored.counterparty,
-            copilot_clauses: length(clauses),
-            cross_check: cross_check_summary(cross_check)
+            clause_count: length(clauses)
           })
 
           Logger.info(
-            "Copilot ingestion: #{stored.counterparty} #{stored.contract_number || "?"} " <>
+            "Contract ingestion: #{stored.counterparty} #{stored.contract_number || "?"} " <>
             "(#{length(clauses)} clauses, hash=#{String.slice(file_hash, 0, 12)}...)"
           )
 
@@ -137,16 +118,12 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
   end
 
   @doc """
-  Ingest from Copilot output when we already have the file hash
-  (e.g., Copilot computed it). Skips re-reading the file for hashing.
+  Ingest from LLM output when we already have the file hash
+  (e.g., LLM service computed it). Skips re-reading the file for hashing.
   """
   @spec ingest_with_hash(map(), keyword()) :: {:ok, Contract.t()} | {:error, term()}
   def ingest_with_hash(extraction, opts \\ []) do
-    product_group = Keyword.get(opts, :product_group, :ammonia_domestic)
-
-    with {:extract, {:ok, clauses}} <- {:extract, build_clauses(extraction, product_group)} do
-      register_new_clauses(extraction)
-
+    with {:extract, {:ok, clauses}} <- {:extract, build_clauses(extraction)} do
       file_hash = get_string(extraction, "file_hash")
       file_size = get_number(extraction, "file_size")
 
@@ -158,11 +135,11 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
         {:ok, stored} ->
           CurrencyTracker.stamp(stored.id, :parsed_at)
 
-          broadcast(:copilot_ingestion_complete, %{
+          broadcast(:ingestion_complete, %{
             contract_id: stored.id,
             contract_number: stored.contract_number,
             counterparty: stored.counterparty,
-            copilot_clauses: length(clauses)
+            clause_count: length(clauses)
           })
 
           {:ok, stored}
@@ -206,12 +183,15 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
   end
 
   # ──────────────────────────────────────────────────────────
-  # CLAUSE BUILDING — convert Copilot JSON to %Clause{} structs
+  # CLAUSE BUILDING — convert LLM JSON to %Clause{} structs
+  #
+  # The LLM returns solver-ready fields directly: parameter,
+  # operator, value, unit, penalty_per_unit. No intermediate
+  # mapping through a template registry or contract_term_map.
   # ──────────────────────────────────────────────────────────
 
-  defp build_clauses(%{"clauses" => clauses}, product_group) when is_list(clauses) do
+  defp build_clauses(%{"clauses" => clauses}) when is_list(clauses) do
     now = DateTime.utc_now()
-    term_map = ProductGroup.contract_term_map(product_group)
 
     built =
       Enum.map(clauses, fn clause_data ->
@@ -226,12 +206,14 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
           anchors_matched: get_list(clause_data, "anchors_matched") || [],
           extracted_fields: get_map(clause_data, "extracted_fields") || %{},
           extracted_at: now,
-          # Map LP-relevant fields using product group's term map
-          parameter: map_lp_parameter(clause_data, term_map),
-          operator: map_operator(clause_data),
+          # Solver-ready fields — provided directly by the LLM
+          parameter: safe_atom(get_string(clause_data, "parameter")),
+          operator: safe_operator(get_string(clause_data, "operator")),
           value: get_number(clause_data, "value") || get_nested_number(clause_data, "extracted_fields", "price_value"),
+          value_upper: get_number(clause_data, "value_upper"),
           unit: get_string(clause_data, "unit") || get_nested_string(clause_data, "extracted_fields", "price_uom"),
-          penalty_per_unit: get_nested_number(clause_data, "extracted_fields", "demurrage_rate"),
+          penalty_per_unit: get_number(clause_data, "penalty_per_unit") || get_nested_number(clause_data, "extracted_fields", "demurrage_rate"),
+          penalty_cap: get_number(clause_data, "penalty_cap"),
           period: safe_atom(get_string(clause_data, "period"))
         }
       end)
@@ -239,7 +221,7 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
     {:ok, built}
   end
 
-  defp build_clauses(_, _product_group), do: {:error, :no_clauses_in_extraction}
+  defp build_clauses(_), do: {:error, :no_clauses_in_extraction}
 
   # ──────────────────────────────────────────────────────────
   # CONTRACT BUILDING
@@ -275,119 +257,8 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
   end
 
   # ──────────────────────────────────────────────────────────
-  # DYNAMIC CLAUSE REGISTRATION
-  # ──────────────────────────────────────────────────────────
-
-  defp register_new_clauses(%{"new_clause_definitions" => defs}) when is_list(defs) do
-    Enum.each(defs, fn def_data ->
-      clause_id = get_string(def_data, "clause_id")
-
-      if clause_id && !TemplateRegistry.get_clause(clause_id) do
-        definition = %{
-          category: safe_atom(get_string(def_data, "category") || "unknown"),
-          anchors: get_list(def_data, "anchors") || [],
-          extract_fields: Enum.map(get_list(def_data, "extract_fields") || [], &safe_atom/1),
-          lp_mapping: parse_lp_mapping(get_list(def_data, "lp_mapping")),
-          level_default: safe_atom(get_string(def_data, "level_default") || "expected")
-        }
-
-        TemplateRegistry.register_clause(clause_id, definition)
-
-        Logger.info("Registered new clause type from Copilot: #{clause_id}")
-      end
-    end)
-  end
-
-  defp register_new_clauses(_), do: :ok
-
-  # ──────────────────────────────────────────────────────────
-  # PARSER CROSS-CHECK
-  # ──────────────────────────────────────────────────────────
-
-  @doc """
-  Run the deterministic parser on the same document and compare results
-  against Copilot's extraction. Returns discrepancies.
-  """
-  def cross_check(contract_id) do
-    with {:ok, contract} <- Store.get(contract_id),
-         {:ok, path} <- resolve_path(contract),
-         {:ok, text} <- TradingDesk.Contracts.DocumentReader.read(path) do
-      {parser_clauses, _warnings, _family} = Parser.parse(text)
-
-      copilot_ids = contract.clauses |> Enum.map(& &1.clause_id) |> MapSet.new()
-      parser_ids = parser_clauses |> Enum.map(& &1.clause_id) |> Enum.reject(&is_nil/1) |> MapSet.new()
-
-      # Clauses Copilot found but parser missed (expected — Copilot is smarter)
-      copilot_only = MapSet.difference(copilot_ids, parser_ids) |> MapSet.to_list()
-
-      # Clauses parser found but Copilot missed (suspicious — investigate)
-      parser_only = MapSet.difference(parser_ids, copilot_ids) |> MapSet.to_list()
-
-      # Value discrepancies on shared clauses
-      shared = MapSet.intersection(copilot_ids, parser_ids)
-      value_diffs = compare_shared_values(contract.clauses, parser_clauses, shared)
-
-      {:ok, %{
-        contract_id: contract_id,
-        copilot_clause_count: MapSet.size(copilot_ids),
-        parser_clause_count: MapSet.size(parser_ids),
-        copilot_only: copilot_only,
-        parser_only: parser_only,
-        value_discrepancies: value_diffs,
-        agreement_pct: if(MapSet.size(copilot_ids) > 0,
-          do: Float.round(MapSet.size(shared) / MapSet.size(copilot_ids) * 100, 1),
-          else: 0.0
-        )
-      }}
-    end
-  end
-
-  # ──────────────────────────────────────────────────────────
   # PRIVATE HELPERS
   # ──────────────────────────────────────────────────────────
-
-  defp run_parser_cross_check(nil, _clauses), do: :no_file_path
-  defp run_parser_cross_check(file_path, copilot_clauses) do
-    case TradingDesk.Contracts.DocumentReader.read(file_path) do
-      {:ok, text} ->
-        {parser_clauses, _warnings, _family} = Parser.parse(text)
-
-        copilot_ids = copilot_clauses |> Enum.map(& &1.clause_id) |> MapSet.new()
-        parser_ids = parser_clauses |> Enum.map(& &1.clause_id) |> Enum.reject(&is_nil/1) |> MapSet.new()
-        shared = MapSet.intersection(copilot_ids, parser_ids)
-
-        %{
-          copilot_count: MapSet.size(copilot_ids),
-          parser_count: MapSet.size(parser_ids),
-          agreement: MapSet.size(shared),
-          copilot_only: MapSet.size(MapSet.difference(copilot_ids, parser_ids)),
-          parser_only: MapSet.size(MapSet.difference(parser_ids, copilot_ids))
-        }
-
-      {:error, _} ->
-        :cross_check_failed
-    end
-  end
-
-  defp cross_check_summary(:no_file_path), do: %{status: :skipped}
-  defp cross_check_summary(:cross_check_failed), do: %{status: :failed}
-  defp cross_check_summary(%{} = result) do
-    Map.put(result, :status, :completed)
-  end
-
-  defp compare_shared_values(copilot_clauses, parser_clauses, shared_ids) do
-    Enum.flat_map(shared_ids, fn clause_id ->
-      cop = Enum.find(copilot_clauses, &(&1.clause_id == clause_id))
-      par = Enum.find(parser_clauses, &(&1.clause_id == clause_id))
-
-      cond do
-        is_nil(cop) or is_nil(par) -> []
-        cop.value != nil and par.value != nil and cop.value != par.value ->
-          [%{clause_id: clause_id, copilot_value: cop.value, parser_value: par.value, field: :value}]
-        true -> []
-      end
-    end)
-  end
 
   defp map_clause_type(%{"category" => cat}) do
     case cat do
@@ -406,22 +277,13 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
   end
   defp map_clause_type(_), do: :condition
 
-  # Use the product group's contract_term_map to resolve LP parameters
-  defp map_lp_parameter(%{"clause_id" => clause_id}, term_map) when is_binary(clause_id) do
-    Map.get(term_map, clause_id)
-  end
-  defp map_lp_parameter(_, _term_map), do: nil
-
-  defp map_operator(%{"clause_id" => "PRICE"}), do: :==
-  defp map_operator(%{"clause_id" => "QUANTITY_TOLERANCE"}), do: :>=
-  defp map_operator(%{"clause_id" => "LAYTIME_DEMURRAGE"}), do: :>=
-  defp map_operator(_), do: nil
-
-  defp parse_lp_mapping(nil), do: nil
-  defp parse_lp_mapping([]), do: nil
-  defp parse_lp_mapping(list) when is_list(list) do
-    Enum.map(list, &safe_atom/1)
-  end
+  # Convert LLM operator string to atom
+  defp safe_operator(nil), do: nil
+  defp safe_operator("=="), do: :==
+  defp safe_operator(">="), do: :>=
+  defp safe_operator("<="), do: :<=
+  defp safe_operator("between"), do: :between
+  defp safe_operator(_), do: nil
 
   # --- Data access helpers (handle string keys from JSON) ---
 
@@ -506,10 +368,6 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
       [] -> nil
     end
   end
-
-  defp resolve_path(%Contract{network_path: nil}), do: {:error, :no_path}
-  defp resolve_path(%Contract{network_path: ""}), do: {:error, :no_path}
-  defp resolve_path(%Contract{network_path: p}), do: if(File.exists?(p), do: {:ok, p}, else: {:error, :not_found})
 
   defp broadcast(event, payload) do
     Phoenix.PubSub.broadcast(@pubsub, @topic, {:contract_event, event, payload})
