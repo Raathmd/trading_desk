@@ -7,10 +7,18 @@ defmodule TradingDesk.Contracts.FolderScanner do
   1. Scan configured folder for supported files (.pdf, .docx, .docm, .txt)
   2. Compute SHA-256 hash for each file on disk
   3. Compare against contracts in the database:
-     - **New file** (hash not in DB)        → ingest via Inventory
-     - **Changed file** (same name, new hash) → re-ingest, delete old schedules
+     - **New file** (hash not in DB)        → extract via Copilot LLM (fallback: Parser)
+     - **Changed file** (same name, new hash) → re-extract via Copilot, delete old schedules
      - **Missing file** (in DB, not on disk)  → soft-delete (set deleted_at)
   4. Generate scheduled deliveries for each ingested contract
+
+  ## Clause extraction
+
+  New and changed files are sent through **CopilotClient LLM extraction** first,
+  which captures nuanced clause changes (pricing, penalties, delivery terms) that
+  affect solver input via the ConstraintBridge. If Copilot is unavailable, falls
+  back to the deterministic Parser via Inventory.ingest_file/2.
+
   5. SAP-closed contracts are also soft-deleted
 
   ## Contract key
@@ -26,12 +34,17 @@ defmodule TradingDesk.Contracts.FolderScanner do
   """
 
   alias TradingDesk.Contracts.{
+    CopilotClient,
+    CopilotIngestion,
+    DocumentReader,
     HashVerifier,
     Inventory,
+    SapPositions,
     Store
   }
 
   alias TradingDesk.DB.ScheduledDelivery
+  alias TradingDesk.Schedule.DeliveryScheduler
   alias TradingDesk.Repo
 
   import Ecto.Query
@@ -285,12 +298,27 @@ defmodule TradingDesk.Contracts.FolderScanner do
     filename = Path.basename(path)
     Logger.info("FolderScanner: ingesting new file #{filename}")
 
-    Inventory.ingest_file(path, [
+    result = copilot_extract_and_ingest(path, product_group, [
       counterparty: Inventory.derive_counterparty_from_filename(filename),
       counterparty_type: :customer,
-      product_group: product_group,
       network_path: path
     ])
+
+    case result do
+      {:ok, contract} ->
+        broadcast(:clauses_changed, %{
+          contract_id: contract.id,
+          counterparty: contract.counterparty,
+          product_group: product_group,
+          reason: :new_file,
+          clause_count: length(contract.clauses || [])
+        })
+
+        {:ok, contract}
+
+      error ->
+        error
+    end
   end
 
   defp reingest_changed(path, old_contract, product_group, _opts) do
@@ -303,10 +331,9 @@ defmodule TradingDesk.Contracts.FolderScanner do
       Logger.info("FolderScanner: cleared #{cleared} old schedule records for hash #{String.slice(old_contract.file_hash, 0, 12)}...")
     end
 
-    Inventory.ingest_file(path, [
+    result = copilot_extract_and_ingest(path, product_group, [
       counterparty: old_contract.counterparty,
       counterparty_type: old_contract.counterparty_type,
-      product_group: product_group,
       template_type: old_contract.template_type,
       incoterm: old_contract.incoterm,
       term_type: old_contract.term_type,
@@ -316,6 +343,105 @@ defmodule TradingDesk.Contracts.FolderScanner do
       sap_contract_id: old_contract.sap_contract_id,
       network_path: path
     ])
+
+    case result do
+      {:ok, contract} ->
+        broadcast(:clauses_changed, %{
+          contract_id: contract.id,
+          counterparty: contract.counterparty,
+          product_group: product_group,
+          reason: :file_changed,
+          previous_version: old_contract.version,
+          clause_count: length(contract.clauses || [])
+        })
+
+        {:ok, contract}
+
+      error ->
+        error
+    end
+  end
+
+  # ──────────────────────────────────────────────────────────
+  # PRIVATE: COPILOT-FIRST EXTRACTION
+  #
+  # Tries CopilotClient LLM extraction first so clause changes
+  # (pricing, penalties, delivery terms) are fully captured for
+  # the solver's ConstraintBridge. Falls back to deterministic
+  # Parser via Inventory.ingest_file if Copilot is unavailable.
+  # ──────────────────────────────────────────────────────────
+
+  defp copilot_extract_and_ingest(path, product_group, opts) do
+    filename = Path.basename(path)
+
+    case extract_via_copilot(path) do
+      {:ok, extraction} ->
+        Logger.info("FolderScanner: Copilot extraction succeeded for #{filename}")
+        ingest_copilot_extraction(path, extraction, product_group, opts)
+
+      {:error, reason} ->
+        Logger.info(
+          "FolderScanner: Copilot unavailable for #{filename} (#{inspect(reason)}), " <>
+          "falling back to deterministic parser"
+        )
+
+        Inventory.ingest_file(path, Keyword.put(opts, :product_group, product_group))
+    end
+  end
+
+  # Read local file → send text to Copilot LLM for clause extraction
+  defp extract_via_copilot(path) do
+    with {:ok, text} <- DocumentReader.read(path),
+         {:ok, extraction} <- CopilotClient.extract_text(text) do
+      {:ok, extraction}
+    end
+  end
+
+  # Ingest Copilot extraction as a versioned contract, then generate schedule
+  defp ingest_copilot_extraction(path, extraction, product_group, opts) do
+    copilot_opts = [
+      product_group: product_group,
+      network_path: Keyword.get(opts, :network_path, path),
+      sap_contract_id: Keyword.get(opts, :sap_contract_id)
+    ]
+
+    case CopilotIngestion.ingest(path, extraction, copilot_opts) do
+      {:ok, contract} ->
+        # Generate scheduled deliveries (same as Inventory does, but CopilotIngestion doesn't)
+        schedule_deliveries_async(contract)
+        {:ok, contract}
+
+      {:error, reason} ->
+        Logger.warning("FolderScanner: Copilot ingestion failed (#{inspect(reason)}), falling back to parser")
+        fallback_opts = Keyword.put(opts, :product_group, product_group)
+        Inventory.ingest_file(path, fallback_opts)
+    end
+  end
+
+  # Fetch SAP open position and generate scheduled deliveries (async, non-blocking)
+  defp schedule_deliveries_async(contract) do
+    Task.Supervisor.start_child(
+      TradingDesk.Contracts.TaskSupervisor,
+      fn ->
+        with_position = fetch_sap_position(contract)
+        DeliveryScheduler.generate_from_contract(with_position)
+      end
+    )
+  end
+
+  defp fetch_sap_position(contract) do
+    case SapPositions.fetch_position(contract.counterparty) do
+      {:ok, pos} when is_map(pos) ->
+        open_qty = pos.open_qty_mt || pos[:open_quantity] || 0.0
+        Store.update_open_position(contract.counterparty, contract.product_group, open_qty)
+        %{contract | open_position: open_qty}
+
+      _ ->
+        Logger.debug("FolderScanner: SAP position unavailable for #{contract.counterparty}")
+        contract
+    end
+  rescue
+    _ -> contract
   end
 
   # ──────────────────────────────────────────────────────────
