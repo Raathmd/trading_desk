@@ -1,15 +1,16 @@
-defmodule TradingDesk.Contracts.CopilotClient do
+defmodule TradingDesk.Contracts.ContractLlmClient do
   @moduledoc """
-  LLM client for on-demand clause extraction from SharePoint files.
+  LLM client for on-demand clause extraction from contract documents.
 
   Called by ScanCoordinator when a contract file needs to be extracted.
   Two modes:
 
-    1. `extract_file/3` — given a Graph API file reference (drive_id + item_id),
+    1. `extract_file/4` — given a Graph API file reference (drive_id + item_id),
        fetches the file content via Graph API, extracts text, sends to LLM.
-       Copilot handles all file access — Zig scanner never downloads content.
+       The LLM receives solver frame context for the product group so it can
+       map clauses directly to solver variables.
 
-    2. `extract_text/1` — given pre-extracted text, sends directly to LLM.
+    2. `extract_text/2` — given pre-extracted text, sends directly to LLM.
        Used when text is already available (e.g. from a local file test).
 
   ## Architecture
@@ -18,11 +19,11 @@ defmodule TradingDesk.Contracts.CopilotClient do
   ScanCoordinator: "this file changed, extract it"
        │
        ▼
-  CopilotClient.extract_file(drive_id, item_id, token)
+  ContractLlmClient.extract_file(drive_id, item_id, token)
        │
        ├── Graph API: download file content
        ├── DocumentReader: convert binary → text
-       └── LLM: extract clauses from text
+       └── LLM: extract solver-ready clauses from text
        │
        ▼
   Returns: {:ok, %{"clauses" => [...], "counterparty" => "Koch", ...}}
@@ -30,10 +31,10 @@ defmodule TradingDesk.Contracts.CopilotClient do
 
   ## Configuration
 
-    COPILOT_ENDPOINT  — LLM API endpoint (OpenAI-compatible, required)
-    COPILOT_API_KEY   — API key (required)
-    COPILOT_MODEL     — model identifier (default: gpt-4o)
-    COPILOT_TIMEOUT   — request timeout in ms (default: 120000)
+    CONTRACT_LLM_ENDPOINT  — LLM API endpoint (OpenAI-compatible, required)
+    CONTRACT_LLM_API_KEY   — API key (required)
+    CONTRACT_LLM_MODEL     — model identifier (default: gpt-4o)
+    CONTRACT_LLM_TIMEOUT   — request timeout in ms (default: 120000)
   """
 
   alias TradingDesk.Contracts.DocumentReader
@@ -54,7 +55,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
   Extract clauses from a SharePoint file by reference.
 
   Downloads the file via Graph API, extracts text, sends to LLM.
-  Copilot handles all file access — Zig scanner never downloads content.
+  The LLM client handles all file access — Zig scanner never downloads content.
 
   Returns:
     {:ok, %{"clauses" => [...], "counterparty" => "Koch", ...}}
@@ -125,7 +126,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
     end
   end
 
-  @doc "Check if the LLM API is configured and reachable."
+  @doc "Check if the contract extraction LLM API is configured and reachable."
   @spec available?() :: boolean()
   def available? do
     case get_config() do
@@ -219,17 +220,34 @@ defmodule TradingDesk.Contracts.CopilotClient do
     ## Solver Constraints
     #{constraints}
 
-    ## Operator Rules
-    - "==" : clause fixes the variable to an exact value (e.g. contract price)
-    - ">=" : clause sets a minimum floor (e.g. minimum volume commitment)
-    - "<=" : clause sets a maximum ceiling (e.g. capacity limit)
-    - "between" : clause sets both a floor and ceiling (use value + value_upper)
-    - null : clause is informational, does not constrain a solver variable
+    ## How Clauses Affect the Solver
 
-    ## Penalty Clauses
-    For penalty clauses (demurrage, volume shortfall, late delivery, take-or-pay),
-    set penalty_per_unit to the $/ton or $/day rate. These are used to adjust
-    effective margins but are not directly applied as variable bounds.
+    Clauses flow into the solver through TWO paths:
+
+    ### Path 1: Direct Variable Bounds
+    Set parameter + operator + value when a clause constrains a solver variable:
+    - "==" : fixes the variable to an exact value (e.g. contract purchase price → nola_buy)
+    - ">=" : sets a minimum floor (e.g. minimum volume commitment → inv_mer)
+    - "<=" : sets a maximum ceiling (e.g. capacity limit → barge_count)
+    - "between" : sets both floor and ceiling (use value + value_upper)
+
+    ### Path 2: Penalty Margin Adjustment
+    Set penalty_per_unit (and optionally penalty_cap) when a clause imposes
+    a penalty rate. These reduce effective sell prices by the weighted-average
+    penalty exposure per ton, baking contract risk into the LP margin:
+    - Demurrage rates ($/ton/day)
+    - Volume shortfall penalties ($/ton)
+    - Late delivery penalties ($/ton)
+    - Take-or-pay obligations ($/ton shortfall)
+    - ANY other penalty or liquidated damages rate
+
+    A clause CAN have BOTH a direct bound AND a penalty rate (e.g. a minimum
+    volume clause with a shortfall penalty).
+
+    ### Informational Clauses
+    Set parameter and operator to null for clauses that do not constrain
+    solver variables and have no penalty rate (legal, compliance, etc.).
+    These are stored for audit and display.
     """
   end
 
@@ -278,11 +296,12 @@ defmodule TradingDesk.Contracts.CopilotClient do
       vessel requirements, compliance, and any other provisions
     - Include exact source_text from the contract
     - Precise numerical values (prices, quantities, percentages, rates)
-    - Map each clause to a solver variable (parameter) when applicable
-    - Set operator and value for solver-constraining clauses
-    - For penalty clauses, set penalty_per_unit to the rate
-    - Set parameter to null for informational/legal clauses that do not
-      directly constrain a solver variable
+    - Map each clause to a solver variable (parameter) when it constrains one
+    - Set operator and value for clauses that bound solver variables
+    - Set penalty_per_unit for ANY clause with a penalty/damages rate — these
+      reduce effective sell prices in the solver's margin calculation
+    - A clause can have BOTH parameter+operator AND penalty_per_unit
+    - Set parameter and operator to null only for purely informational clauses
     - confidence: "low" if uncertain about extraction or mapping
     - Use descriptive UPPERCASE_SNAKE_CASE for clause_id
 
@@ -358,7 +377,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
 
   defp extract_text_from_binary(content, filename) do
     ext = Path.extname(filename)
-    tmp_path = Path.join(System.tmp_dir!(), "copilot_#{:erlang.unique_integer([:positive])}#{ext}")
+    tmp_path = Path.join(System.tmp_dir!(), "contract_llm_#{:erlang.unique_integer([:positive])}#{ext}")
 
     try do
       File.write!(tmp_path, content)
@@ -377,8 +396,9 @@ defmodule TradingDesk.Contracts.CopilotClient do
   # ──────────────────────────────────────────────────────────
 
   defp get_config do
-    endpoint = System.get_env("COPILOT_ENDPOINT")
-    api_key = System.get_env("COPILOT_API_KEY")
+    # Support both new and legacy env var names
+    endpoint = System.get_env("CONTRACT_LLM_ENDPOINT") || System.get_env("COPILOT_ENDPOINT")
+    api_key = System.get_env("CONTRACT_LLM_API_KEY") || System.get_env("COPILOT_API_KEY")
 
     cond do
       is_nil(endpoint) or endpoint == "" -> {:error, :endpoint_not_configured}
@@ -387,7 +407,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
         {:ok, %{
           endpoint: String.trim_trailing(endpoint, "/"),
           api_key: api_key,
-          model: System.get_env("COPILOT_MODEL") || @default_model
+          model: System.get_env("CONTRACT_LLM_MODEL") || System.get_env("COPILOT_MODEL") || @default_model
         }}
     end
   end
@@ -395,7 +415,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
   defp auth_headers(%{api_key: key}), do: [{"authorization", "Bearer #{key}"}]
 
   defp timeout do
-    case System.get_env("COPILOT_TIMEOUT") do
+    case System.get_env("CONTRACT_LLM_TIMEOUT") || System.get_env("COPILOT_TIMEOUT") do
       nil -> @default_timeout
       val ->
         case Integer.parse(val) do

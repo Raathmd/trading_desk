@@ -9,10 +9,19 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   Only approved, SAP-validated, non-expired contracts with loaded
   open positions are used. The Readiness gate must pass first.
 
-  Contract clauses modify solver inputs in three ways:
-    1. Tighten bounds  — min volume becomes a floor on inventory allocation
-    2. Adjust prices   — contract prices override market spot prices
-    3. Add penalties   — penalty costs reduce effective margins
+  Contract clauses modify solver inputs in two paths:
+
+    1. **Direct bounds** — clauses where the LLM mapped a solver variable
+       + operator + value. These tighten variable bounds (floor, ceiling,
+       fixed, or range). A clause is "applicable" when it has both a
+       non-nil parameter and a non-nil operator.
+
+    2. **Penalty margin adjustment** — clauses with a penalty_per_unit rate
+       (demurrage, volume shortfall, late delivery, take-or-pay, etc.).
+       These reduce effective sell prices by the weighted-average penalty
+       exposure per ton, capped at 10% of current sell price. Any clause
+       the LLM sets penalty_per_unit on flows through this path — no
+       hardcoded clause_id list.
 
   This module never loosens constraints — it only tightens them.
   If a contract says minimum 5,000 tons and the trader set 3,000,
@@ -348,18 +357,12 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
 
   defp compute_bound(_clause, current), do: current
 
-  # Only apply clauses that map to solver variables
+  # A clause is applicable for direct variable binding when the LLM mapped it
+  # to a real solver variable with an operator. Clauses with parameter: nil
+  # or operator: nil are either informational or penalty-only (handled by
+  # apply_penalty_margin_adjustment/2 via the penalty_per_unit field).
   defp applicable?(%{parameter: nil}), do: false
-  defp applicable?(%{parameter: :force_majeure}), do: false
-  defp applicable?(%{parameter: :demurrage}), do: false
-  defp applicable?(%{parameter: :late_delivery}), do: false
-  defp applicable?(%{parameter: :volume_shortfall}), do: false
-  defp applicable?(%{parameter: :delivery_window}), do: false
-  defp applicable?(%{parameter: :total_volume}), do: false
-  defp applicable?(%{parameter: :inventory}), do: false
-  defp applicable?(%{parameter: :contract_price}), do: false
-  defp applicable?(%{parameter: :freight_rate}), do: false
-  defp applicable?(%{type: :condition}), do: false
+  defp applicable?(%{operator: nil}), do: false
   defp applicable?(_clause), do: true
 
   # ──────────────────────────────────────────────────────────
@@ -384,41 +387,36 @@ defmodule TradingDesk.Contracts.ConstraintBridge do
   end
   defp extract_contract_qty(_), do: 0.0
 
+  # Extract all penalty clauses by matching on penalty_per_unit field.
+  # The LLM sets penalty_per_unit on any clause with a penalty/demurrage rate.
+  # No hardcoded clause_id list — works with any clause type the LLM identifies.
   defp extract_penalty_clauses(%Contract{clauses: clauses}) when is_list(clauses) do
-    penalties = []
-
-    # Take-or-pay shortfall obligation (supplier contracts with committed lift floor)
-    penalties =
-      case Enum.find(clauses, &(&1.clause_id == "TAKE_OR_PAY")) do
-        %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
-          [{:take_or_pay, rate} | penalties]
-        _ -> penalties
-      end
-
-    penalties =
-      case Enum.find(clauses, &(&1.clause_id == "PENALTY_VOLUME_SHORTFALL")) do
-        %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
-          [{:volume_shortfall, rate} | penalties]
-        _ -> penalties
-      end
-
-    penalties =
-      case Enum.find(clauses, &(&1.clause_id == "PENALTY_LATE_DELIVERY")) do
-        %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
-          [{:late_delivery, rate} | penalties]
-        _ -> penalties
-      end
-
-    penalties =
-      case Enum.find(clauses, &(&1.clause_id == "LAYTIME_DEMURRAGE")) do
-        %{penalty_per_unit: rate} when is_number(rate) and rate > 0 ->
-          [{:demurrage, rate} | penalties]
-        _ -> penalties
-      end
-
-    penalties
+    clauses
+    |> Enum.filter(fn clause ->
+      is_number(clause.penalty_per_unit) and clause.penalty_per_unit > 0
+    end)
+    |> Enum.map(fn clause ->
+      penalty_type = clause_id_to_penalty_type(clause.clause_id)
+      {penalty_type, clause.penalty_per_unit}
+    end)
   end
   defp extract_penalty_clauses(_), do: []
+
+  # Best-effort penalty type classification from clause_id.
+  # Falls back to :general_penalty for clause types the LLM discovers
+  # that we don't have a specific category for.
+  defp clause_id_to_penalty_type(nil), do: :general_penalty
+  defp clause_id_to_penalty_type(clause_id) when is_binary(clause_id) do
+    id = String.upcase(clause_id)
+    cond do
+      String.contains?(id, "TAKE_OR_PAY") -> :take_or_pay
+      String.contains?(id, "VOLUME_SHORTFALL") -> :volume_shortfall
+      String.contains?(id, "LATE_DELIVERY") -> :late_delivery
+      String.contains?(id, "DEMURRAGE") or String.contains?(id, "LAYTIME") -> :demurrage
+      String.contains?(id, "DELAY") -> :delay_penalty
+      true -> :general_penalty
+    end
+  end
 
   # --- Variable access helpers ---
 

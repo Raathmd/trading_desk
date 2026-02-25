@@ -30,8 +30,8 @@ defmodule TradingDesk.Contracts.Pipeline do
   """
 
   alias TradingDesk.Contracts.{
-    CopilotClient,
-    CopilotIngestion,
+    ContractLlmClient,
+    ContractLlmIngestion,
     DocumentReader,
     Store,
     SapValidator,
@@ -94,22 +94,22 @@ defmodule TradingDesk.Contracts.Pipeline do
   # ──────────────────────────────────────────────────────────
 
   @doc """
-  Ingest a contract using Copilot's pre-extracted clause data.
-  This is the primary ingestion path — Copilot is the extraction service,
+  Ingest a contract using the LLM's pre-extracted clause data.
+  This is the primary ingestion path — the LLM is the extraction service,
   the app is the system of record.
 
-  Runs: Copilot ingest → template validate → parser cross-check → SAP validate.
+  Runs: LLM ingest → template validate → SAP validate.
   """
-  def ingest_copilot_async(file_path, extraction, opts \\ []) do
+  def ingest_llm_async(file_path, extraction, opts \\ []) do
     Task.Supervisor.async_nolink(
       TradingDesk.Contracts.TaskSupervisor,
       fn ->
-        broadcast(:copilot_chain_started, %{
-          file: if(file_path, do: Path.basename(file_path), else: "from_copilot"),
+        broadcast(:llm_chain_started, %{
+          file: if(file_path, do: Path.basename(file_path), else: "from_llm"),
           counterparty: extraction["counterparty"]
         })
 
-        case CopilotIngestion.ingest(file_path, extraction, opts) do
+        case ContractLlmIngestion.ingest(file_path, extraction, opts) do
           {:ok, contract} ->
             # Template validate
             contract = run_template_validation(contract)
@@ -125,7 +125,7 @@ defmodule TradingDesk.Contracts.Pipeline do
             end
 
             gate1 = StrictGate.gate_extraction(contract)
-            broadcast(:copilot_chain_complete, %{
+            broadcast(:llm_chain_complete, %{
               contract_id: contract.id,
               counterparty: contract.counterparty,
               clause_count: length(contract.clauses || []),
@@ -135,8 +135,8 @@ defmodule TradingDesk.Contracts.Pipeline do
             {:ok, contract}
 
           {:error, reason} ->
-            broadcast(:copilot_chain_failed, %{
-              file: if(file_path, do: Path.basename(file_path), else: "from_copilot"),
+            broadcast(:llm_chain_failed, %{
+              file: if(file_path, do: Path.basename(file_path), else: "from_llm"),
               reason: inspect(reason)
             })
             {:error, reason}
@@ -146,20 +146,20 @@ defmodule TradingDesk.Contracts.Pipeline do
   end
 
   @doc """
-  Batch ingest from Copilot — processes multiple contracts in parallel.
+  Batch ingest from LLM extraction — processes multiple contracts in parallel.
   `batch` is a list of {file_path, extraction_map} tuples.
   """
-  def ingest_copilot_batch_async(batch, opts \\ []) do
+  def ingest_llm_batch_async(batch, opts \\ []) do
     Task.Supervisor.async_nolink(
       TradingDesk.Contracts.TaskSupervisor,
       fn ->
-        broadcast(:copilot_batch_started, %{count: length(batch)})
+        broadcast(:llm_batch_started, %{count: length(batch)})
 
         results =
           batch
           |> Task.async_stream(
             fn {file_path, extraction} ->
-              CopilotIngestion.ingest(file_path, extraction, opts)
+              ContractLlmIngestion.ingest(file_path, extraction, opts)
             end,
             max_concurrency: 4,
             timeout: 60_000
@@ -172,7 +172,7 @@ defmodule TradingDesk.Contracts.Pipeline do
         succeeded = Enum.count(results, &match?({:ok, _}, &1))
         failed = Enum.count(results, &(not match?({:ok, _}, &1)))
 
-        broadcast(:copilot_batch_complete, %{
+        broadcast(:llm_batch_complete, %{
           total: length(batch),
           succeeded: succeeded,
           failed: failed
@@ -273,7 +273,7 @@ defmodule TradingDesk.Contracts.Pipeline do
   """
   def extract(file_path, counterparty, counterparty_type, product_group, opts \\ []) do
     with {:read, {:ok, text}} <- {:read, DocumentReader.read(file_path)},
-         {:llm, {:ok, extraction}} <- {:llm, CopilotClient.extract_text(text, product_group: product_group)} do
+         {:llm, {:ok, extraction}} <- {:llm, ContractLlmClient.extract_text(text, product_group: product_group)} do
 
       # Merge caller-provided identity into extraction
       extraction = Map.merge(extraction, %{
@@ -281,7 +281,7 @@ defmodule TradingDesk.Contracts.Pipeline do
         "counterparty_type" => extraction["counterparty_type"] || to_string(counterparty_type)
       })
 
-      CopilotIngestion.ingest(file_path, extraction,
+      ContractLlmIngestion.ingest(file_path, extraction,
         Keyword.merge(opts, [product_group: product_group])
       )
     else

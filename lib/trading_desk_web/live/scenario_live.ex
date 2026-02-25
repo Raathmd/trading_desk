@@ -961,7 +961,7 @@ defmodule TradingDesk.ScenarioLive do
   end
 
   def handle_info({:pipeline_event, :pipeline_ingesting, %{changed: n, caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
-    {:noreply, assign(socket, pipeline_phase: :ingesting, pipeline_detail: "#{n} contract#{if n != 1, do: "s", else: ""} changed — Copilot ingesting")}
+    {:noreply, assign(socket, pipeline_phase: :ingesting, pipeline_detail: "#{n} contract#{if n != 1, do: "s", else: ""} changed — contract LLM ingesting")}
   end
 
   def handle_info({:pipeline_event, :pipeline_ingest_done, %{caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
@@ -3246,7 +3246,7 @@ defmodule TradingDesk.ScenarioLive do
                   # ── AI / LLM ───────────────────────────────────────────────────────────
                   %{id: "anthropic",     free: false, label: "Anthropic Claude (fallback)", url_placeholder: "https://api.anthropic.com",            key_placeholder: "ANTHROPIC_API_KEY",     variables: ~w(analyst_explanation intent_map),                note: "Fallback if local Mistral 7B is unavailable — set key to enable"},
                   %{id: "huggingface",   free: true,  label: "HuggingFace (Local Bumblebee)", url_placeholder: "Local — Mistral 7B via Bumblebee/EXLA",  key_placeholder: "",                      variables: ~w(presolve_explanation postsolve_explanation intent_map analyst_explanation), note: "LOCAL model — downloaded at startup, no API key needed. Add models in ModelRegistry."},
-                  %{id: "copilot",       free: false, label: "Copilot / LLM",            url_placeholder: "https://api.openai.com/v1",            key_placeholder: "COPILOT_API_KEY",       variables: ~w(contract_extraction),                           note: "Contract extraction (OpenAI-compatible endpoint)"},
+                  %{id: "contract_llm",  free: false, label: "Contract LLM",              url_placeholder: "https://api.openai.com/v1",            key_placeholder: "CONTRACT_LLM_API_KEY",  variables: ~w(contract_extraction),                           note: "Contract clause extraction (OpenAI-compatible endpoint)"},
                   # ── Free / Public APIs (no key — URL hardcoded) ────────────────────────
                   %{id: "usgs",          free: true,  label: "USGS Water Services",      url_placeholder: "https://waterservices.usgs.gov/nwis/iv/", key_placeholder: "",                   variables: ~w(river_stage),                                   note: "Public API — 4 Mississippi gauges · no key required"},
                   %{id: "noaa",          free: true,  label: "NOAA Weather",             url_placeholder: "https://api.weather.gov/",             key_placeholder: "",                      variables: ~w(temp_f wind_mph vis_mi precip_in),               note: "Public API — stations KBTR KMEM KSTL KVKS · no key required"},
@@ -5113,7 +5113,7 @@ defmodule TradingDesk.ScenarioLive do
   defp pipeline_button_text(true, _, _), do: "⏳ WORKING..."
 
   defp pipeline_phase_text(:checking_contracts), do: "Checking contract hashes"
-  defp pipeline_phase_text(:ingesting), do: "Waiting for Copilot to ingest changes"
+  defp pipeline_phase_text(:ingesting), do: "Waiting for contract LLM to ingest changes"
   defp pipeline_phase_text(:solving), do: "Running solver"
   defp pipeline_phase_text(_), do: "Working"
 

@@ -1,4 +1,4 @@
-defmodule TradingDesk.Contracts.CopilotIngestion do
+defmodule TradingDesk.Contracts.ContractLlmIngestion do
   @moduledoc """
   Accepts pre-extracted clause data from the LLM extraction service
   and ingests it into the contract system.
@@ -69,7 +69,7 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
   @topic "contracts"
 
   # ──────────────────────────────────────────────────────────
-  # PRIMARY INGESTION — Copilot provides extraction
+  # PRIMARY INGESTION — LLM provides extraction
   # ──────────────────────────────────────────────────────────
 
   @doc """
@@ -153,11 +153,11 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
   end
 
   # ──────────────────────────────────────────────────────────
-  # BATCH INGESTION — multiple contracts from Copilot
+  # BATCH INGESTION — multiple contracts from LLM extraction
   # ──────────────────────────────────────────────────────────
 
   @doc """
-  Ingest multiple contracts from a batch Copilot extraction.
+  Ingest multiple contracts from a batch LLM extraction.
 
   `batch` is a list of {file_path, extraction_map} tuples.
   Returns a summary of results.
@@ -245,7 +245,7 @@ defmodule TradingDesk.Contracts.CopilotIngestion do
       contract_date: parse_date(get_string(extraction, "effective_date")),
       expiry_date: parse_date(get_string(extraction, "expiry_date")),
       sap_contract_id: Keyword.get(opts, :sap_contract_id) || get_string(extraction, "sap_contract_id"),
-      # Copilot-provided metadata
+      # LLM-provided metadata
       contract_number: get_string(extraction, "contract_number"),
       family_id: get_string(extraction, "family_id"),
       file_hash: file_hash,

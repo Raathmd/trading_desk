@@ -6,8 +6,8 @@ defmodule TradingDesk.Solver.Pipeline do
 
     1. Check contract hashes against Graph API (via Zig scanner)
     2. If any contracts changed or are new:
-       a. Notify caller: "waiting for Copilot to ingest changes"
-       b. Fetch changed files, extract via Copilot LLM, ingest
+       a. Notify caller: "waiting for contract LLM to ingest changes"
+       b. Fetch changed files, extract via contract LLM, ingest
        c. Reload contract-derived variables
     3. Snapshot active contracts + variable sources (for audit)
     4. Run the LP solve (single or Monte Carlo) with current data

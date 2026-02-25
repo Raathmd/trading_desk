@@ -4,20 +4,20 @@ defmodule TradingDesk.Contracts.ScanCoordinator do
 
   This is the entry point for all contract scanning. The app decides
   when to scan, what changed, and what to ingest. The Zig scanner and
-  Copilot LLM are called on-demand as utilities.
+  contract LLM are called on-demand as utilities.
 
   ## The Flow
 
   1. App calls `run/2` (manually, on schedule, or on demand)
   2. App asks Zig scanner for current file hashes from Graph API
   3. App compares hashes against its own database:
-     - Hash not in DB           → new file → request Copilot extraction
-     - Hash differs from DB     → changed file → request Copilot re-extraction
+     - Hash not in DB           → new file → request LLM extraction
+     - Hash differs from DB     → changed file → request LLM re-extraction
      - Hash matches DB          → unchanged → skip
-  4. Sends all new/changed files to Copilot in a batch:
-     - CopilotClient downloads each file from Graph API
-     - CopilotClient extracts text + sends to LLM
-     - CopilotClient returns structured clauses per file
+  4. Sends all new/changed files to the contract LLM in a batch:
+     - ContractLlmClient downloads each file from Graph API
+     - ContractLlmClient extracts text + sends to LLM
+     - ContractLlmClient returns solver-ready clauses per file
   5. App ingests extractions as versioned contracts
   6. Contracts available for LP solver
 
@@ -29,21 +29,21 @@ defmodule TradingDesk.Contracts.ScanCoordinator do
     │
     ├── compares hashes against Store (its own database)
     │
-    ├── "copilot, extract these files" (batch)
-    │     └── CopilotClient.extract_files/2
+    ├── "LLM, extract these files" (batch)
+    │     └── ContractLlmClient.extract_files/2
     │           ├── Graph API: download each file
     │           ├── DocumentReader: convert binary → text
-    │           └── LLM: extract clauses from text
+    │           └── LLM: extract solver-ready clauses from text
     │
-    ├── CopilotIngestion.ingest_with_hash/2 per file → versioned contracts
+    ├── ContractLlmIngestion.ingest_with_hash/2 per file → versioned contracts
     │
     └── contracts available for LP solver
   ```
   """
 
   alias TradingDesk.Contracts.{
-    CopilotClient,
-    CopilotIngestion,
+    ContractLlmClient,
+    ContractLlmIngestion,
     NetworkScanner,
     Store,
     CurrencyTracker
@@ -233,7 +233,7 @@ defmodule TradingDesk.Contracts.ScanCoordinator do
   end
 
   # ──────────────────────────────────────────────────────────
-  # STEP 3: Process the diff — send all files to Copilot as batch
+  # STEP 3: Process the diff — send all files to LLM as batch
   # ──────────────────────────────────────────────────────────
 
   defp process_diff(diff, product_group, _opts) do
@@ -254,7 +254,7 @@ defmodule TradingDesk.Contracts.ScanCoordinator do
     if length(files_to_extract) == 0 do
       {:ok, %{new: [], changed: []}}
     else
-      # Get Graph API token for CopilotClient to download files
+      # Get Graph API token for ContractLlmClient to download files
       case NetworkScanner.graph_token() do
         {:ok, graph_token} ->
           batch_extract_and_ingest(files_to_extract, graph_token, product_group, diff)
@@ -269,7 +269,7 @@ defmodule TradingDesk.Contracts.ScanCoordinator do
   # ──────────────────────────────────────────────────────────
   # BATCH EXTRACTION VIA COPILOT
   #
-  # Sends all files to CopilotClient.extract_files/2 which:
+  # Sends all files to ContractLlmClient.extract_files/2 which:
   #   1. Downloads each file from Graph API
   #   2. Extracts text via DocumentReader
   #   3. Sends text to LLM for clause extraction
@@ -277,15 +277,15 @@ defmodule TradingDesk.Contracts.ScanCoordinator do
   # ──────────────────────────────────────────────────────────
 
   defp batch_extract_and_ingest(files_to_extract, graph_token, product_group, diff) do
-    # Build file list for CopilotClient (just the file metadata)
+    # Build file list for ContractLlmClient (just the file metadata)
     file_list = Enum.map(files_to_extract, fn {file, _existing} -> file end)
 
     count = length(file_list)
-    Logger.info("Sending #{count} file(s) to Copilot for extraction")
+    Logger.info("Sending #{count} file(s) to contract LLM for extraction")
     broadcast(:batch_extraction_started, %{file_count: count})
 
-    # CopilotClient downloads + extracts all files concurrently
-    extraction_results = CopilotClient.extract_files(file_list, graph_token)
+    # ContractLlmClient downloads + extracts all files concurrently
+    extraction_results = ContractLlmClient.extract_files(file_list, graph_token)
 
     # Match results back to existing contracts for ingestion
     results =
@@ -326,9 +326,9 @@ defmodule TradingDesk.Contracts.ScanCoordinator do
 
     ingest_opts = build_ingest_opts(existing_contract, product_group)
 
-    case CopilotIngestion.ingest_with_hash(enriched, ingest_opts) do
+    case ContractLlmIngestion.ingest_with_hash(enriched, ingest_opts) do
       {:ok, contract} ->
-        CurrencyTracker.stamp(contract.id, :copilot_extracted_at)
+        CurrencyTracker.stamp(contract.id, :llm_extracted_at)
         action = if existing_contract, do: "re-ingested", else: "ingested"
         Logger.info("#{action}: #{name} → #{contract.counterparty} v#{contract.version}")
         {name, {:ok, contract}}
@@ -387,8 +387,8 @@ defmodule TradingDesk.Contracts.ScanCoordinator do
           {:ok, graph_token} ->
             file_list = Enum.map(files_to_extract, fn {file, _} -> file end)
 
-            Logger.info("Delta: sending #{length(file_list)} changed file(s) to Copilot")
-            extraction_results = CopilotClient.extract_files(file_list, graph_token)
+            Logger.info("Delta: sending #{length(file_list)} changed file(s) to contract LLM")
+            extraction_results = ContractLlmClient.extract_files(file_list, graph_token)
 
             Enum.zip(files_to_extract, extraction_results)
             |> Enum.map(fn {{file, existing}, {_ref, extract_result}} ->
