@@ -1,24 +1,27 @@
 defmodule TradingDesk.LLM.Pool do
   @moduledoc """
-  Supervised GenServer that manages HuggingFace model workers.
+  Supervised GenServer that manages LLM model workers.
 
-  On start it registers all models from `ModelRegistry`. Callers invoke
-  `generate/3` to send a prompt to a specific model (or all models in
-  parallel via `generate_all/2`).
+  Routes requests to the correct backend:
+    - `:local` models → `TradingDesk.LLM.Serving` (Bumblebee / Nx.Serving)
+    - `:huggingface` models → `TradingDesk.LLM.HFClient` (HTTP API)
+
+  Callers invoke `generate/3` for a single model or `generate_all/2` to
+  fan out to every registered model in parallel.
 
   The pool tracks per-model health (last success/failure, loading state)
-  so callers can degrade gracefully when a model is cold-starting.
+  so callers can degrade gracefully.
 
   ## Supervision
 
-  Added as a child in `Application`. If a model request crashes the
-  GenServer continues — individual requests run in `Task.Supervisor`.
+  Added as a child in `Application`. Individual requests run in
+  `Task.Supervisor` so crashes don't take down the pool GenServer.
   """
 
   use GenServer
   require Logger
 
-  alias TradingDesk.LLM.{ModelRegistry, HFClient}
+  alias TradingDesk.LLM.{ModelRegistry, HFClient, Serving}
 
   @task_supervisor TradingDesk.LLM.TaskSupervisor
 
@@ -31,6 +34,7 @@ defmodule TradingDesk.LLM.Pool do
   @doc """
   Generate text from a single model.
 
+  Routes to local Nx.Serving or remote HF API based on the model's provider.
   Returns `{:ok, text}` or `{:error, reason}`.
   """
   @spec generate(atom(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
@@ -40,7 +44,7 @@ defmodule TradingDesk.LLM.Pool do
         {:error, :unknown_model}
 
       model ->
-        result = HFClient.generate(model, prompt, opts)
+        result = dispatch(model, prompt, opts)
         GenServer.cast(__MODULE__, {:record_result, model_id, result})
         result
     end
@@ -50,7 +54,7 @@ defmodule TradingDesk.LLM.Pool do
   Generate text from ALL registered models in parallel.
 
   Returns a list of `{model_id, model_name, {:ok, text} | {:error, reason}}`.
-  Times out individual models after `timeout_ms` (default 120s).
+  Times out individual models after `timeout` (default 120s).
   """
   @spec generate_all(String.t(), keyword()) :: [{atom(), String.t(), {:ok, String.t()} | {:error, term()}}]
   def generate_all(prompt, opts \\ []) do
@@ -60,7 +64,7 @@ defmodule TradingDesk.LLM.Pool do
       ModelRegistry.list()
       |> Enum.map(fn model ->
         task = Task.Supervisor.async_nolink(@task_supervisor, fn ->
-          HFClient.generate(model, prompt, opts)
+          dispatch(model, prompt, opts)
         end)
 
         {model, task}
@@ -79,20 +83,31 @@ defmodule TradingDesk.LLM.Pool do
     end)
   end
 
-  @doc """
-  Return health status for all models.
-  """
+  @doc "Return health status for all models."
   @spec health() :: map()
   def health do
     GenServer.call(__MODULE__, :health)
   end
 
-  @doc """
-  Return IDs of models that are currently available (not loading/errored recently).
-  """
+  @doc "Return IDs of models that are currently available."
   @spec available_models() :: [atom()]
   def available_models do
     GenServer.call(__MODULE__, :available_models)
+  end
+
+  # ── Dispatch ──────────────────────────────────────────────
+
+  defp dispatch(%{provider: :local}, prompt, opts) do
+    Serving.run(prompt, opts)
+  end
+
+  defp dispatch(%{provider: :huggingface} = model, prompt, opts) do
+    HFClient.generate(model, prompt, opts)
+  end
+
+  defp dispatch(model, _prompt, _opts) do
+    Logger.error("LLM.Pool: unknown provider #{inspect(model.provider)} for #{model.id}")
+    {:error, :unknown_provider}
   end
 
   # ── GenServer callbacks ───────────────────────────────────

@@ -10,8 +10,11 @@ defmodule TradingDesk.IntentMapper do
     - Leave the model unchanged (uses current variables as-is)
 
   All counterparty names, vessel names, and contract references are anonymized
-  before being sent to the Claude API. The response is de-anonymized before
-  being returned to the caller.
+  before being sent to the LLM. The response is de-anonymized before being
+  returned to the caller.
+
+  Uses the local HuggingFace model (Mistral 7B via Bumblebee) by default.
+  Falls back to the Claude API if the local model is unavailable.
 
   Returns a structured intent that the pre-solve review popup displays,
   and variable adjustments that get applied before solving.
@@ -24,8 +27,9 @@ defmodule TradingDesk.IntentMapper do
   alias TradingDesk.Contracts.Store, as: ContractStore
   alias TradingDesk.Trader.DeliverySchedule
   alias TradingDesk.Anonymizer
+  alias TradingDesk.LLM.{Pool, ModelRegistry}
 
-  @model "claude-sonnet-4-5-20250929"
+  @claude_model "claude-sonnet-4-5-20250929"
 
   @doc """
   Parse trader intent and produce a structured solve context.
@@ -143,7 +147,7 @@ defmodule TradingDesk.IntentMapper do
     - Return ONLY the JSON, nothing else
     """
 
-    case call_claude(prompt) do
+    case call_llm(prompt) do
       {:ok, json_text} ->
         result = parse_json_response(json_text, book)
         # De-anonymize counterparty codes in the response
@@ -290,7 +294,22 @@ defmodule TradingDesk.IntentMapper do
     :exit, _ -> []
   end
 
-  defp call_claude(prompt) do
+  # Uses the local Bumblebee model (Mistral 7B) by default.
+  # Falls back to Claude API if the local model is unavailable.
+  defp call_llm(prompt) do
+    default_model = ModelRegistry.default()
+
+    case Pool.generate(default_model.id, prompt, max_tokens: 500) do
+      {:ok, _text} = ok ->
+        ok
+
+      {:error, reason} ->
+        Logger.warning("IntentMapper: local LLM failed (#{inspect(reason)}), trying Claude")
+        call_claude_fallback(prompt)
+    end
+  end
+
+  defp call_claude_fallback(prompt) do
     api_key = System.get_env("ANTHROPIC_API_KEY")
 
     if is_nil(api_key) or api_key == "" do
@@ -298,7 +317,7 @@ defmodule TradingDesk.IntentMapper do
     else
       case Req.post("https://api.anthropic.com/v1/messages",
         json: %{
-          model: @model,
+          model: @claude_model,
           max_tokens: 500,
           messages: [%{role: "user", content: prompt}]
         },
@@ -313,11 +332,11 @@ defmodule TradingDesk.IntentMapper do
           {:ok, String.trim(text)}
 
         {:ok, %{status: status, body: body}} ->
-          Logger.error("IntentMapper Claude API error #{status}: #{inspect(body)}")
+          Logger.error("IntentMapper Claude fallback error #{status}: #{inspect(body)}")
           {:error, :api_error}
 
         {:error, reason} ->
-          Logger.error("IntentMapper request failed: #{inspect(reason)}")
+          Logger.error("IntentMapper Claude fallback failed: #{inspect(reason)}")
           {:error, :request_failed}
       end
     end

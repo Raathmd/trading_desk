@@ -24,7 +24,8 @@ defmodule TradingDesk.Application do
       TradingDesk.Contracts.NetworkScanner,
       TradingDesk.Contracts.SapRefreshScheduler,
       {Task.Supervisor, name: TradingDesk.Contracts.TaskSupervisor},
-      # HuggingFace LLM pool — supervised task runner + model health tracker
+      # Local HuggingFace model inference — downloads + compiles on first start
+      TradingDesk.LLM.Serving,
       {Task.Supervisor, name: TradingDesk.LLM.TaskSupervisor},
       TradingDesk.LLM.Pool,
       TradingDesk.Data.AIS.AISStreamConnector,

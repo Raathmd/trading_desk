@@ -35,7 +35,11 @@ defmodule TradingDesk.MixProject do
       {:websockex, "~> 0.4"},
       {:swoosh, "~> 1.16"},
       {:gen_smtp, "~> 1.2"},
-      {:finch, "~> 0.18"}
+      {:finch, "~> 0.18"},
+      # Local HuggingFace model inference — Mistral 7B + future models
+      {:bumblebee, "~> 0.6"},
+      {:nx, "~> 0.9"},
+      {:exla, "~> 0.9"}
     ]
   end
 

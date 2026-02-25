@@ -2,36 +2,43 @@ defmodule TradingDesk.LLM.ModelRegistry do
   @moduledoc """
   Registry of available LLM models for the trading desk.
 
-  Each model entry describes how to reach the model (HuggingFace Inference API
-  or local endpoint), what it's good at, and the request/response format it
-  expects.
+  Each model entry describes how to reach the model:
+    - `provider: :local` — runs through Bumblebee / Nx.Serving on this node
+    - `provider: :huggingface` — calls the HuggingFace Inference API over HTTP
 
-  To add a new model, append to `@models` below and the supervised pool will
-  pick it up at next compile.
+  The local serving (Mistral 7B) is downloaded and compiled on first startup.
+  To add a new model at compile time, append to `@models` below — the
+  supervised pool picks it up automatically.
   """
 
   @type model :: %{
     id: atom(),
     name: String.t(),
-    provider: :huggingface | :local,
-    endpoint: String.t(),
+    provider: :local | :huggingface,
     model_id: String.t(),
     max_tokens: pos_integer(),
-    temperature: float(),
     description: String.t()
   }
 
   @models [
     %{
       id: :mistral_7b,
-      name: "Mistral 7B Instruct (Q4)",
-      provider: :huggingface,
-      endpoint: "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3",
+      name: "Mistral 7B Instruct (local)",
+      provider: :local,
       model_id: "mistralai/Mistral-7B-Instruct-v0.3",
       max_tokens: 1024,
-      temperature: 0.3,
-      description: "Fast quantized Mistral 7B — good for concise trading explanations"
+      description: "Local Mistral 7B via Bumblebee — downloaded and compiled at startup"
     }
+    # To add more models at compile time, append here:
+    #
+    # %{
+    #   id: :phi_3_mini,
+    #   name: "Phi-3 Mini (local)",
+    #   provider: :local,
+    #   model_id: "microsoft/Phi-3-mini-4k-instruct",
+    #   max_tokens: 1024,
+    #   description: "Local Phi-3 Mini via Bumblebee"
+    # }
   ]
 
   @doc "Return all registered models."
@@ -41,6 +48,14 @@ defmodule TradingDesk.LLM.ModelRegistry do
   @doc "Return model IDs only."
   @spec ids() :: [atom()]
   def ids, do: Enum.map(@models, & &1.id)
+
+  @doc "Return only local models."
+  @spec local_models() :: [model()]
+  def local_models, do: Enum.filter(@models, &(&1.provider == :local))
+
+  @doc "Return only remote (HuggingFace API) models."
+  @spec remote_models() :: [model()]
+  def remote_models, do: Enum.filter(@models, &(&1.provider == :huggingface))
 
   @doc "Look up a model by its atom ID."
   @spec get(atom()) :: model() | nil

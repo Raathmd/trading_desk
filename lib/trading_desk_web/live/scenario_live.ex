@@ -115,7 +115,7 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:ammonia_prices, TradingDesk.Data.AmmoniaPrices.price_summary())
       |> assign(:contracts_data, load_contracts_data())
       |> assign(:api_status, load_api_status())
-      |> assign(:api_configs, TradingDesk.ApiConfig.get_entries("global"))
+      |> assign(:api_configs, safe_call(fn -> TradingDesk.ApiConfig.get_entries("global") end, %{}))
       |> assign(:api_config_flash, nil)
       |> assign(:solve_history, [])
       |> assign(:history_stats, nil)
@@ -737,7 +737,7 @@ defmodule TradingDesk.ScenarioLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(:api_configs, TradingDesk.ApiConfig.get_entries("global"))
+         |> assign(:api_configs, safe_call(fn -> TradingDesk.ApiConfig.get_entries("global") end, %{}))
          |> assign(:api_config_flash, "#{source} saved")
          |> assign(:api_status, load_api_status())}
 
@@ -1655,10 +1655,10 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
               <% end %>
 
-              <%!-- Collapsible: full model context sent to Claude --%>
+              <%!-- Collapsible: full model context sent to LLM --%>
               <details style="margin-top:8px">
                 <summary style="font-size:11px;color:#94a3b8;cursor:pointer;letter-spacing:1px;font-weight:600;user-select:none">
-                  MODEL CONTEXT (sent to Claude) ▸
+                  MODEL CONTEXT (sent to LLM) ▸
                 </summary>
                 <pre style="font-size:11px;color:#7b8fa4;line-height:1.5;white-space:pre-wrap;margin:6px 0 0;background:#060a11;border:1px solid #1e293b;border-radius:4px;padding:8px;max-height:240px;overflow-y:auto"><%= @model_summary %></pre>
               </details>
@@ -1696,9 +1696,9 @@ defmodule TradingDesk.ScenarioLive do
             <%= if @hf_postsolve_loading or @hf_postsolve_explanations != [] do %>
               <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:10px;padding:20px;margin-bottom:16px">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                  <span style="font-size:12px;color:#a78bfa;font-weight:700;letter-spacing:1px">HF MODEL EXPLANATIONS</span>
+                  <span style="font-size:12px;color:#a78bfa;font-weight:700;letter-spacing:1px">LOCAL MODEL EXPLANATIONS</span>
                   <%= if @hf_postsolve_loading do %>
-                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating from HuggingFace models...</span>
+                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating from local models...</span>
                   <% end %>
                 </div>
 
@@ -1719,7 +1719,7 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if @hf_postsolve_loading and @hf_postsolve_explanations == [] do %>
                   <div style="display:flex;gap:8px;align-items:center">
                     <div style="width:6px;height:6px;border-radius:50%;background:#a78bfa;animation:pulse 1s infinite"></div>
-                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">Waiting for HuggingFace model responses...</span>
+                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">Waiting for local model responses...</span>
                   </div>
                 <% end %>
               </div>
@@ -3236,8 +3236,8 @@ defmodule TradingDesk.ScenarioLive do
                   %{id: "marinetraffic", free: false, label: "MarineTraffic (fallback)", url_placeholder: "",                                     key_placeholder: "MARINETRAFFIC_API_KEY", variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #1"},
                   %{id: "aishub",        free: false, label: "AISHub (fallback)",        url_placeholder: "",                                     key_placeholder: "AISHUB_API_KEY",        variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #2"},
                   # ── AI / LLM ───────────────────────────────────────────────────────────
-                  %{id: "anthropic",     free: false, label: "Anthropic Claude",         url_placeholder: "https://api.anthropic.com",            key_placeholder: "ANTHROPIC_API_KEY",     variables: ~w(analyst_explanation intent_map),                note: "Analyst explanations & intent mapper"},
-                  %{id: "huggingface",   free: false, label: "HuggingFace Inference",    url_placeholder: "https://api-inference.huggingface.co",  key_placeholder: "HUGGINGFACE_API_KEY",   variables: ~w(presolve_explanation postsolve_explanation),    note: "HF model explanations (Mistral 7B + add more in ModelRegistry)"},
+                  %{id: "anthropic",     free: false, label: "Anthropic Claude (fallback)", url_placeholder: "https://api.anthropic.com",            key_placeholder: "ANTHROPIC_API_KEY",     variables: ~w(analyst_explanation intent_map),                note: "Fallback if local Mistral 7B is unavailable — set key to enable"},
+                  %{id: "huggingface",   free: true,  label: "HuggingFace (Local Bumblebee)", url_placeholder: "Local — Mistral 7B via Bumblebee/EXLA",  key_placeholder: "",                      variables: ~w(presolve_explanation postsolve_explanation intent_map analyst_explanation), note: "LOCAL model — downloaded at startup, no API key needed. Add models in ModelRegistry."},
                   %{id: "copilot",       free: false, label: "Copilot / LLM",            url_placeholder: "https://api.openai.com/v1",            key_placeholder: "COPILOT_API_KEY",       variables: ~w(contract_extraction),                           note: "Contract extraction (OpenAI-compatible endpoint)"},
                   # ── Free / Public APIs (no key — URL hardcoded) ────────────────────────
                   %{id: "usgs",          free: true,  label: "USGS Water Services",      url_placeholder: "https://waterservices.usgs.gov/nwis/iv/", key_placeholder: "",                   variables: ~w(river_stage),                                   note: "Public API — 4 Mississippi gauges · no key required"},
@@ -4290,7 +4290,7 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if @anon_model_preview && @anon_model_preview != "" do %>
                   <button phx-click="toggle_anon_preview"
                     style={"font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:600;letter-spacing:0.5px;border:1px solid #{if @show_anon_preview, do: "#a78bfa", else: "#374151"};background:#{if @show_anon_preview, do: "#2d1057", else: "transparent"};color:#{if @show_anon_preview, do: "#c4b5fd", else: "#94a3b8"}"}>
-                    <%= if @show_anon_preview, do: "← Show Narrative", else: "🔒 Anonymized (sent to Claude)" %>
+                    <%= if @show_anon_preview, do: "← Show Narrative", else: "🔒 Anonymized (sent to LLM)" %>
                   </button>
                 <% end %>
               </div>
@@ -4317,7 +4317,7 @@ defmodule TradingDesk.ScenarioLive do
             <%!-- AI MODEL SUMMARY (generated by Claude from model state) --%>
             <div style="background:#060c16;border:1px solid #1e3a5f;border-radius:8px;padding:12px;margin-bottom:12px">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                <span style="font-size:12px;color:#38bdf6;letter-spacing:1.2px;font-weight:700">🧠 CLAUDE MODEL SUMMARY</span>
+                <span style="font-size:12px;color:#38bdf6;letter-spacing:1.2px;font-weight:700">🧠 LLM MODEL SUMMARY</span>
                 <%= if @intent_loading do %>
                   <span style="font-size:11px;color:#7b8fa4;font-style:italic">analysing model state...</span>
                 <% end %>
@@ -4417,7 +4417,7 @@ defmodule TradingDesk.ScenarioLive do
                 <%= if @hf_presolve_loading do %>
                   GENERATING PRESOLVE EXPLANATIONS...
                 <% else %>
-                  EXPLAIN PRESOLVE MODEL (HuggingFace)
+                  EXPLAIN PRESOLVE MODEL (Local Mistral 7B)
                 <% end %>
               </button>
             </div>
@@ -4453,7 +4453,7 @@ defmodule TradingDesk.ScenarioLive do
               <%= if @hf_presolve_loading do %>
                 <div style="display:flex;gap:8px;align-items:center;padding:20px 0">
                   <div style="width:8px;height:8px;border-radius:50%;background:#a78bfa;animation:pulse 1s infinite"></div>
-                  <span style="font-size:13px;color:#94a3b8;font-style:italic">Generating explanations from HuggingFace models...</span>
+                  <span style="font-size:13px;color:#94a3b8;font-style:italic">Generating explanations from local models...</span>
                 </div>
               <% end %>
 
@@ -5080,19 +5080,23 @@ defmodule TradingDesk.ScenarioLive do
   defp objective_label(:min_risk), do: "Minimize Risk"
   defp objective_label(_), do: "Custom Objective"
 
-  defp analyst_error_text(:no_api_key), do: "ANTHROPIC_API_KEY not set. Export it in your shell to enable analyst explanations."
-  defp analyst_error_text(:api_error), do: "Claude API returned an error. Check logs for details."
-  defp analyst_error_text(:request_failed), do: "Could not reach Claude API. Check network connectivity."
+  defp analyst_error_text(:no_llm_available), do: "No LLM available — local model not running and ANTHROPIC_API_KEY not set."
+  defp analyst_error_text(:no_api_key), do: "No LLM available — local model failed and ANTHROPIC_API_KEY not set."
+  defp analyst_error_text(:serving_unavailable), do: "Local model serving not started. Check application startup logs."
+  defp analyst_error_text(:api_error), do: "LLM API returned an error. Check logs for details."
+  defp analyst_error_text(:request_failed), do: "Could not reach LLM. Check logs and network connectivity."
   defp analyst_error_text(msg) when is_binary(msg), do: "Analyst crashed: #{msg}"
   defp analyst_error_text(reason), do: "Analyst error: #{inspect(reason)}"
 
-  defp hf_error_text(_model_id, :no_api_key), do: "HUGGINGFACE_API_KEY not set. Export it to enable HF model explanations."
+  defp hf_error_text(_model_id, :serving_unavailable), do: "Local model serving not started. Check application logs."
+  defp hf_error_text(_model_id, {:inference_error, msg}), do: "Local inference error: #{msg}"
+  defp hf_error_text(_model_id, :no_api_key), do: "API key not set for remote model."
   defp hf_error_text(_model_id, {:model_loading, wait}), do: "Model is loading (estimated ~#{round(wait)}s). Try again shortly."
-  defp hf_error_text(_model_id, :rate_limited), do: "Rate limited by HuggingFace. Wait a moment and retry."
-  defp hf_error_text(_model_id, {:api_error, status}), do: "HuggingFace API error (HTTP #{status}). Check logs."
-  defp hf_error_text(_model_id, :request_failed), do: "Could not reach HuggingFace API. Check network."
-  defp hf_error_text(_model_id, :timeout), do: "Model timed out. It may be loading — try again."
-  defp hf_error_text(_model_id, reason), do: "HF model error: #{inspect(reason)}"
+  defp hf_error_text(_model_id, :rate_limited), do: "Rate limited. Wait a moment and retry."
+  defp hf_error_text(_model_id, {:api_error, status}), do: "API error (HTTP #{status}). Check logs."
+  defp hf_error_text(_model_id, :request_failed), do: "Request failed. Check network."
+  defp hf_error_text(_model_id, :timeout), do: "Model timed out. It may still be loading — try again."
+  defp hf_error_text(_model_id, reason), do: "Model error: #{inspect(reason)}"
 
   defp pipeline_button_text(false, _, label), do: "⚡ #{label}"
   defp pipeline_button_text(true, :checking_contracts, _), do: "📋 CHECKING CONTRACTS..."
