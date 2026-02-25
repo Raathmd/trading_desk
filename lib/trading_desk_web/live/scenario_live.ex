@@ -160,6 +160,9 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:framing_preview, nil)
       |> assign(:framing_preview_loading, false)
       |> assign(:show_framing_preview, false)
+      # LLM output persistence
+      |> assign(:last_audit_id, nil)
+      |> assign(:llm_outputs_saved, false)
 
     # Build the initial model summary from the fully-assigned socket
     socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
@@ -267,6 +270,28 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def handle_event("close_framing_preview", _params, socket) do
     {:noreply, assign(socket, show_framing_preview: false)}
+  end
+
+  @impl true
+  def handle_event("solve_from_framing", _params, socket) do
+    # Close framing popup, trigger the normal solve flow (which includes the presolve review popup logic)
+    socket = assign(socket, show_framing_preview: false)
+    # Trigger solve directly — framing will run as part of the pipeline
+    send(self(), :do_solve)
+    {:noreply, assign(socket, solving: true, pipeline_phase: :checking_contracts, contracts_stale: false)}
+  end
+
+  @impl true
+  def handle_event("save_llm_outputs", _params, socket) do
+    audit_id = socket.assigns.last_audit_id
+
+    if is_nil(audit_id) do
+      {:noreply, socket}
+    else
+      outputs = build_llm_output_records(socket.assigns)
+      TradingDesk.DB.Writer.persist_llm_outputs(audit_id, outputs)
+      {:noreply, assign(socket, llm_outputs_saved: true)}
+    end
   end
 
   @impl true
@@ -1030,6 +1055,7 @@ defmodule TradingDesk.ScenarioLive do
   def handle_info({:pipeline_event, :pipeline_solve_done, %{mode: :solve, result: result, caller_ref: :trader_solve} = payload}, socket) do
     contracts_stale = Map.get(payload, :contracts_stale, false) or socket.assigns.contracts_stale
     framing_report = Map.get(payload, :framing_report)
+    last_audit_id = Map.get(payload, :audit_id)
     delivery_impact = compute_delivery_impact(socket.assigns.intent, socket.assigns.product_group)
     socket = assign(socket,
       result: result,
@@ -1038,6 +1064,8 @@ defmodule TradingDesk.ScenarioLive do
       pipeline_detail: nil,
       contracts_stale: contracts_stale,
       framing_report: framing_report,
+      last_audit_id: last_audit_id,
+      llm_outputs_saved: false,
       explanation: nil,
       explaining: true,
       delivery_impact: delivery_impact,
@@ -1113,6 +1141,7 @@ defmodule TradingDesk.ScenarioLive do
   def handle_info({:pipeline_event, :pipeline_solve_done, %{mode: :monte_carlo, result: dist, caller_ref: :trader_mc} = payload}, socket) do
     contracts_stale = Map.get(payload, :contracts_stale, false) or socket.assigns.contracts_stale
     framing_report = Map.get(payload, :framing_report)
+    last_audit_id = Map.get(payload, :audit_id)
     pg = socket.assigns.product_group
     socket = assign(socket,
       distribution: dist,
@@ -1121,6 +1150,8 @@ defmodule TradingDesk.ScenarioLive do
       pipeline_detail: nil,
       contracts_stale: contracts_stale,
       framing_report: framing_report,
+      last_audit_id: last_audit_id,
+      llm_outputs_saved: false,
       explanation: nil,
       explaining: true,
       active_tab: :trader,
@@ -1588,6 +1619,17 @@ defmodule TradingDesk.ScenarioLive do
                     placeholder="e.g. One barge in for repair — assess impact on D+3 delivery schedule"
                     style="width:100%;background:#060a11;border:1px solid #2d1b69;color:#c8d6e5;padding:10px;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box"><%= @scenario_description %></textarea>
 
+                  <%!-- Preview Contract Framing — right below the free text input --%>
+                  <button phx-click="preview_framing"
+                    disabled={@framing_preview_loading}
+                    style={"width:100%;margin-top:6px;padding:8px;border:1px solid #0891b2;border-radius:6px;font-weight:700;font-size:11px;cursor:#{if @framing_preview_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#67e8f9;background:linear-gradient(135deg,#0a2540,#164e63)"}>
+                    <%= if @framing_preview_loading do %>
+                      FRAMING...
+                    <% else %>
+                      PREVIEW CONTRACT FRAMING
+                    <% end %>
+                  </button>
+
                   <%!-- Frame context reference panel --%>
                   <div style="margin-top:6px;background:#060a11;border:1px solid #1e293b;border-radius:6px;padding:8px 10px;max-height:160px;overflow-y:auto">
                     <div style="font-size:11px;color:#7b8fa4;letter-spacing:0.8px;margin-bottom:6px;font-weight:600">FRAME RESOURCES</div>
@@ -1791,6 +1833,24 @@ defmodule TradingDesk.ScenarioLive do
                   <div style="display:flex;gap:8px;align-items:center">
                     <div style="width:6px;height:6px;border-radius:50%;background:#a78bfa;animation:pulse 1s infinite"></div>
                     <span style="font-size:12px;color:#7b8fa4;font-style:italic">Waiting for local model responses...</span>
+                  </div>
+                <% end %>
+
+                <%!-- Save all LLM outputs to database --%>
+                <%= if @hf_postsolve_explanations != [] and @last_audit_id do %>
+                  <div style="margin-top:10px;padding-top:10px;border-top:1px solid #1e293b">
+                    <button phx-click="save_llm_outputs"
+                      disabled={@llm_outputs_saved}
+                      style={"width:100%;padding:8px;border:1px solid #{if @llm_outputs_saved, do: "#166534", else: "#6d28d9"};border-radius:6px;font-weight:700;font-size:11px;cursor:#{if @llm_outputs_saved, do: "default", else: "pointer"};letter-spacing:1px;color:#{if @llm_outputs_saved, do: "#4ade80", else: "#c4b5fd"};background:#{if @llm_outputs_saved, do: "#0d1a0d", else: "linear-gradient(135deg,#1e1045,#2d1b69)"}"}>
+                      <%= if @llm_outputs_saved do %>
+                        SAVED TO SOLVE <%= @last_audit_id %>
+                      <% else %>
+                        SAVE ALL LLM OUTPUTS
+                      <% end %>
+                    </button>
+                    <div style="font-size:10px;color:#7b8fa4;margin-top:4px;text-align:center">
+                      Persists framing + presolve + postsolve outputs keyed by LLM model + solve run ID
+                    </div>
                   </div>
                 <% end %>
               </div>
@@ -4480,24 +4540,15 @@ defmodule TradingDesk.ScenarioLive do
               </div>
             </div>
 
-            <%!-- Presolve LLM Actions --%>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-              <button phx-click="preview_framing"
-                disabled={@framing_preview_loading}
-                style={"width:100%;padding:10px;border:1px solid #0891b2;border-radius:8px;font-weight:700;font-size:11px;cursor:#{if @framing_preview_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#67e8f9;background:linear-gradient(135deg,#0a2540,#164e63)"}>
-                <%= if @framing_preview_loading do %>
-                  FRAMING...
-                <% else %>
-                  PREVIEW CONTRACT FRAMING
-                <% end %>
-              </button>
+            <%!-- Presolve LLM Explanation --%>
+            <div style="margin-bottom:12px">
               <button phx-click="explain_presolve"
                 disabled={@hf_presolve_loading}
                 style={"width:100%;padding:10px;border:1px solid #6d28d9;border-radius:8px;font-weight:700;font-size:11px;cursor:#{if @hf_presolve_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#c4b5fd;background:linear-gradient(135deg,#1e1045,#2d1b69)"}>
                 <%= if @hf_presolve_loading do %>
                   EXPLAINING...
                 <% else %>
-                  EXPLAIN MODEL
+                  EXPLAIN MODEL (Local LLMs)
                 <% end %>
               </button>
             </div>
@@ -4629,6 +4680,19 @@ defmodule TradingDesk.ScenarioLive do
                   Click "Preview Contract Framing" to see how contracts will adjust solver variables
                 </div>
               <% end %>
+
+              <%!-- Action buttons at bottom of framing popup --%>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid #1e293b">
+                <button phx-click="close_framing_preview"
+                  style="padding:10px;border:1px solid #1e293b;border-radius:8px;background:transparent;color:#94a3b8;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px">
+                  CLOSE
+                </button>
+                <button phx-click="solve_from_framing"
+                  disabled={@solving}
+                  style="padding:10px;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px;color:#fff;background:linear-gradient(135deg,#0891b2,#06b6d4)">
+                  SOLVE WITH FRAMED DATA
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -5281,6 +5345,38 @@ defmodule TradingDesk.ScenarioLive do
   defp format_framing_value(v) when is_float(v), do: :erlang.float_to_binary(v, decimals: 2)
   defp format_framing_value(v) when is_integer(v), do: Integer.to_string(v)
   defp format_framing_value(v), do: inspect(v)
+
+  defp build_llm_output_records(assigns) do
+    postsolve = (assigns[:hf_postsolve_explanations] || [])
+    |> Enum.map(fn {model_id, model_name, result} ->
+      {text, status, error} = case result do
+        {:ok, t} -> {t, "ok", nil}
+        {:error, r} -> {nil, "error", inspect(r)}
+      end
+      %{model_id: model_id, model_name: model_name, phase: :postsolve_explanation,
+        output_text: text, status: status, error_reason: error}
+    end)
+
+    presolve = (assigns[:hf_presolve_explanations] || [])
+    |> Enum.map(fn {model_id, model_name, result} ->
+      {text, status, error} = case result do
+        {:ok, t} -> {t, "ok", nil}
+        {:error, r} -> {nil, "error", inspect(r)}
+      end
+      %{model_id: model_id, model_name: model_name, phase: :presolve_explanation,
+        output_text: text, status: status, error_reason: error}
+    end)
+
+    framing = case assigns[:framing_report] do
+      %{adjustments: adj, warnings: w, framing_notes: notes} ->
+        [%{model_id: "mistral_7b", model_name: "Mistral 7B", phase: :presolve_framing,
+           output_json: %{adjustments: adj, warnings: w, framing_notes: notes},
+           status: "ok"}]
+      _ -> []
+    end
+
+    postsolve ++ presolve ++ framing
+  end
 
   defp framing_delta_color(original, adjusted) when is_number(original) and is_number(adjusted) do
     if adjusted > original, do: "#4ade80", else: "#f87171"

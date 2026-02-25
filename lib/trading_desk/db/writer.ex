@@ -23,7 +23,7 @@ defmodule TradingDesk.DB.Writer do
   """
 
   alias TradingDesk.Repo
-  alias TradingDesk.DB.{ContractRecord, SolveAuditRecord, SolveAuditContract, ScenarioRecord, SnapshotLog}
+  alias TradingDesk.DB.{ContractRecord, SolveAuditRecord, SolveAuditContract, SolveLlmOutput, ScenarioRecord, SnapshotLog}
 
   require Logger
 
@@ -170,6 +170,56 @@ defmodule TradingDesk.DB.Writer do
   defp serialize_result(r) when is_struct(r), do: Map.from_struct(r)
   defp serialize_result(r) when is_map(r), do: r
   defp serialize_result(_), do: %{}
+
+  # ──────────────────────────────────────────────────────────
+  # LLM OUTPUT PERSISTENCE
+  # ──────────────────────────────────────────────────────────
+
+  @doc """
+  Persist LLM outputs for a solve run.
+
+  Each entry is keyed by {solve_audit_id, model_id}.
+  Accepts a list of `%{model_id, model_name, phase, output_text, output_json, status, error_reason, duration_ms}`.
+  """
+  def persist_llm_outputs(solve_audit_id, outputs) when is_list(outputs) do
+    Task.Supervisor.start_child(
+      TradingDesk.Contracts.TaskSupervisor,
+      fn -> do_persist_llm_outputs(solve_audit_id, outputs) end
+    )
+  end
+
+  defp do_persist_llm_outputs(solve_audit_id, outputs) do
+    for output <- outputs do
+      attrs = %{
+        solve_audit_id: solve_audit_id,
+        model_id: to_string(output[:model_id] || output["model_id"]),
+        phase: to_string(output[:phase] || output["phase"]),
+        model_name: output[:model_name] || output["model_name"],
+        output_text: output[:output_text] || output["output_text"],
+        output_json: output[:output_json] || output["output_json"],
+        status: to_string(output[:status] || "ok"),
+        error_reason: output[:error_reason] || output["error_reason"],
+        duration_ms: output[:duration_ms] || output["duration_ms"]
+      }
+
+      %SolveLlmOutput{}
+      |> SolveLlmOutput.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: {:replace_all_except, [:solve_audit_id, :model_id, :inserted_at]},
+        conflict_target: [:solve_audit_id, :model_id]
+      )
+      |> case do
+        {:ok, _} ->
+          Logger.debug("DB: LLM output #{attrs.model_id}/#{attrs.phase} persisted for solve #{solve_audit_id}")
+
+        {:error, changeset} ->
+          Logger.warning("DB: failed to persist LLM output: #{inspect(changeset.errors)}")
+      end
+    end
+  rescue
+    e ->
+      Logger.warning("DB: LLM output persist error: #{inspect(e)}")
+  end
 
   # ──────────────────────────────────────────────────────────
   # MOBILE SOLVE PERSISTENCE
