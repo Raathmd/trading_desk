@@ -157,17 +157,16 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:model_summary, "")
       |> assign(:scenario_description, "")
       |> assign(:trader_sub_tab, :scenario)
-      # HuggingFace multi-model explanations
-      |> assign(:hf_presolve_explanations, [])
-      |> assign(:hf_presolve_loading, false)
-      |> assign(:show_presolve_explanations, false)
+      # HuggingFace multi-model explanations (postsolve — kept for Response tab)
       |> assign(:hf_postsolve_explanations, [])
       |> assign(:hf_postsolve_loading, false)
-      # Presolve framing
+      # Presolve framing (kept for pipeline audit)
       |> assign(:framing_report, nil)
-      |> assign(:framing_preview, nil)
-      |> assign(:framing_preview_loading, false)
-      |> assign(:show_framing_preview, false)
+      # Unified presolve pipeline
+      |> assign(:presolve_pipeline_running, false)
+      |> assign(:presolve_pipeline_results, [])
+      |> assign(:presolve_model_progress, %{})
+      |> assign(:presolve_active_contracts, [])
       # LLM output persistence
       |> assign(:last_audit_id, nil)
       |> assign(:llm_outputs_saved, false)
@@ -190,10 +189,12 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_event("solve", _params, socket) do
-    # Show pre-solve review popup instead of solving immediately.
-    # Kick off async Claude model summary (intent_loading -> intent_result).
+    # Show pre-solve review popup with full state — including active contract clauses.
     book = TradingDesk.Contracts.SapPositions.book_summary()
     anon_preview = build_anon_model_preview(socket.assigns.model_summary, book)
+    store_key = if socket.assigns.product_group == :ammonia_domestic, do: :ammonia, else: socket.assigns.product_group
+    active_contracts = safe_call(fn -> TradingDesk.Contracts.Store.get_active_set(store_key) end, [])
+
     socket =
       socket
       |> assign(:show_review, true)
@@ -202,6 +203,10 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:anon_model_preview, anon_preview)
       |> assign(:show_anon_preview, false)
       |> assign(:intent, nil)
+      |> assign(:presolve_active_contracts, active_contracts)
+      |> assign(:presolve_pipeline_running, false)
+      |> assign(:presolve_pipeline_results, [])
+      |> assign(:presolve_model_progress, %{})
       |> maybe_parse_intent()
     {:noreply, socket}
   end
@@ -210,6 +215,9 @@ defmodule TradingDesk.ScenarioLive do
   def handle_event("monte_carlo", _params, socket) do
     book = TradingDesk.Contracts.SapPositions.book_summary()
     anon_preview = build_anon_model_preview(socket.assigns.model_summary, book)
+    store_key = if socket.assigns.product_group == :ammonia_domestic, do: :ammonia, else: socket.assigns.product_group
+    active_contracts = safe_call(fn -> TradingDesk.Contracts.Store.get_active_set(store_key) end, [])
+
     socket =
       socket
       |> assign(:show_review, true)
@@ -218,6 +226,10 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:anon_model_preview, anon_preview)
       |> assign(:show_anon_preview, false)
       |> assign(:intent, nil)
+      |> assign(:presolve_active_contracts, active_contracts)
+      |> assign(:presolve_pipeline_running, false)
+      |> assign(:presolve_pipeline_results, [])
+      |> assign(:presolve_model_progress, %{})
       |> maybe_parse_intent()
     {:noreply, socket}
   end
@@ -228,57 +240,41 @@ defmodule TradingDesk.ScenarioLive do
   end
 
   @impl true
-  def handle_event("explain_presolve", _params, socket) do
-    # Launch HF models to explain the presolve frame
-    lv_pid = self()
-    model_summary = socket.assigns.model_summary
-    objective = socket.assigns.objective_mode
-    socket = assign(socket, hf_presolve_loading: true, hf_presolve_explanations: [], show_presolve_explanations: true)
-
-    spawn(fn ->
-      try do
-        book = TradingDesk.Contracts.SapPositions.book_summary()
-        results = TradingDesk.LLM.PresolveExplainer.explain_all(model_summary, book, objective)
-        send(lv_pid, {:hf_presolve_results, results})
-      rescue
-        e ->
-          Logger.error("PresolveExplainer crashed: #{Exception.message(e)}")
-          send(lv_pid, {:hf_presolve_results, []})
-      catch
-        kind, reason ->
-          Logger.error("PresolveExplainer error: #{kind} #{inspect(reason)}")
-          send(lv_pid, {:hf_presolve_results, []})
-      end
-    end)
-
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_event("close_presolve_explanations", _params, socket) do
-    {:noreply, assign(socket, show_presolve_explanations: false)}
-  end
-
-  @impl true
-  def handle_event("preview_framing", _params, socket) do
+  def handle_event("start_presolve_pipeline", _params, socket) do
+    # Launch the unified presolve pipeline: frame → solve → explain per model
     lv_pid = self()
     vars = socket.assigns.current_vars
     pg = socket.assigns.product_group
     notes = socket.assigns[:scenario_description]
-    socket = assign(socket, framing_preview_loading: true, framing_preview: nil, show_framing_preview: true)
+    objective = socket.assigns.objective_mode
+
+    # Initialize progress for all registered models
+    model_ids = TradingDesk.LLM.ModelRegistry.ids()
+    initial_progress = Map.new(model_ids, fn id -> {id, :pending} end)
+
+    socket =
+      socket
+      |> assign(:presolve_pipeline_running, true)
+      |> assign(:presolve_pipeline_results, [])
+      |> assign(:presolve_model_progress, initial_progress)
 
     spawn(fn ->
       try do
-        result = TradingDesk.LLM.PresolveFramer.frame(vars, product_group: pg, trader_notes: notes)
-        send(lv_pid, {:framing_preview_result, result})
+        TradingDesk.LLM.PresolvePipeline.run_all(vars,
+          caller_pid: lv_pid,
+          product_group: pg,
+          trader_notes: notes,
+          objective: objective,
+          solver_opts: [objective: objective]
+        )
       rescue
         e ->
-          Logger.error("PresolveFramer preview crashed: #{Exception.message(e)}")
-          send(lv_pid, {:framing_preview_result, {:error, :crash}})
+          Logger.error("PresolvePipeline crashed: #{Exception.message(e)}")
+          send(lv_pid, {:presolve_pipeline_done, []})
       catch
         kind, reason ->
-          Logger.error("PresolveFramer preview error: #{kind} #{inspect(reason)}")
-          send(lv_pid, {:framing_preview_result, {:error, reason}})
+          Logger.error("PresolvePipeline error: #{kind} #{inspect(reason)}")
+          send(lv_pid, {:presolve_pipeline_done, []})
       end
     end)
 
@@ -286,17 +282,55 @@ defmodule TradingDesk.ScenarioLive do
   end
 
   @impl true
-  def handle_event("close_framing_preview", _params, socket) do
-    {:noreply, assign(socket, show_framing_preview: false)}
-  end
+  def handle_event("adopt_presolve_result", %{"model" => model_id_str}, socket) do
+    # Find the result for this model and propose it to the decision ledger
+    model_id = String.to_existing_atom(model_id_str)
 
-  @impl true
-  def handle_event("solve_from_framing", _params, socket) do
-    # Close framing popup, trigger the normal solve flow (which includes the presolve review popup logic)
-    socket = assign(socket, show_framing_preview: false)
-    # Trigger solve directly — framing will run as part of the pipeline
-    send(self(), :do_solve)
-    {:noreply, assign(socket, solving: true, pipeline_phase: :checking_contracts, contracts_stale: false)}
+    case Enum.find(socket.assigns.presolve_pipeline_results, fn {mid, _, _} -> mid == model_id end) do
+      {_, model_name, %{solver_result: result, framed_variables: framed_vars, framing: framing}} ->
+        # Build variable changes from the framing adjustments
+        variable_changes =
+          (framing.adjustments || [])
+          |> Enum.map(fn adj -> {to_string(adj.variable), adj.adjusted} end)
+          |> Map.new()
+
+        trader = Enum.find(socket.assigns.available_traders, &(&1.id == socket.assigns.trader_id))
+        pg = socket.assigns.product_group
+        reason = "Presolve decision via #{model_name}: profit $#{format_number(Map.get(result, :profit, 0))}, " <>
+                 "#{length(framing.adjustments)} adjustment(s)"
+
+        attrs = %{
+          trader_id: trader && trader.id,
+          trader_name: (trader && trader.name) || "Unknown",
+          product_group: to_string(pg),
+          variable_changes: variable_changes,
+          change_modes: variable_changes |> Map.keys() |> Enum.map(&{&1, "absolute"}) |> Map.new(),
+          reason: reason,
+          audit_id: nil,
+          intent: socket.assigns.intent,
+          baseline_snapshot: socket.assigns.current_vars
+        }
+
+        case DecisionLedger.propose(attrs) do
+          {:ok, decision} ->
+            # Also store the solver result + framed vars as the active result
+            socket =
+              socket
+              |> assign(:result, result)
+              |> assign(:current_vars, framed_vars)
+              |> assign(:show_review, false)
+              |> assign(:presolve_pipeline_running, false)
+              |> assign(:scenario_saved_flash, "Decision ##{decision.id} proposed from #{model_name}")
+
+            {:noreply, socket}
+
+          {:error, _changeset} ->
+            {:noreply, assign(socket, :scenario_saved_flash, "Failed to propose decision")}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   @impl true
@@ -1596,17 +1630,32 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, assign(socket, explanation: text, explaining: false)}
   end
 
+  # --- Unified presolve pipeline progress ---
+
   @impl true
-  def handle_info({:hf_presolve_results, results}, socket) do
-    {:noreply, assign(socket, hf_presolve_explanations: results, hf_presolve_loading: false)}
+  def handle_info({:presolve_model_progress, model_id, phase}, socket) do
+    progress = Map.put(socket.assigns.presolve_model_progress, model_id, phase)
+    {:noreply, assign(socket, :presolve_model_progress, progress)}
   end
 
-  def handle_info({:framing_preview_result, result}, socket) do
-    preview = case result do
-      {:ok, report} -> report
-      {:error, _} -> %{adjustments: [], warnings: ["Framing failed — LLM may be unavailable"], framing_notes: "Error"}
-    end
-    {:noreply, assign(socket, framing_preview: preview, framing_preview_loading: false)}
+  @impl true
+  def handle_info({:presolve_model_done, model_id, _result_map}, socket) do
+    progress = Map.put(socket.assigns.presolve_model_progress, model_id, :done)
+    {:noreply, assign(socket, :presolve_model_progress, progress)}
+  end
+
+  @impl true
+  def handle_info({:presolve_model_error, model_id, _phase, _reason}, socket) do
+    progress = Map.put(socket.assigns.presolve_model_progress, model_id, :error)
+    {:noreply, assign(socket, :presolve_model_progress, progress)}
+  end
+
+  @impl true
+  def handle_info({:presolve_pipeline_done, results}, socket) do
+    {:noreply, assign(socket,
+      presolve_pipeline_running: false,
+      presolve_pipeline_results: results
+    )}
   end
 
   @impl true
@@ -1903,17 +1952,6 @@ defmodule TradingDesk.ScenarioLive do
                     rows="3"
                     placeholder="e.g. One barge in for repair — assess impact on D+3 delivery schedule"
                     style="width:100%;background:#060a11;border:1px solid #2d1b69;color:#c8d6e5;padding:10px;border-radius:6px;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box"><%= @scenario_description %></textarea>
-
-                  <%!-- Preview Contract Framing — right below the free text input --%>
-                  <button phx-click="preview_framing"
-                    disabled={@framing_preview_loading}
-                    style={"width:100%;margin-top:6px;padding:8px;border:1px solid #0891b2;border-radius:6px;font-weight:700;font-size:11px;cursor:#{if @framing_preview_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#67e8f9;background:linear-gradient(135deg,#0a2540,#164e63)"}>
-                    <%= if @framing_preview_loading do %>
-                      FRAMING...
-                    <% else %>
-                      PREVIEW CONTRACT FRAMING
-                    <% end %>
-                  </button>
 
                   <%!-- Frame context reference panel --%>
                   <div style="margin-top:6px;background:#060a11;border:1px solid #1e293b;border-radius:6px;padding:8px 10px;max-height:160px;overflow-y:auto">
@@ -4824,15 +4862,13 @@ defmodule TradingDesk.ScenarioLive do
         </div>
       <% end %>
 
-      <%!-- === PRE-SOLVE REVIEW POPUP === --%>
+      <%!-- === UNIFIED PRE-SOLVE REVIEW POPUP === --%>
       <%= if @show_review do %>
         <div style="position:fixed;inset:0;z-index:1000">
-          <%!-- Backdrop: sibling to modal, not parent — keeps LiveView event walk from reaching it --%>
           <div style="position:absolute;inset:0;background:rgba(0,0,0,0.7)"
                phx-click="cancel_review"></div>
-          <%!-- Modal: centered, pointer-events threaded through wrapper --%>
           <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
-            <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:640px;max-height:80vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5);pointer-events:auto">
+            <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:720px;max-height:85vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5);pointer-events:auto">
 
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
               <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">
@@ -4841,80 +4877,72 @@ defmodule TradingDesk.ScenarioLive do
               <button phx-click="cancel_review" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
             </div>
 
-            <%!-- Trader Scenario — with toggle to show what Claude receives (anonymized) --%>
+            <%!-- Scenario What-If Input --%>
             <div style="background:#0a0318;border-radius:8px;padding:14px;margin-bottom:14px;border-left:3px solid #a78bfa">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                <div style="font-size:12px;color:#a78bfa;letter-spacing:1.2px;font-weight:700">SCENARIO INPUT</div>
-                <%= if @anon_model_preview && @anon_model_preview != "" do %>
-                  <button phx-click="toggle_anon_preview"
-                    style={"font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:600;letter-spacing:0.5px;border:1px solid #{if @show_anon_preview, do: "#a78bfa", else: "#374151"};background:#{if @show_anon_preview, do: "#2d1057", else: "transparent"};color:#{if @show_anon_preview, do: "#c4b5fd", else: "#94a3b8"}"}>
-                    <%= if @show_anon_preview, do: "← Show Narrative", else: "🔒 Anonymized (sent to LLM)" %>
-                  </button>
-                <% end %>
-              </div>
-              <%= if @show_anon_preview do %>
-                <%
-                  anon_text = (@anon_model_preview || "")
-                    |> String.split("\n")
-                    |> Enum.reject(&(String.starts_with?(String.trim(&1), "#") or String.trim(&1) == ""))
-                    |> Enum.join("\n")
-                %>
-                <pre style="font-size:12px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:400px;overflow-y:auto"><%= anon_text %></pre>
-                <div style="font-size:11px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
+              <div style="font-size:12px;color:#a78bfa;letter-spacing:1.2px;font-weight:700;margin-bottom:8px">WHAT-IF SCENARIO</div>
+              <%= if (@scenario_description || "") != "" do %>
+                <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;padding:8px 10px;background:#0d0a20;border-radius:5px;border:1px solid #2d1b69"><%= @scenario_description %></div>
               <% else %>
-                <%!-- Show the trader narrative description prominently --%>
-                <%= if (@scenario_description || "") != "" do %>
-                  <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;padding:8px 10px;background:#0d0a20;border-radius:5px;border:1px solid #2d1b69"><%= @scenario_description %></div>
-                <% else %>
-                  <div style="font-size:12px;color:#7b8fa4;font-style:italic">No description entered — variable adjustments only</div>
-                <% end %>
-                <div style="font-size:11px;color:#7b8fa4;margin-top:6px">Full model context (variables, routes, positions) submitted to solver · click <em>Anonymized</em> to preview what Claude sees</div>
+                <div style="font-size:12px;color:#7b8fa4;font-style:italic">No what-if entered — LLMs will frame from current state only. Add context in the scenario text box before clicking SOLVE.</div>
               <% end %>
             </div>
 
-            <%!-- AI MODEL SUMMARY (generated by Claude from model state) --%>
-            <div style="background:#060c16;border:1px solid #1e3a5f;border-radius:8px;padding:12px;margin-bottom:12px">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                <span style="font-size:12px;color:#38bdf6;letter-spacing:1.2px;font-weight:700">🧠 LLM MODEL SUMMARY</span>
-                <%= if @intent_loading do %>
-                  <span style="font-size:11px;color:#7b8fa4;font-style:italic">analysing model state...</span>
+            <%!-- All Current Variables --%>
+            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px;font-weight:700">CURRENT VARIABLES</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px">
+                <%= for meta <- Enum.filter(@metadata, & Map.get(&1, :type) != :boolean) do %>
+                  <div style="display:flex;justify-content:space-between;padding:2px 4px">
+                    <span style="color:#94a3b8;font-size:11px"><%= meta.label %></span>
+                    <span style={"color:#{if MapSet.member?(@overrides, meta.key), do: "#f59e0b", else: "#94a3b8"};font-family:monospace;font-size:11px"}><%= format_var(meta, Map.get(@current_vars, meta.key)) %></span>
+                  </div>
                 <% end %>
               </div>
-              <%= cond do %>
-                <% @intent_loading -> %>
-                  <div style="display:flex;gap:6px;align-items:center">
-                    <div style="width:6px;height:6px;border-radius:50%;background:#38bdf6;animation:pulse 1s infinite"></div>
-                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">Generating plain-English description of what will be submitted…</span>
-                  </div>
-                <% @intent && @intent.summary && @intent.summary != "" -> %>
-                  <div style="font-size:13px;color:#e2e8f0;line-height:1.65;white-space:pre-wrap"><%= @intent.summary %></div>
-                <% true -> %>
-                  <div style="font-size:12px;color:#7b8fa4;font-style:italic">No scenario description entered — submit to let Claude summarise the model state</div>
+              <%!-- Boolean flags --%>
+              <% bool_vars = Enum.filter(@metadata, & Map.get(&1, :type) == :boolean) %>
+              <%= if bool_vars != [] do %>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid #1e293b">
+                  <%= for meta <- bool_vars do %>
+                    <% val = Map.get(@current_vars, meta.key) %>
+                    <span style={"font-size:10px;padding:2px 6px;border-radius:3px;font-weight:600;background:#{if val, do: "#052e16", else: "#1c0f0f"};color:#{if val, do: "#4ade80", else: "#f87171"};border:1px solid #{if val, do: "#166534", else: "#7f1d1d"}"}>
+                      <%= meta.label %>: <%= if val, do: "ON", else: "OFF" %>
+                    </span>
+                  <% end %>
+                </div>
               <% end %>
             </div>
 
-            <%!-- OBJECTIVE FOR THIS SOLVE --%>
-            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-              <div style="font-size:12px;color:#94a3b8;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE FOR THIS SOLVE</div>
-              <select phx-change="switch_objective" name="objective"
-                style="width:100%;background:#111827;border:1px solid #1e293b;color:#e2e8f0;padding:8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">
-                <%= for {val, label} <- [max_profit: "Maximize Profit", min_cost: "Minimize Cost", max_roi: "Maximize ROI", cvar_adjusted: "CVaR-Adjusted", min_risk: "Minimize Risk"] do %>
-                  <option value={val} selected={val == @objective_mode}><%= label %></option>
-                <% end %>
-              </select>
-              <%!-- Show AI recommendation as a clickable suggestion when it differs from current --%>
-              <%= if @intent && Map.get(@intent, :objective) && Map.get(@intent, :objective) != @objective_mode do %>
-                <button phx-click="switch_objective" phx-value-objective={to_string(Map.get(@intent, :objective))}
-                  style="margin-top:6px;width:100%;padding:6px 10px;border:1px solid #3b82f6;border-radius:4px;background:#0a1628;color:#93c5fd;font-size:11px;font-weight:600;cursor:pointer;text-align:left">
-                  💡 AI suggests: <%= objective_label(Map.get(@intent, :objective)) %> — click to apply
-                </button>
-              <% end %>
-            </div>
+            <%!-- Active Contract Clauses --%>
+            <%= if @presolve_active_contracts != [] do %>
+              <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
+                <div style="font-size:12px;color:#34d399;letter-spacing:1px;margin-bottom:6px;font-weight:700">
+                  ACTIVE CONTRACT CLAUSES (<%= Enum.sum(Enum.map(@presolve_active_contracts, fn c -> length(c.clauses || []) end)) %>)
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                  <thead><tr style="border-bottom:1px solid #1e293b">
+                    <th style="text-align:left;padding:3px 4px;color:#7b8fa4">Counterparty</th>
+                    <th style="text-align:left;padding:3px 4px;color:#7b8fa4">Type</th>
+                    <th style="text-align:left;padding:3px 4px;color:#7b8fa4">Description</th>
+                  </tr></thead>
+                  <tbody>
+                    <%= for contract <- @presolve_active_contracts do %>
+                      <%= for clause <- (contract.clauses || []) do %>
+                        <tr style="border-bottom:1px solid #1e293b11">
+                          <td style="padding:3px 4px;color:#c8d6e5;font-weight:600"><%= contract.counterparty %></td>
+                          <td style="padding:3px 4px;color:#34d399;font-size:10px;font-weight:600;text-transform:uppercase"><%= clause.type || clause.clause_id || "—" %></td>
+                          <td style="padding:3px 4px;color:#94a3b8;font-size:10px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= String.slice(clause.description || "", 0, 100) %></td>
+                        </tr>
+                      <% end %>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+            <% end %>
 
             <%!-- Open Book Positions --%>
             <%= if @sap_positions do %>
               <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px">OPEN BOOK (SAP)</div>
+                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px;font-weight:700">OPEN BOOK (SAP)</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
                   <div style="text-align:center">
                     <div style="font-size:11px;color:#94a3b8">Purchase Open</div>
@@ -4954,172 +4982,147 @@ defmodule TradingDesk.ScenarioLive do
               </div>
             <% end %>
 
-            <%!-- Key Variables Summary --%>
-            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:16px">
-              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px">CURRENT VARIABLES</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px">
-                <%= for meta <- Enum.take(Enum.filter(@metadata, & Map.get(&1, :type) != :boolean), 12) do %>
-                  <div style="display:flex;justify-content:space-between;padding:2px 4px">
-                    <span style="color:#94a3b8;font-size:12px"><%= meta.label %></span>
-                    <span style={"color:#{if MapSet.member?(@overrides, meta.key), do: "#f59e0b", else: "#94a3b8"};font-family:monospace;font-size:12px"}><%= format_var(meta, Map.get(@current_vars, meta.key)) %></span>
-                  </div>
+            <%!-- Objective --%>
+            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:14px">
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE</div>
+              <select phx-change="switch_objective" name="objective"
+                style="width:100%;background:#111827;border:1px solid #1e293b;color:#e2e8f0;padding:8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">
+                <%= for {val, label} <- [max_profit: "Maximize Profit", min_cost: "Minimize Cost", max_roi: "Maximize ROI", cvar_adjusted: "CVaR-Adjusted", min_risk: "Minimize Risk"] do %>
+                  <option value={val} selected={val == @objective_mode}><%= label %></option>
                 <% end %>
+              </select>
+            </div>
+
+            <%!-- Action buttons (before pipeline runs) --%>
+            <%= if not @presolve_pipeline_running and @presolve_pipeline_results == [] do %>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+                <button phx-click="cancel_review"
+                  style="padding:12px;border:1px solid #1e293b;border-radius:8px;background:transparent;color:#94a3b8;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px">
+                  CANCEL
+                </button>
+                <button phx-click="start_presolve_pipeline"
+                  style="padding:12px;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px;color:#c4b5fd;background:linear-gradient(135deg,#1e1045,#2d1b69)">
+                  PRESOLVE (LLMs)
+                </button>
+                <button phx-click="confirm_solve"
+                  style={"padding:12px;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px;color:#fff;background:linear-gradient(135deg,#{if @review_mode == :monte_carlo, do: "#7c3aed,#8b5cf6", else: "#0891b2,#06b6d4"})"}>
+                  SOLVE DIRECT
+                </button>
               </div>
-            </div>
+            <% end %>
 
-            <%!-- Presolve LLM Explanation --%>
-            <div style="margin-bottom:12px">
-              <button phx-click="explain_presolve"
-                disabled={@hf_presolve_loading}
-                style={"width:100%;padding:10px;border:1px solid #6d28d9;border-radius:8px;font-weight:700;font-size:11px;cursor:#{if @hf_presolve_loading, do: "wait", else: "pointer"};letter-spacing:1px;color:#c4b5fd;background:linear-gradient(135deg,#1e1045,#2d1b69)"}>
-                <%= if @hf_presolve_loading do %>
-                  EXPLAINING...
-                <% else %>
-                  EXPLAIN MODEL (Local LLMs)
-                <% end %>
-              </button>
-            </div>
-
-            <%!-- Action buttons --%>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              <button phx-click="cancel_review"
-                style="padding:12px;border:1px solid #1e293b;border-radius:8px;background:transparent;color:#94a3b8;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:1px">
-                CANCEL
-              </button>
-              <button phx-click="confirm_solve"
-                style={"padding:12px;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:1px;color:#fff;background:linear-gradient(135deg,#{if @review_mode == :monte_carlo, do: "#7c3aed,#8b5cf6", else: "#0891b2,#06b6d4"})"}>
-                CONFIRM <%= if @review_mode == :monte_carlo, do: "MONTE CARLO", else: "SOLVE" %>
-              </button>
-            </div>
-            </div>
-          </div>
-        </div>
-      <% end %>
-
-      <%!-- === PRESOLVE EXPLANATIONS POPUP === --%>
-      <%= if @show_presolve_explanations do %>
-        <div style="position:fixed;inset:0;z-index:1100">
-          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.8)"
-               phx-click="close_presolve_explanations"></div>
-          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
-            <div style="background:#111827;border:1px solid #6d28d9;border-radius:12px;padding:24px;width:700px;max-height:85vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.6);pointer-events:auto">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                <span style="font-size:14px;font-weight:700;color:#c4b5fd;letter-spacing:1px">PRESOLVE MODEL EXPLANATIONS</span>
-                <button phx-click="close_presolve_explanations" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
-              </div>
-
-              <%= if @hf_presolve_loading do %>
-                <div style="display:flex;gap:8px;align-items:center;padding:20px 0">
-                  <div style="width:8px;height:8px;border-radius:50%;background:#a78bfa;animation:pulse 1s infinite"></div>
-                  <span style="font-size:13px;color:#94a3b8;font-style:italic">Generating explanations from local models...</span>
-                </div>
-              <% end %>
-
-              <%= for {model_id, model_name, result} <- @hf_presolve_explanations do %>
-                <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:8px;padding:14px;margin-bottom:12px">
-                  <div style="font-size:11px;color:#a78bfa;letter-spacing:1px;font-weight:700;margin-bottom:8px"><%= model_name %></div>
-                  <%= case result do %>
-                    <% {:ok, text} -> %>
-                      <div style="font-size:13px;color:#e2e8f0;line-height:1.7;white-space:pre-wrap"><%= text %></div>
-                    <% {:error, reason} -> %>
-                      <div style="font-size:12px;color:#f87171"><%= hf_error_text(model_id, reason) %></div>
+            <%!-- Pipeline progress + results --%>
+            <%= if @presolve_pipeline_running or @presolve_pipeline_results != [] do %>
+              <div style="margin-top:4px;padding-top:14px;border-top:1px solid #2d1b69">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                  <span style="font-size:12px;color:#c4b5fd;letter-spacing:1px;font-weight:700">
+                    <%= if @presolve_pipeline_running, do: "PRESOLVE PIPELINE RUNNING...", else: "PRESOLVE RESULTS" %>
+                  </span>
+                  <%= if not @presolve_pipeline_running do %>
+                    <button phx-click="cancel_review"
+                      style="font-size:11px;padding:4px 10px;border:1px solid #1e293b;border-radius:4px;background:transparent;color:#94a3b8;cursor:pointer;font-weight:600">
+                      CLOSE
+                    </button>
                   <% end %>
                 </div>
-              <% end %>
 
-              <%= if @hf_presolve_explanations == [] and not @hf_presolve_loading do %>
-                <div style="font-size:13px;color:#7b8fa4;font-style:italic;padding:20px 0;text-align:center">
-                  Click "Explain Model" to generate explanations
-                </div>
-              <% end %>
-            </div>
-          </div>
-        </div>
-      <% end %>
-
-      <%!-- === CONTRACT FRAMING PREVIEW POPUP === --%>
-      <%= if @show_framing_preview do %>
-        <div style="position:fixed;inset:0;z-index:1100">
-          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.8)"
-               phx-click="close_framing_preview"></div>
-          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
-            <div style="background:#111827;border:1px solid #0891b2;border-radius:12px;padding:24px;width:700px;max-height:85vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.6);pointer-events:auto">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                <span style="font-size:14px;font-weight:700;color:#67e8f9;letter-spacing:1px">CONTRACT FRAMING PREVIEW</span>
-                <button phx-click="close_framing_preview" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
-              </div>
-
-              <%= if @framing_preview_loading do %>
-                <div style="display:flex;gap:8px;align-items:center;padding:20px 0">
-                  <div style="width:8px;height:8px;border-radius:50%;background:#22d3ee;animation:pulse 1s infinite"></div>
-                  <span style="font-size:13px;color:#94a3b8;font-style:italic">LLM reading contracts + trader notes, computing variable adjustments...</span>
-                </div>
-              <% end %>
-
-              <%= if @framing_preview do %>
-                <%!-- Adjustments table --%>
-                <%= if length(Map.get(@framing_preview, :adjustments, [])) > 0 do %>
-                  <div style="margin-bottom:14px">
-                    <div style="font-size:11px;color:#22d3ee;letter-spacing:1px;font-weight:700;margin-bottom:8px">VARIABLE ADJUSTMENTS (<%= length(@framing_preview.adjustments) %>)</div>
-                    <table style="width:100%;border-collapse:collapse;font-size:12px">
-                      <thead><tr style="border-bottom:1px solid #1e293b">
-                        <th style="text-align:left;padding:4px;color:#7b8fa4">Variable</th>
-                        <th style="text-align:right;padding:4px;color:#7b8fa4">Current</th>
-                        <th style="text-align:right;padding:4px;color:#7b8fa4">Adjusted</th>
-                        <th style="text-align:left;padding:4px;color:#7b8fa4">Reason</th>
-                      </tr></thead>
-                      <tbody>
-                        <%= for adj <- @framing_preview.adjustments do %>
-                          <tr style="border-bottom:1px solid #1e293b11">
-                            <td style="padding:4px;color:#e2e8f0;font-weight:600;font-family:monospace"><%= adj.variable %></td>
-                            <td style="text-align:right;padding:4px;font-family:monospace;color:#94a3b8"><%= format_framing_value(adj.original) %></td>
-                            <td style={"text-align:right;padding:4px;font-family:monospace;font-weight:600;color:#{framing_delta_color(adj.original, adj.adjusted)}"}><%= format_framing_value(adj.adjusted) %></td>
-                            <td style="padding:4px;color:#94a3b8;font-size:11px"><%= adj.reason %></td>
-                          </tr>
-                        <% end %>
-                      </tbody>
-                    </table>
-                  </div>
-                <% else %>
-                  <div style="font-size:13px;color:#7b8fa4;font-style:italic;padding:12px 0">No variable adjustments from contracts.</div>
-                <% end %>
-
-                <%!-- Warnings --%>
-                <%= if length(Map.get(@framing_preview, :warnings, [])) > 0 do %>
-                  <div style="margin-bottom:14px">
-                    <div style="font-size:11px;color:#f59e0b;letter-spacing:1px;font-weight:700;margin-bottom:6px">WARNINGS</div>
-                    <%= for w <- @framing_preview.warnings do %>
-                      <div style="font-size:12px;color:#fbbf24;padding:4px 8px;background:#1c1305;border-radius:4px;margin-bottom:4px;border-left:2px solid #f59e0b"><%= w %></div>
+                <%!-- Per-model progress indicators (during pipeline) --%>
+                <%= if @presolve_pipeline_running do %>
+                  <div style="display:flex;gap:12px;margin-bottom:14px">
+                    <%= for {model_id, phase} <- @presolve_model_progress do %>
+                      <% model = TradingDesk.LLM.ModelRegistry.get(model_id) %>
+                      <div style="flex:1;background:#0a0318;border:1px solid #2d1b69;border-radius:6px;padding:10px;text-align:center">
+                        <div style="font-size:10px;color:#a78bfa;font-weight:700;letter-spacing:1px;margin-bottom:4px"><%= if model, do: model.name, else: to_string(model_id) %></div>
+                        <div style={"display:flex;gap:4px;align-items:center;justify-content:center;font-size:10px;color:#{presolve_phase_color(phase)}"}>
+                          <%= if phase not in [:done, :error] do %>
+                            <div style={"width:6px;height:6px;border-radius:50%;background:#{presolve_phase_color(phase)};animation:pulse 1s infinite"}></div>
+                          <% end %>
+                          <span style="font-weight:600;text-transform:uppercase"><%= presolve_phase_label(phase) %></span>
+                        </div>
+                      </div>
                     <% end %>
                   </div>
                 <% end %>
 
-                <%!-- Framing notes --%>
-                <%= if Map.get(@framing_preview, :framing_notes) do %>
-                  <div style="font-size:12px;color:#94a3b8;line-height:1.5;padding:8px;background:#0a0f18;border-radius:6px;border:1px solid #1e293b">
-                    <span style="font-size:11px;color:#67e8f9;font-weight:700">LLM NOTE: </span><%= @framing_preview.framing_notes %>
+                <%!-- Per-model result cards (after pipeline completes) --%>
+                <%= for {model_id, model_name, result_map} <- @presolve_pipeline_results do %>
+                  <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:8px;padding:14px;margin-bottom:12px">
+                    <%!-- Model header --%>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                      <span style="font-size:12px;color:#a78bfa;letter-spacing:1px;font-weight:700"><%= model_name %></span>
+                      <%= if Map.get(result_map, :status) == :error do %>
+                        <span style="font-size:10px;color:#f87171;font-weight:600;padding:2px 6px;background:#1c0f0f;border-radius:3px;border:1px solid #7f1d1d">
+                          FAILED (<%= result_map.phase %>)
+                        </span>
+                      <% else %>
+                        <span style="font-size:10px;color:#4ade80;font-weight:600;padding:2px 6px;background:#052e16;border-radius:3px;border:1px solid #166534">DONE</span>
+                      <% end %>
+                    </div>
+
+                    <%= if Map.get(result_map, :status) != :error do %>
+                      <%!-- Framing summary --%>
+                      <% framing = result_map.framing %>
+                      <%= if length(framing.adjustments) > 0 do %>
+                        <div style="margin-bottom:8px">
+                          <div style="font-size:10px;color:#22d3ee;letter-spacing:0.5px;font-weight:700;margin-bottom:4px">
+                            FRAMING: <%= length(framing.adjustments) %> adjustment(s)
+                          </div>
+                          <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <%= for adj <- framing.adjustments do %>
+                              <span style="font-size:10px;padding:2px 6px;background:#0a1628;border:1px solid #1e3a5f;border-radius:3px;color:#94a3b8;font-family:monospace">
+                                <%= adj.variable %>: <%= format_framing_value(adj.original) %> → <span style={"color:#{framing_delta_color(adj.original, adj.adjusted)}"}><%= format_framing_value(adj.adjusted) %></span>
+                              </span>
+                            <% end %>
+                          </div>
+                        </div>
+                      <% end %>
+
+                      <%!-- Solver result --%>
+                      <% solver = result_map.solver_result %>
+                      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
+                        <div style="background:#060c16;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">Profit</div>
+                          <div style={"font-size:14px;font-weight:700;font-family:monospace;color:#{if Map.get(solver, :status) == :optimal, do: "#10b981", else: "#f87171"}"}>
+                            $<%= format_number(Map.get(solver, :profit, 0)) %>
+                          </div>
+                        </div>
+                        <div style="background:#060c16;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">Tons</div>
+                          <div style="font-size:14px;font-weight:700;font-family:monospace;color:#60a5fa">
+                            <%= format_number(Map.get(solver, :tons, 0)) %>
+                          </div>
+                        </div>
+                        <div style="background:#060c16;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">ROI</div>
+                          <div style="font-size:14px;font-weight:700;font-family:monospace;color:#f59e0b">
+                            <%= Float.round((Map.get(solver, :roi) || 0.0) / 1, 1) %>%
+                          </div>
+                        </div>
+                      </div>
+
+                      <%!-- LLM Explanation --%>
+                      <%= case result_map.explanation do %>
+                        <% {:ok, text} -> %>
+                          <div style="font-size:12px;color:#e2e8f0;line-height:1.65;white-space:pre-wrap;padding:10px;background:#060c16;border-radius:6px;border:1px solid #1e293b;margin-bottom:10px"><%= text %></div>
+                        <% {:error, reason} -> %>
+                          <div style="font-size:12px;color:#f87171;padding:8px;background:#1c0f0f;border-radius:4px;margin-bottom:10px"><%= hf_error_text(model_id, reason) %></div>
+                      <% end %>
+
+                      <%!-- USE THIS DECISION button --%>
+                      <button phx-click="adopt_presolve_result" phx-value-model={to_string(model_id)}
+                        style="width:100%;padding:8px;border:1px solid #f59e0b;border-radius:6px;font-weight:700;font-size:11px;cursor:pointer;letter-spacing:1px;color:#f59e0b;background:linear-gradient(135deg,#1c1a0f,#261f0a)">
+                        USE THIS DECISION
+                      </button>
+                    <% else %>
+                      <div style="font-size:12px;color:#f87171;padding:8px;background:#1c0f0f;border-radius:4px">
+                        Pipeline failed at <%= result_map.phase %> phase: <%= inspect(result_map.reason) %>
+                      </div>
+                    <% end %>
                   </div>
                 <% end %>
-              <% end %>
-
-              <%= if @framing_preview == nil and not @framing_preview_loading do %>
-                <div style="font-size:13px;color:#7b8fa4;font-style:italic;padding:20px 0;text-align:center">
-                  Click "Preview Contract Framing" to see how contracts will adjust solver variables
-                </div>
-              <% end %>
-
-              <%!-- Action buttons at bottom of framing popup --%>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid #1e293b">
-                <button phx-click="close_framing_preview"
-                  style="padding:10px;border:1px solid #1e293b;border-radius:8px;background:transparent;color:#94a3b8;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px">
-                  CLOSE
-                </button>
-                <button phx-click="solve_from_framing"
-                  disabled={@solving}
-                  style="padding:10px;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px;color:#fff;background:linear-gradient(135deg,#0891b2,#06b6d4)">
-                  SOLVE WITH FRAMED DATA
-                </button>
               </div>
+            <% end %>
+
             </div>
           </div>
         </div>
@@ -5829,25 +5832,35 @@ defmodule TradingDesk.ScenarioLive do
         output_text: text, status: status, error_reason: error}
     end)
 
-    presolve = (assigns[:hf_presolve_explanations] || [])
-    |> Enum.map(fn {model_id, model_name, result} ->
-      {text, status, error} = case result do
-        {:ok, t} -> {t, "ok", nil}
-        {:error, r} -> {nil, "error", inspect(r)}
+    # Build presolve records from the unified pipeline results
+    presolve = (assigns[:presolve_pipeline_results] || [])
+    |> Enum.flat_map(fn {model_id, model_name, result_map} ->
+      if Map.get(result_map, :status) == :error do
+        [%{model_id: model_id, model_name: model_name, phase: :presolve_pipeline,
+           output_text: nil, status: "error", error_reason: inspect(result_map.reason)}]
+      else
+        framing_record = %{
+          model_id: model_id, model_name: model_name, phase: :presolve_framing,
+          output_json: %{
+            adjustments: result_map.framing.adjustments,
+            warnings: result_map.framing.warnings,
+            framing_notes: result_map.framing.framing_notes
+          },
+          status: "ok"
+        }
+        {text, status, error} = case result_map.explanation do
+          {:ok, t} -> {t, "ok", nil}
+          {:error, r} -> {nil, "error", inspect(r)}
+        end
+        explain_record = %{
+          model_id: model_id, model_name: model_name, phase: :presolve_explanation,
+          output_text: text, status: status, error_reason: error
+        }
+        [framing_record, explain_record]
       end
-      %{model_id: model_id, model_name: model_name, phase: :presolve_explanation,
-        output_text: text, status: status, error_reason: error}
     end)
 
-    framing = case assigns[:framing_report] do
-      %{adjustments: adj, warnings: w, framing_notes: notes} ->
-        [%{model_id: "mistral_7b", model_name: "Mistral 7B", phase: :presolve_framing,
-           output_json: %{adjustments: adj, warnings: w, framing_notes: notes},
-           status: "ok"}]
-      _ -> []
-    end
-
-    postsolve ++ presolve ++ framing
+    postsolve ++ presolve
   end
 
   defp framing_delta_color(original, adjusted) when is_number(original) and is_number(adjusted) do
@@ -5859,6 +5872,23 @@ defmodule TradingDesk.ScenarioLive do
   defp pipeline_dot(:ingesting), do: "#f59e0b"
   defp pipeline_dot(:solving), do: "#10b981"
   defp pipeline_dot(_), do: "#94a3b8"
+
+  # --- Presolve pipeline phase helpers ---
+  defp presolve_phase_color(:pending), do: "#94a3b8"
+  defp presolve_phase_color(:framing), do: "#a78bfa"
+  defp presolve_phase_color(:solving), do: "#22d3ee"
+  defp presolve_phase_color(:explaining), do: "#f59e0b"
+  defp presolve_phase_color(:done), do: "#4ade80"
+  defp presolve_phase_color(:error), do: "#f87171"
+  defp presolve_phase_color(_), do: "#94a3b8"
+
+  defp presolve_phase_label(:pending), do: "Pending"
+  defp presolve_phase_label(:framing), do: "Framing"
+  defp presolve_phase_label(:solving), do: "Solving"
+  defp presolve_phase_label(:explaining), do: "Explaining"
+  defp presolve_phase_label(:done), do: "Done"
+  defp presolve_phase_label(:error), do: "Error"
+  defp presolve_phase_label(_), do: "—"
 
   # --- Vessel tracking helpers ---
 
