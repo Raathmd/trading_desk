@@ -430,8 +430,8 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{incoterm_rule: incoterm, incoterm_version: "2020"}
+        |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -450,8 +450,7 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
-      extracted_fields: fields
+      extracted_fields: Map.put(fields, "anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -477,20 +476,20 @@ defmodule TradingDesk.Contracts.Parser do
           type: :obligation,
           category: :core_terms,
           description: para,
-          parameter: param,
-          operator: :>=,
-          value: value,
-          unit: detect_unit(para) || "tons",
-          period: detect_period(lower),
           reference_section: section_ref,
           confidence: if(value > 0, do: :high, else: :low),
-          anchors_matched: anchor_strings(anchors),
           extracted_fields: %{
             qty: value,
             uom: detect_unit(para) || "tons",
             tolerance_pct: elem_or_nil(tolerance),
             option_holder: option_holder
           }
+          |> Map.put("parameter", param)
+          |> Map.put("operator", :>=)
+          |> Map.put("value", value)
+          |> Map.put("unit", detect_unit(para) || "tons")
+          |> Map.put("period", detect_period(lower))
+          |> Map.put("anchors_matched", anchor_strings(anchors))
         }}
 
       :none ->
@@ -511,8 +510,7 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
-      extracted_fields: fields
+      extracted_fields: Map.put(fields, "anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -531,8 +529,7 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
-      extracted_fields: fields
+      extracted_fields: Map.put(fields, "anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -552,15 +549,15 @@ defmodule TradingDesk.Contracts.Parser do
       type: :delivery,
       category: :logistics,
       description: para,
-      parameter: :delivery_window,
-      operator: :<=,
-      value: elem_or_nil(delivery_days),
-      unit: "days",
-      period: detect_period(lower),
       reference_section: section_ref,
       confidence: :medium,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: fields
+        |> Map.put("parameter", :delivery_window)
+        |> Map.put("operator", :<=)
+        |> Map.put("value", elem_or_nil(delivery_days))
+        |> Map.put("unit", "days")
+        |> Map.put("period", detect_period(lower))
+        |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -586,20 +583,20 @@ defmodule TradingDesk.Contracts.Parser do
           type: :price_term,
           category: :commercial,
           description: para,
-          parameter: param,
-          operator: :==,
-          value: value,
-          unit: "$/ton",
-          period: detect_period(lower),
           reference_section: section_ref,
           confidence: :high,
-          anchors_matched: anchor_strings(anchors),
           extracted_fields: %{
             price_value: value,
             price_uom: "$/ton",
             pricing_mechanism: pricing_mechanism,
             duty_adjustment_formula: duty_formula
           }
+          |> Map.put("parameter", param)
+          |> Map.put("operator", :==)
+          |> Map.put("value", value)
+          |> Map.put("unit", "$/ton")
+          |> Map.put("period", detect_period(lower))
+          |> Map.put("anchors_matched", anchor_strings(anchors))
         }}
 
       :none ->
@@ -609,15 +606,15 @@ defmodule TradingDesk.Contracts.Parser do
           type: :price_term,
           category: :commercial,
           description: para,
-          parameter: param,
           reference_section: section_ref,
           confidence: if(pricing_mechanism == :to_be_agreed, do: :medium, else: :low),
-          anchors_matched: anchor_strings(anchors),
           extracted_fields: %{
             price_value: nil,
             pricing_mechanism: pricing_mechanism,
             duty_adjustment_formula: duty_formula
           }
+          |> Map.put("parameter", param)
+          |> Map.put("anchors_matched", anchor_strings(anchors))
         }}
     end
   end
@@ -639,15 +636,15 @@ defmodule TradingDesk.Contracts.Parser do
       type: :price_term,
       category: :commercial,
       description: para,
-      parameter: :working_cap,
       reference_section: section_ref,
       confidence: if(payment_method, do: :high, else: :medium),
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{
         payment_method: payment_method,
         days_from_bl_or_delivery: days,
         standby_lc_terms: standby
       }
+      |> Map.put("parameter", :working_cap)
+      |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -666,15 +663,8 @@ defmodule TradingDesk.Contracts.Parser do
           type: :penalty,
           category: :logistics_cost,
           description: para,
-          parameter: :demurrage,
-          operator: :>=,
-          value: 0,
-          unit: "$/day",
-          penalty_per_unit: rate,
-          penalty_cap: extract_penalty_cap(para),
           reference_section: section_ref,
           confidence: :high,
-          anchors_matched: anchor_strings(anchors),
           extracted_fields: %{
             demurrage_rate: rate,
             rate_mt_per_hr: discharge_rate,
@@ -682,6 +672,13 @@ defmodule TradingDesk.Contracts.Parser do
             charterparty_alt: charterparty_alt,
             allowed_laytime_formula: detect_laytime_formula(lower)
           }
+          |> Map.put("parameter", :demurrage)
+          |> Map.put("operator", :>=)
+          |> Map.put("value", 0)
+          |> Map.put("unit", "$/day")
+          |> Map.put("penalty_per_unit", rate)
+          |> Map.put("penalty_cap", extract_penalty_cap(para))
+          |> Map.put("anchors_matched", anchor_strings(anchors))
         }}
 
       :none ->
@@ -690,16 +687,16 @@ defmodule TradingDesk.Contracts.Parser do
           type: :penalty,
           category: :logistics_cost,
           description: para,
-          parameter: :demurrage,
           reference_section: section_ref,
           confidence: :low,
-          anchors_matched: anchor_strings(anchors),
           extracted_fields: %{
             rate_mt_per_hr: discharge_rate,
             claim_deadline_days: claim_days,
             charterparty_alt: charterparty_alt,
             allowed_laytime_formula: detect_laytime_formula(lower)
           }
+          |> Map.put("parameter", :demurrage)
+          |> Map.put("anchors_matched", anchor_strings(anchors))
         }}
     end
   end
@@ -721,8 +718,8 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: if(form, do: :high, else: :medium),
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{charterparty_form: form, role_mapping_owner_charterer: role_mapping}
+        |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -737,11 +734,11 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{
         earliest_nor_time: earliest,
         laytime_commencement_rule: commencement
       }
+      |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -762,11 +759,11 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{
         who_pays_ammonia_used: who_pays,
         time_counts_or_excluded: time_counts
       }
+      |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -786,8 +783,8 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{class_requirements: flags}
+        |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -816,12 +813,12 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{
         inspector_appointer: inspector,
         qty_basis: qty_basis,
         final_and_binding: Regex.match?(~r/\bfinal\s+and\s+binding\b/i, para)
       }
+      |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -841,8 +838,8 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: if(length(docs) > 0, do: :high, else: :medium),
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{required_docs: Enum.reverse(docs)}
+        |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -862,11 +859,11 @@ defmodule TradingDesk.Contracts.Parser do
       type: :condition,
       category: :risk_allocation,
       description: para,
-      parameter: :insurance,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{who_insures: who, coverage_minimum: coverage, war_risk_addon: war_risk}
+        |> Map.put("parameter", :insurance)
+        |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -880,8 +877,8 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{bank_guarantee_required: bank_guarantee}
+        |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -895,15 +892,15 @@ defmodule TradingDesk.Contracts.Parser do
       type: :price_term,
       category: :commercial,
       description: para,
-      parameter: :contract_price,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{
         add_to_price_rule: add_to_sale,
         deduct_from_price_rule: deduct_from_purchase,
         vat_applicable: vat
       }
+      |> Map.put("parameter", :contract_price)
+      |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -918,8 +915,8 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{reach_obligations: reach, safety_data_sheet: sds}
+        |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -932,14 +929,14 @@ defmodule TradingDesk.Contracts.Parser do
       type: :condition,
       category: :risk_costs,
       description: para,
-      parameter: :freight_rate,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{
         joint_war_committee: jwc,
         route_closure_clause: route_closure
       }
+      |> Map.put("parameter", :freight_rate)
+      |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -952,14 +949,14 @@ defmodule TradingDesk.Contracts.Parser do
       type: :condition,
       category: :risk_events,
       description: para,
-      parameter: :force_majeure,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{
         notice_period: notice_days,
         demurrage_interaction: demurrage_interaction
       }
+      |> Map.put("parameter", :force_majeure)
+      |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 
@@ -975,12 +972,12 @@ defmodule TradingDesk.Contracts.Parser do
       description: para,
       reference_section: section_ref,
       confidence: :high,
-      anchors_matched: anchor_strings(anchors),
       extracted_fields: %{
         cure_period_hours: cure_hours,
         interest_rate: interest_rate,
         setoff_netting: setoff
       }
+      |> Map.put("anchors_matched", anchor_strings(anchors))
     }}
   end
 

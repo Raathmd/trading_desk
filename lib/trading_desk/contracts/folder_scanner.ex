@@ -530,6 +530,18 @@ defmodule TradingDesk.Contracts.FolderScanner do
         built = Enum.map(clauses, fn c ->
           clause_id = get_str(c, "clause_id")
 
+          base_fields = %{}
+          merged_fields =
+            base_fields
+            |> maybe_put("anchors_matched", [])
+            |> maybe_put("parameter", lp_parameter_for(clause_id))
+            |> maybe_put("operator", parse_operator(get_str(c, "operator")))
+            |> maybe_put("value", get_num(c, "value"))
+            |> maybe_put("value_upper", get_num(c, "value_upper"))
+            |> maybe_put("unit", get_str(c, "unit"))
+            |> maybe_put("penalty_per_unit", get_num(c, "penalty_rate") || get_num(c, "demurrage_rate"))
+            |> maybe_put("period", safe_atom(get_str(c, "period")))
+
           %Clause{
             id: Clause.generate_id(),
             clause_id: clause_id,
@@ -538,16 +550,8 @@ defmodule TradingDesk.Contracts.FolderScanner do
             description: get_str(c, "source_text") || "",
             reference_section: get_str(c, "section_ref"),
             confidence: safe_atom(get_str(c, "confidence") || "high"),
-            anchors_matched: [],
-            extracted_fields: %{},
-            extracted_at: now,
-            parameter: lp_parameter_for(clause_id),
-            operator: parse_operator(get_str(c, "operator")),
-            value: get_num(c, "value"),
-            value_upper: get_num(c, "value_upper"),
-            unit: get_str(c, "unit"),
-            penalty_per_unit: get_num(c, "penalty_rate") || get_num(c, "demurrage_rate"),
-            period: safe_atom(get_str(c, "period"))
+            extracted_fields: merged_fields,
+            extracted_at: now
           }
         end)
 
@@ -773,4 +777,7 @@ defmodule TradingDesk.Contracts.FolderScanner do
   defp broadcast(event, payload) do
     Phoenix.PubSub.broadcast(@pubsub, @topic, {:contract_event, event, payload})
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put_new(map, key, value)
 end
