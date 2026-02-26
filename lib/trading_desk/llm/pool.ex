@@ -97,8 +97,8 @@ defmodule TradingDesk.LLM.Pool do
 
   # ── Dispatch ──────────────────────────────────────────────
 
-  defp dispatch(%{provider: :local}, prompt, opts) do
-    Serving.run(prompt, opts)
+  defp dispatch(%{provider: :local} = model, prompt, opts) do
+    Serving.run(model.id, prompt, opts)
   end
 
   defp dispatch(%{provider: :huggingface} = model, prompt, opts) do
