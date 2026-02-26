@@ -47,7 +47,7 @@ defmodule TradingDeskWeb.AuthController do
 
         conn
         |> put_layout(false)
-        |> render(:sent)
+        |> render(:sent, magic_link: link)
 
       {:error, :rate_limited, token} ->
         base_url = TradingDesk.Endpoint.url()
@@ -59,7 +59,7 @@ defmodule TradingDeskWeb.AuthController do
 
         conn
         |> put_layout(false)
-        |> render(:sent)
+        |> render(:sent, magic_link: link)
 
       {:error, :not_allowed} ->
         conn

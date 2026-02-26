@@ -45,6 +45,58 @@
       line-height: 1.7;
       margin-bottom: 24px;
     }
+    .magic-link-box {
+      background: #0a1628;
+      border: 1px solid #1e40af;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      animation: glow 2s ease-in-out infinite alternate;
+    }
+    @keyframes glow {
+      from { box-shadow: 0 0 8px rgba(56, 189, 248, 0.15); }
+      to   { box-shadow: 0 0 20px rgba(56, 189, 248, 0.3); }
+    }
+    .magic-link-box .label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #facc15;
+      margin-bottom: 14px;
+      text-transform: uppercase;
+    }
+    .magic-link-btn {
+      display: block;
+      width: 100%;
+      background: linear-gradient(135deg, #0ea5e9, #2563eb);
+      border: none;
+      border-radius: 8px;
+      padding: 14px 20px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      text-decoration: none;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .magic-link-btn:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+    .magic-link-btn:active {
+      transform: translateY(0);
+    }
+    .temp-notice {
+      background: #1a1a0a;
+      border: 1px solid #854d0e;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 11px;
+      color: #fbbf24;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
     .info {
       background: #0f2a1f;
       border: 1px solid #166534;
@@ -64,12 +116,22 @@
 <body>
   <div class="card">
     <div class="logo">TRAMMO · NH3 DESK</div>
-    <div class="icon">✉</div>
-    <h1>Check Your Email</h1>
+    <div class="icon">🔐</div>
+    <h1>Your Login Link</h1>
     <p class="subtitle">
-      If your address is authorised, a secure login link has been sent.<br/>
-      Click the link in the email to access the trading desk.
+      Click the button below to sign in to the trading desk.
     </p>
+
+    <div class="magic-link-box">
+      <div class="label">⚡ Magic Link Ready</div>
+      <a href={@magic_link} class="magic-link-btn">Sign In Now →</a>
+    </div>
+
+    <div class="temp-notice">
+      ⏳ Email delivery is not yet configured.<br/>
+      This link is shown here temporarily for convenience.
+    </div>
+
     <div class="info">
       ✓ The link is single-use and does not expire.<br/>
       ✓ You can only request a new link every 5 minutes.<br/>
