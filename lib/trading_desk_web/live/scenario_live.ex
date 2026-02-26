@@ -34,17 +34,21 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def mount(_params, session, socket) do
     current_user_email = Map.get(session, "authenticated_email")
+    # Load traders from DB; default to first active trader
+    available_traders = Traders.list_active()
+    selected_trader   = List.first(available_traders)
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "live_data")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "auto_runner")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "solve_pipeline")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "sap_events")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "decisions")
+      # Subscribe to trader-specific notifications
+      if selected_trader do
+        Phoenix.PubSub.subscribe(TradingDesk.PubSub, "notifications:#{selected_trader.id}")
+      end
     end
-
-    # Load traders from DB; default to first active trader
-    available_traders = Traders.list_active()
-    selected_trader   = List.first(available_traders)
 
     # Product group defaults from trader's primary assignment
     product_group =
@@ -170,9 +174,16 @@ defmodule TradingDesk.ScenarioLive do
       # Scenario picker popup
       |> assign(:show_scenario_picker, false)
       |> assign(:scenario_picker_selected, nil)
+      # Notifications
+      |> assign(:notifications_unread, 0)
+      |> assign(:show_notifications, false)
+      |> assign(:notifications, [])
 
     # Build the initial model summary from the fully-assigned socket
     socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
+
+    # Load notification count
+    socket = refresh_notification_count(socket)
 
     {:ok, socket}
   end
@@ -502,6 +513,17 @@ defmodule TradingDesk.ScenarioLive do
       pg = socket.assigns.product_group
       audit_id = socket.assigns[:last_audit_id]
 
+      # Capture baseline snapshot — what LiveState values were when the trader
+      # made this decision. Used for drift detection later.
+      baseline_snapshot =
+        variable_changes
+        |> Map.keys()
+        |> Enum.reduce(%{}, fn key_str, acc ->
+          key_atom = String.to_existing_atom(key_str)
+          live_val = Map.get(live, key_atom)
+          if live_val != nil, do: Map.put(acc, key_str, live_val), else: acc
+        end)
+
       attrs = %{
         trader_id: trader && trader.id,
         trader_name: (trader && trader.name) || "Unknown",
@@ -510,7 +532,8 @@ defmodule TradingDesk.ScenarioLive do
         change_modes: variable_changes |> Map.keys() |> Enum.map(&{&1, "absolute"}) |> Map.new(),
         reason: if(reason == "", do: socket.assigns.trader_action, else: reason),
         audit_id: if(audit_id, do: to_string(audit_id), else: nil),
-        intent: socket.assigns.intent
+        intent: socket.assigns.intent,
+        baseline_snapshot: baseline_snapshot
       }
 
       case DecisionLedger.propose(attrs) do
@@ -655,6 +678,13 @@ defmodule TradingDesk.ScenarioLive do
       frame = ProductGroup.frame(product_group)
 
       if frame do
+        # Resubscribe to new trader's notifications
+        old_tid = socket.assigns.trader_id
+        if connected?(socket) do
+          if old_tid, do: Phoenix.PubSub.unsubscribe(TradingDesk.PubSub, "notifications:#{old_tid}")
+          Phoenix.PubSub.subscribe(TradingDesk.PubSub, "notifications:#{trader.id}")
+        end
+
         socket =
           socket
           |> assign(:selected_trader, trader)
@@ -671,6 +701,7 @@ defmodule TradingDesk.ScenarioLive do
           |> assign(:result, nil)
           |> assign(:distribution, nil)
           |> assign(:saved_scenarios, safe_call(fn -> Store.list(to_string(trader.id)) end, []))
+          |> refresh_notification_count()
 
         {:noreply, socket}
       else
@@ -1474,13 +1505,37 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_info({:decision_proposed, _decision}, socket) do
-    # Proposed decisions don't affect state, but we could show a notification
-    {:noreply, socket}
+    {:noreply, refresh_notification_count(socket)}
   end
 
   @impl true
   def handle_info({:decision_rejected, _decision}, socket) do
-    {:noreply, socket}
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:decision_deactivated, _decision}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:decision_reactivated, _decision}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:drift_warning, _payload}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:drift_critical, _payload}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:new_notification, _notif}, socket) do
+    {:noreply, refresh_notification_count(socket)}
   end
 
   @impl true
@@ -1627,7 +1682,12 @@ defmodule TradingDesk.ScenarioLive do
             <% end %>
           </select>
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
-          <a href="/decisions" style="color:#f59e0b;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">DECISIONS</a>
+          <a href="/decisions" style={"position:relative;color:#f59e0b;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #{if @notifications_unread > 0, do: "#f59e0b44", else: "#1e293b"};border-radius:4px;background:#{if @notifications_unread > 0, do: "#1c1a0f", else: "transparent"}"}>
+            DECISIONS
+            <%= if @notifications_unread > 0 do %>
+              <span style="position:absolute;top:-5px;right:-5px;background:#ef4444;color:#fff;padding:0 4px;border-radius:8px;font-size:8px;font-weight:700;min-width:14px;text-align:center"><%= @notifications_unread %></span>
+            <% end %>
+          </a>
           <a href="/architecture_overview.html" target="_blank" style="color:#38bdf8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Architecture &amp; Executive Overview">OVERVIEW</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
@@ -6438,6 +6498,16 @@ defmodule TradingDesk.ScenarioLive do
     catch
       :exit, _ -> fallback
       _, _ -> fallback
+    end
+  end
+
+  defp refresh_notification_count(socket) do
+    tid = socket.assigns[:trader_id]
+    if tid do
+      count = safe_call(fn -> TradingDesk.Decisions.TraderNotification.unread_count(String.to_integer(to_string(tid))) end, 0)
+      assign(socket, :notifications_unread, count)
+    else
+      socket
     end
   end
 end

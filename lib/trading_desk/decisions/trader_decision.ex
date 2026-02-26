@@ -5,11 +5,14 @@ defmodule TradingDesk.Decisions.TraderDecision do
 
   ## Status lifecycle
 
-      proposed → applied     (another trader or self approves it)
-      proposed → rejected    (another trader rejects it)
-      proposed → revoked     (original trader withdraws it)
-      applied  → superseded  (a newer decision replaces it for the same variable(s))
-      applied  → revoked     (trader undoes it)
+      draft       → proposed     (trader promotes their private what-if)
+      proposed    → applied      (another trader or self approves it)
+      proposed    → rejected     (another trader rejects it)
+      proposed    → revoked      (original trader withdraws it)
+      applied     → deactivated  (trader toggles it off, or drift auto-deactivates)
+      deactivated → applied      (trader reactivates it)
+      applied     → superseded   (a newer decision replaces it for the same variable(s))
+      applied     → revoked      (trader undoes it permanently)
 
   ## Variable change modes
 
@@ -23,6 +26,13 @@ defmodule TradingDesk.Decisions.TraderDecision do
       Example: "add +4 hrs to lock_hrs" — floats on top of API refreshes.
 
   Keys not present in `change_modes` default to `:absolute`.
+
+  ## Drift detection
+
+  When a decision is applied, `baseline_snapshot` records what LiveState looked
+  like at that moment (only the keys in `variable_changes`). On each data refresh,
+  `drift_score` is recomputed. If drift exceeds a threshold, the decision is
+  auto-deactivated and traders are notified.
   """
 
   use Ecto.Schema
@@ -30,7 +40,7 @@ defmodule TradingDesk.Decisions.TraderDecision do
   import Ecto.Query
   alias TradingDesk.Repo
 
-  @valid_statuses ~w(proposed applied superseded rejected revoked)
+  @valid_statuses ~w(draft proposed applied deactivated superseded rejected revoked)
 
   schema "trader_decisions" do
     field :trader_id,        :integer
@@ -55,6 +65,15 @@ defmodule TradingDesk.Decisions.TraderDecision do
     field :expires_at,    :utc_datetime
     field :supersedes_id, :integer
 
+    # Drift detection — tracks how far reality has moved since the override
+    field :baseline_snapshot, :map, default: %{}
+    field :drift_score,       :float, default: 0.0
+    field :drift_revoked_at,  :utc_datetime
+
+    # Deactivation tracking
+    field :deactivated_by, :integer
+    field :deactivated_at, :utc_datetime
+
     timestamps(type: :utc_datetime)
   end
 
@@ -65,7 +84,9 @@ defmodule TradingDesk.Decisions.TraderDecision do
       :variable_changes, :change_modes,
       :reason, :intent, :audit_id,
       :status, :reviewed_by, :reviewed_at, :review_note,
-      :expires_at, :supersedes_id
+      :expires_at, :supersedes_id,
+      :baseline_snapshot, :drift_score, :drift_revoked_at,
+      :deactivated_by, :deactivated_at
     ])
     |> validate_required([:trader_id, :trader_name, :product_group, :variable_changes])
     |> validate_inclusion(:status, @valid_statuses)
@@ -113,12 +134,28 @@ defmodule TradingDesk.Decisions.TraderDecision do
     _ -> []
   end
 
-  @doc "Create a new decision (always starts as proposed)."
+  @doc "Create a new decision as a draft (private to the trader)."
+  def create_draft(attrs) do
+    %__MODULE__{}
+    |> changeset(Map.put(attrs, :status, "draft"))
+    |> Repo.insert()
+  end
+
+  @doc "Create a new decision (starts as proposed — visible to all traders)."
   def create(attrs) do
     %__MODULE__{}
     |> changeset(Map.put(attrs, :status, "proposed"))
     |> Repo.insert()
   end
+
+  @doc "Promote a draft to proposed — makes it visible to other traders."
+  def promote(%__MODULE__{status: "draft"} = decision) do
+    decision
+    |> changeset(%{status: "proposed"})
+    |> Repo.update()
+  end
+
+  def promote(%__MODULE__{}), do: {:error, :not_draft}
 
   @doc "Apply a proposed decision — makes it affect shared state."
   def apply_decision(%__MODULE__{status: "proposed"} = decision, reviewer_id, note \\ nil) do
@@ -154,8 +191,62 @@ defmodule TradingDesk.Decisions.TraderDecision do
   def reject_decision(%__MODULE__{}, _reviewer_id, _note),
     do: {:error, :not_proposed}
 
+  @doc """
+  Deactivate an applied decision — temporarily removes it from effective state.
+  The decision can be reactivated later. Used by the trader toggle or by
+  drift auto-deactivation.
+  """
+  def deactivate(%__MODULE__{status: "applied"} = decision, deactivator_id) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    decision
+    |> changeset(%{
+      status: "deactivated",
+      deactivated_by: deactivator_id,
+      deactivated_at: now
+    })
+    |> Repo.update()
+  end
+
+  def deactivate(%__MODULE__{}, _deactivator_id), do: {:error, :not_applied}
+
+  @doc "Deactivate due to drift — records the drift_revoked_at timestamp."
+  def drift_deactivate(%__MODULE__{status: "applied"} = decision) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    decision
+    |> changeset(%{
+      status: "deactivated",
+      deactivated_at: now,
+      drift_revoked_at: now
+    })
+    |> Repo.update()
+  end
+
+  def drift_deactivate(%__MODULE__{}), do: {:error, :not_applied}
+
+  @doc "Reactivate a deactivated decision — puts it back into effective state."
+  def reactivate(%__MODULE__{status: "deactivated"} = decision, reviewer_id) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    decision
+    |> changeset(%{
+      status: "applied",
+      reviewed_by: reviewer_id,
+      reviewed_at: now,
+      deactivated_by: nil,
+      deactivated_at: nil,
+      drift_revoked_at: nil,
+      drift_score: 0.0
+    })
+    |> Repo.update()
+  end
+
+  def reactivate(%__MODULE__{}, _reviewer_id), do: {:error, :not_deactivated}
+
   @doc "Revoke a decision (original trader withdraws or undoes applied decision)."
-  def revoke_decision(%__MODULE__{status: status} = decision) when status in ["proposed", "applied"] do
+  def revoke_decision(%__MODULE__{status: status} = decision)
+      when status in ["draft", "proposed", "applied", "deactivated"] do
     decision
     |> changeset(%{status: "revoked"})
     |> Repo.update()
@@ -179,6 +270,20 @@ defmodule TradingDesk.Decisions.TraderDecision do
   end
 
   def supersede(%__MODULE__{}, _new_id), do: {:error, :not_applied}
+
+  @doc "Update drift score for a decision."
+  def update_drift(%__MODULE__{} = decision, score) do
+    decision
+    |> changeset(%{drift_score: score})
+    |> Repo.update()
+  end
+
+  @doc "Record the baseline snapshot when a decision is applied."
+  def set_baseline(%__MODULE__{} = decision, snapshot) do
+    decision
+    |> changeset(%{baseline_snapshot: snapshot})
+    |> Repo.update()
+  end
 
   @doc "Get a decision by ID."
   def get(id) do
