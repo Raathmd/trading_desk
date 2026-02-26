@@ -36,7 +36,8 @@ defmodule TradingDesk.LLM.HFClient do
       max_tokens = Keyword.get(opts, :max_tokens, model.max_tokens)
       system = Keyword.get(opts, :system, nil)
 
-      full_prompt = build_instruct_prompt(prompt, system)
+      format = Map.get(model, :prompt_format, :mistral)
+      full_prompt = build_prompt(format, prompt, system)
 
       body = %{
         inputs: full_prompt,
@@ -91,14 +92,38 @@ defmodule TradingDesk.LLM.HFClient do
     end
   end
 
-  # Build a prompt in Mistral instruct format: [INST] ... [/INST]
-  defp build_instruct_prompt(prompt, nil) do
+  # ── Prompt format builders ──────────────────────────────
+
+  # Mistral / Mixtral instruct format
+  defp build_prompt(:mistral, prompt, nil) do
     "<s>[INST] #{prompt} [/INST]"
   end
 
-  defp build_instruct_prompt(prompt, system) do
+  defp build_prompt(:mistral, prompt, system) do
     "<s>[INST] <<SYS>>\n#{system}\n<</SYS>>\n\n#{prompt} [/INST]"
   end
+
+  # Zephyr (ChatML-style)
+  defp build_prompt(:zephyr, prompt, nil) do
+    "<|user|>\n#{prompt}</s>\n<|assistant|>"
+  end
+
+  defp build_prompt(:zephyr, prompt, system) do
+    "<|system|>\n#{system}</s>\n<|user|>\n#{prompt}</s>\n<|assistant|>"
+  end
+
+  # Phi-3
+  defp build_prompt(:phi3, prompt, nil) do
+    "<|user|>\n#{prompt}<|end|>\n<|assistant|>"
+  end
+
+  defp build_prompt(:phi3, prompt, system) do
+    "<|system|>\n#{system}<|end|>\n<|user|>\n#{prompt}<|end|>\n<|assistant|>"
+  end
+
+  # Fallback — plain text
+  defp build_prompt(_format, prompt, nil), do: prompt
+  defp build_prompt(_format, prompt, system), do: "#{system}\n\n#{prompt}"
 
   defp extract_estimated_time(%{"estimated_time" => t}) when is_number(t), do: t
   defp extract_estimated_time(_), do: 30

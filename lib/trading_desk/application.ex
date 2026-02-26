@@ -25,8 +25,13 @@ defmodule TradingDesk.Application do
       TradingDesk.Contracts.NetworkScanner,
       TradingDesk.Contracts.SapRefreshScheduler,
       {Task.Supervisor, name: TradingDesk.Contracts.TaskSupervisor},
-      # Local HuggingFace model inference — downloads + compiles on first start
-      TradingDesk.LLM.Serving,
+      # Local LLM inference — one Nx.Serving per enabled model
+      # Configure :llm_enabled_models in config to control which load
+    ] ++
+      Enum.map(TradingDesk.LLM.ModelRegistry.local_models(), fn model ->
+        {TradingDesk.LLM.Serving, model}
+      end) ++
+    [
       {Task.Supervisor, name: TradingDesk.LLM.TaskSupervisor},
       TradingDesk.LLM.Pool,
       TradingDesk.Data.AIS.AISStreamConnector,
