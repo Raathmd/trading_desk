@@ -443,7 +443,8 @@ defmodule TradingDesk.DecisionsLive do
             <option value="sulphur_international" selected={@product_group == :sulphur_international}>Sulphur International</option>
             <option value="petcoke" selected={@product_group == :petcoke}>Petcoke</option>
           </select>
-          <a href="/" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">TRADING DESK</a>
+          <a href="/home" style="color:#94a3b8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">HOME</a>
+          <a href="/desk" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">TRADING DESK</a>
           <a href="/contracts" style="color:#38bdf8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
