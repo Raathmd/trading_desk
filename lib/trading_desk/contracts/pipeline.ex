@@ -41,6 +41,8 @@ defmodule TradingDesk.Contracts.Pipeline do
     StrictGate
   }
 
+  alias TradingDesk.LLM.{Pool, ModelRegistry}
+
   require Logger
 
   @pubsub TradingDesk.PubSub
@@ -270,25 +272,36 @@ defmodule TradingDesk.Contracts.Pipeline do
   @doc """
   Synchronous extraction — reads document, sends to LLM for clause extraction,
   stores contract with solver-ready clauses.
+
+  Uses two-stage Claude Pool extraction (Haiku → Opus) when available,
+  falls back to ContractLlmClient (external API) otherwise.
   """
   def extract(file_path, counterparty, counterparty_type, product_group, opts \\ []) do
-    with {:read, {:ok, text}} <- {:read, DocumentReader.read(file_path)},
-         {:llm, {:ok, extraction}} <- {:llm, ContractLlmClient.extract_text(text, product_group: product_group)} do
+    with {:read, {:ok, text}} <- {:read, DocumentReader.read(file_path)} do
+      llm_result = case two_stage_extract(text, product_group) do
+        {:ok, _} = ok -> ok
+        {:error, _} ->
+          Logger.info("Pipeline: two-stage extraction unavailable, falling back to ContractLlmClient")
+          ContractLlmClient.extract_text(text, product_group: product_group)
+      end
 
-      # Merge caller-provided identity into extraction
-      extraction = Map.merge(extraction, %{
-        "counterparty" => extraction["counterparty"] || counterparty,
-        "counterparty_type" => extraction["counterparty_type"] || to_string(counterparty_type)
-      })
+      case llm_result do
+        {:ok, extraction} ->
+          extraction = Map.merge(extraction, %{
+            "counterparty" => extraction["counterparty"] || counterparty,
+            "counterparty_type" => extraction["counterparty_type"] || to_string(counterparty_type)
+          })
 
-      ContractLlmIngestion.ingest(file_path, extraction,
-        Keyword.merge(opts, [product_group: product_group])
-      )
+          ContractLlmIngestion.ingest(file_path, extraction,
+            Keyword.merge(opts, [product_group: product_group])
+          )
+
+        {:error, reason} ->
+          {:error, {:llm_extraction_failed, reason}}
+      end
     else
       {:read, {:error, reason}} ->
         {:error, {:document_read_failed, reason}}
-      {:llm, {:error, reason}} ->
-        {:error, {:llm_extraction_failed, reason}}
     end
   end
 
@@ -678,6 +691,251 @@ defmodule TradingDesk.Contracts.Pipeline do
         gate2_review: StrictGate.gate_review(contract),
         gate3_activation: StrictGate.gate_activation(contract)
       }}
+    end
+  end
+
+  # --- Two-stage extraction via Claude Pool ---
+
+  defp two_stage_extract(text, product_group) do
+    extractor = ModelRegistry.extractor()
+    reasoner = ModelRegistry.reasoner()
+
+    if is_nil(extractor) do
+      {:error, :no_extractor_model}
+    else
+      broadcast(:extraction_stage, %{stage: 1, detail: "Extracting data (#{extractor.name})..."})
+
+      case stage1_extract(text, extractor) do
+        {:ok, structured_data} ->
+          model2 = reasoner || extractor
+          broadcast(:extraction_stage, %{stage: 2, detail: "LP formulation (#{model2.name})..."})
+
+          case stage2_formulate(structured_data, model2, product_group) do
+            {:ok, extraction} -> {:ok, extraction}
+            {:error, reason} ->
+              Logger.warning("Pipeline: Stage 2 failed (#{inspect(reason)}), building basic extraction from stage 1")
+              {:ok, build_basic_extraction(structured_data)}
+          end
+
+        {:error, reason} ->
+          {:error, {:stage1_failed, reason}}
+      end
+    end
+  end
+
+  defp stage1_extract(text, model) do
+    max_chars = 50_000
+    truncated = if String.length(text) > max_chars do
+      String.slice(text, 0, max_chars) <> "\n[...truncated...]"
+    else
+      text
+    end
+
+    prompt = """
+    You are a contract data extraction system. Read this ammonia trading contract
+    and extract ALL structured data into the JSON format below.
+
+    Do NOT interpret, reason about, or formulate constraints. Simply read and structure
+    what is written in the contract.
+
+    Return ONLY valid JSON:
+    {"contract_data": {
+      "parties": { "seller": null, "buyer": null, "incoterm": null },
+      "quantities": { "annual_qty_mt": null, "tolerance_pct": null, "min_cargoes": null, "cargo_size_mt": null, "cargo_tolerance_pct": null },
+      "pricing": { "base_price_usd_per_mt": null, "price_floor": null, "price_ceiling": null, "escalation": null, "benchmark": null },
+      "delivery_schedule": { "start_date": null, "end_date": null, "frequency": null, "nomination_days": null, "laycan_window_days": null, "max_liftings_per_month": null },
+      "logistics": { "loading_rate_mt_per_day": null, "discharge_rate": null, "laytime_hours": null, "demurrage_usd_per_day": null, "despatch_usd_per_day": null },
+      "payment": { "terms_days": null, "instrument": null, "late_penalty_pct": null },
+      "quality": { "purity_min_pct": null, "water_max_pct": null, "oil_max_ppm": null, "temp_max": null },
+      "penalties": [{ "type": null, "trigger": null, "rate": null, "rate_unit": null, "cap_usd": null }],
+      "take_or_pay": { "minimum_pct": null, "shortfall_penalty_usd_per_mt": null },
+      "force_majeure": { "triggers": [], "notice_days": null, "suspension_rights": null },
+      "insurance": { "required": null, "type": null },
+      "legal": { "governing_law": null, "arbitration_venue": null },
+      "optionality": { "extension_option": null, "volume_flex_pct": null, "price_reopener": null },
+      "contract_meta": { "contract_number": null, "effective_date": null, "expiry_date": null, "direction": null, "term_type": null, "company": null }
+    }}
+
+    Omit any section not found in the contract. Use null for unknown values.
+    Extract exact numbers and dates as written.
+
+    CONTRACT TEXT:
+    #{truncated}
+    """
+
+    case Pool.generate(model.id, prompt, max_tokens: 8192) do
+      {:ok, raw_text} ->
+        json_str = extract_json_block(raw_text)
+        case Jason.decode(json_str) do
+          {:ok, %{"contract_data" => _} = data} -> {:ok, data}
+          {:ok, data} when is_map(data) -> {:ok, %{"contract_data" => data}}
+          {:error, reason} -> {:error, {:stage1_json_parse_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp stage2_formulate(structured_data, model, _product_group) do
+    data = (structured_data["contract_data"] || %{})
+    directives = build_pipeline_directives(data)
+    json_text = Jason.encode!(structured_data, pretty: true)
+
+    prompt = """
+    You are an expert LP (Linear Programming) formulation analyst for commodity trading.
+
+    Below is structured data extracted from an ammonia trading contract.
+    Formulate LP constraints and produce a complete extraction for ingestion.
+    Only formulate constraints for data that is actually present — do not invent values.
+
+    EXTRACTED CONTRACT DATA:
+    #{json_text}
+
+    FORMULATION DIRECTIVES (based on what was extracted):
+    #{directives}
+
+    Return ONLY valid JSON with this structure:
+    {
+      "counterparty": "name from parties section",
+      "counterparty_type": "supplier" or "customer",
+      "direction": "purchase" or "sale",
+      "incoterm": "FOB" etc.,
+      "term_type": "spot" or "long_term",
+      "company": "trammo_inc" or "trammo_sas" or "trammo_dmcc",
+      "effective_date": "YYYY-MM-DD or null",
+      "expiry_date": "YYYY-MM-DD or null",
+      "contract_number": "string or null",
+      "clauses": [
+        {
+          "clause_id": "SHORT_UPPERCASE_ID",
+          "category": "quantity|delivery_schedule|pricing|payment|logistics|quality_spec|penalty|take_or_pay|demurrage|force_majeure|insurance|legal|operational",
+          "source_text": "key data from extracted input",
+          "section_ref": null,
+          "confidence": "high|medium|low",
+          "extracted_fields": {
+            "parameter": "solver_variable_key or null",
+            "operator": "== or >= or <= or between or null",
+            "value": null,
+            "value_upper": null,
+            "unit": "$/ton",
+            "penalty_per_unit": null,
+            "penalty_cap": null,
+            "period": "monthly|quarterly|annual|spot|null"
+          }
+        }
+      ]
+    }
+
+    IMPORTANT:
+    - Be concise. One clause per obligation — do NOT create redundant clauses.
+    - For a bounded range, use a SINGLE "between" clause (not separate >= and <= clauses).
+    - Keep descriptions short (one sentence).
+    """
+
+    case Pool.generate(model.id, prompt, max_tokens: 8192) do
+      {:ok, raw_text} ->
+        json_str = extract_json_block(raw_text)
+        case Jason.decode(json_str) do
+          {:ok, %{"clauses" => clauses} = extraction} when is_list(clauses) ->
+            {:ok, extraction}
+          {:ok, _} ->
+            {:error, :no_clauses_in_response}
+          {:error, reason} ->
+            {:error, {:stage2_json_parse_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Build dynamic formulation directives from stage 1 data for Pipeline path.
+  defp build_pipeline_directives(data) do
+    [
+      directive_if(data, "quantities", "QUANTITIES",
+        "→ Formulate: annual volume bound (>= min with tolerance, <= max with tolerance), per-cargo size bounds, minimum cargoes constraint."),
+      directive_if(data, "pricing", "PRICING",
+        "→ Formulate: price equality or bounds (floor/ceiling as >= / <=), escalation as per-period adjustment."),
+      directive_if(data, "delivery_schedule", "DELIVERY SCHEDULE",
+        "→ Formulate: delivery frequency constraint, nomination lead-time, laycan window bounds, max liftings per period."),
+      directive_if(data, "logistics", "LOGISTICS",
+        "→ Formulate: loading/discharge rate constraints, laytime bound, demurrage rate as penalty coefficient ($/day)."),
+      directive_if(data, "payment", "PAYMENT",
+        "→ Formulate: payment days as working-capital constraint, late penalty as penalty rate coefficient."),
+      directive_if(data, "quality", "QUALITY",
+        "→ Formulate: quality bounds (purity >= min, water <= max, oil <= max, temp <= max)."),
+      directive_if_list(data, "penalties", "PENALTIES",
+        "→ Formulate: each penalty as constraint violation cost — penalty_rate and penalty_cap per trigger."),
+      directive_if(data, "take_or_pay", "TAKE-OR-PAY",
+        "→ Formulate: minimum volume as >= constraint (minimum_pct × annual_qty), shortfall penalty per ton below minimum."),
+      directive_if(data, "force_majeure", "FORCE MAJEURE",
+        "→ Formulate: informational flag with triggers and notice period."),
+      directive_if(data, "insurance", "INSURANCE",
+        "→ Formulate: informational/compliance clause."),
+      directive_if(data, "legal", "LEGAL",
+        "→ Formulate: informational clause (governing law, arbitration)."),
+      directive_if(data, "optionality", "OPTIONALITY",
+        "→ Formulate: extension option and volume flex as solver flags / bound adjustments.")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n\n")
+  end
+
+  defp directive_if(data, key, label, instruction) do
+    section = data[key]
+    if is_map(section) and Enum.any?(section, fn {_k, v} -> not is_nil(v) and v != "" and v != [] end) do
+      vals = section
+        |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" or v == [] end)
+        |> Enum.map_join(", ", fn {k, v} -> "#{k}=#{inspect(v)}" end)
+      "#{label}: #{vals}\n#{instruction}"
+    end
+  end
+
+  defp directive_if_list(data, key, label, instruction) do
+    section = data[key]
+    if is_list(section) and length(section) > 0 do
+      items = Enum.map_join(section, "; ", fn item ->
+        if is_map(item) do
+          item
+          |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+          |> Enum.map_join(", ", fn {k, v} -> "#{k}=#{inspect(v)}" end)
+        else
+          inspect(item)
+        end
+      end)
+      "#{label}: #{items}\n#{instruction}"
+    end
+  end
+
+  defp build_basic_extraction(%{"contract_data" => data}) do
+    meta = data["contract_meta"] || %{}
+    parties = data["parties"] || %{}
+
+    %{
+      "counterparty" => parties["seller"] || parties["buyer"],
+      "counterparty_type" => if(meta["direction"] == "purchase", do: "supplier", else: "customer"),
+      "direction" => meta["direction"],
+      "incoterm" => parties["incoterm"],
+      "term_type" => meta["term_type"],
+      "company" => meta["company"],
+      "effective_date" => meta["effective_date"],
+      "expiry_date" => meta["expiry_date"],
+      "contract_number" => meta["contract_number"],
+      "clauses" => []
+    }
+  end
+
+  defp build_basic_extraction(_), do: %{"clauses" => []}
+
+  defp extract_json_block(text) do
+    cond do
+      String.contains?(text, "```json") ->
+        text |> String.split("```json") |> Enum.at(1, "") |> String.split("```") |> List.first("") |> String.trim()
+      String.contains?(text, "```") ->
+        text |> String.split("```") |> Enum.at(1, "") |> String.trim()
+      true ->
+        String.trim(text)
     end
   end
 

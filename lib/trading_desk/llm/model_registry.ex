@@ -34,12 +34,12 @@ defmodule TradingDesk.LLM.ModelRegistry do
   @type model :: %{
     id: atom(),
     name: String.t(),
-    provider: :local | :huggingface,
+    provider: :local | :huggingface | :claude,
     model_id: String.t(),
-    model_repo: {:hf, String.t()},
-    model_type: atom(),
+    model_repo: {:hf, String.t()} | nil,
+    model_type: atom() | nil,
     max_tokens: pos_integer(),
-    sequence_length: pos_integer(),
+    sequence_length: pos_integer() | nil,
     prompt_format: atom(),
     temperature: float(),
     endpoint: String.t() | nil,
@@ -74,6 +74,48 @@ defmodule TradingDesk.LLM.ModelRegistry do
       temperature: 0.7,
       endpoint: nil,
       description: "Fine-tuned for clear, structured instruction following (~8 GB RAM)"
+    },
+    %{
+      id: :claude_sonnet,
+      name: "Claude Sonnet",
+      provider: :claude,
+      model_id: "claude-sonnet-4-5-20250929",
+      model_repo: nil,
+      model_type: nil,
+      max_tokens: 4096,
+      sequence_length: nil,
+      prompt_format: :plain,
+      temperature: 0.7,
+      endpoint: "https://api.anthropic.com/v1/messages",
+      description: "Anthropic Claude API — production-grade reasoning"
+    },
+    %{
+      id: :claude_opus,
+      name: "Claude Opus 4.6",
+      provider: :claude,
+      model_id: "claude-opus-4-6",
+      model_repo: nil,
+      model_type: nil,
+      max_tokens: 4096,
+      sequence_length: nil,
+      prompt_format: :plain,
+      temperature: 0.7,
+      endpoint: "https://api.anthropic.com/v1/messages",
+      description: "Anthropic Claude Opus — top-tier reasoning and analysis"
+    },
+    %{
+      id: :claude_haiku,
+      name: "Claude Haiku 4.5",
+      provider: :claude,
+      model_id: "claude-haiku-4-5-20251001",
+      model_repo: nil,
+      model_type: nil,
+      max_tokens: 8192,
+      sequence_length: nil,
+      prompt_format: :plain,
+      temperature: 0.2,
+      endpoint: "https://api.anthropic.com/v1/messages",
+      description: "Anthropic Claude Haiku — fast, cheap extraction"
     }
   ]
 
@@ -111,4 +153,14 @@ defmodule TradingDesk.LLM.ModelRegistry do
   @doc "Return the first (default) model."
   @spec default() :: model()
   def default, do: List.first(list())
+
+  @doc "Return the Haiku model for stage-1 extraction (cheap, fast)."
+  @spec extractor() :: model() | nil
+  def extractor, do: get(:claude_haiku)
+
+  @doc "Return the first enabled non-Haiku Claude model for stage-2 LP formulation."
+  @spec reasoner() :: model() | nil
+  def reasoner do
+    Enum.find(list(), fn m -> m.provider == :claude and m.id != :claude_haiku end)
+  end
 end

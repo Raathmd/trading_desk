@@ -860,6 +860,7 @@ defmodule TradingDesk.ContractsLive do
 
   # Pipeline event formatting
   defp format_pipeline_event(:extraction_started, p), do: "Extracting #{p.file} for #{p.counterparty}..."
+  defp format_pipeline_event(:extraction_stage, p), do: "Stage #{p.stage}: #{p.detail}"
   defp format_pipeline_event(:extraction_complete, p), do: "Extracted #{p.clause_count} clauses from #{p.counterparty} v#{p.version}"
   defp format_pipeline_event(:extraction_failed, p), do: "Extraction failed: #{p.reason}"
   defp format_pipeline_event(:template_validation_complete, _), do: "Template validation complete"

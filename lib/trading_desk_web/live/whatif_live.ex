@@ -19,6 +19,7 @@ defmodule TradingDesk.WhatifLive do
   alias TradingDesk.Decisions.DecisionLedger
   alias TradingDesk.Traders
   alias TradingDesk.LLM.{PresolvePipeline, ModelRegistry}
+  alias TradingDesk.Contracts.{Store, SeedLoader}
 
   @steps [:variables, :contracts, :solve, :framed, :results]
 
@@ -60,6 +61,11 @@ defmodule TradingDesk.WhatifLive do
       |> assign(:variable_groups, variable_groups)
       |> assign(:available_groups, available_groups)
       |> assign(:contracts_data, contracts_data)
+      |> assign(:expanded_contracts, MapSet.new())
+      # Contract extraction state
+      |> assign(:extracting, false)
+      |> assign(:extraction_log, [])
+      |> assign(:extraction_current, nil)
       # Wizard state
       |> assign(:step, :variables)
       |> assign(:whatif_prompt, "")
@@ -120,13 +126,70 @@ defmodule TradingDesk.WhatifLive do
   @impl true
   def handle_event("switch_trader", %{"trader" => tid}, socket) do
     trader = Enum.find(socket.assigns.available_traders, &(to_string(&1.id) == tid))
-    {:noreply, assign(socket, :selected_trader, trader, trader_id: if(trader, do: to_string(trader.id), else: "trader_1"))}
+    {:noreply,
+     socket
+     |> assign(:selected_trader, trader)
+     |> assign(:trader_id, if(trader, do: to_string(trader.id), else: "trader_1"))}
+  end
+
+  # ── Contract page events ─────────────────────────────────
+
+  @impl true
+  def handle_event("toggle_clauses", %{"cp" => cp}, socket) do
+    expanded = socket.assigns.expanded_contracts
+    expanded = if MapSet.member?(expanded, cp), do: MapSet.delete(expanded, cp), else: MapSet.put(expanded, cp)
+    {:noreply, assign(socket, :expanded_contracts, expanded)}
+  end
+
+  @impl true
+  def handle_event("clear_contracts", _params, socket) do
+    Store.clear_all()
+    # Also clear Postgres contracts table
+    import Ecto.Query
+    TradingDesk.Repo.delete_all(TradingDesk.DB.ContractRecord)
+    contracts_data = load_contracts(socket.assigns.product_group)
+    {:noreply,
+     socket
+     |> assign(:contracts_data, contracts_data)
+     |> assign(:extraction_log, [])
+     |> assign(:expanded_contracts, MapSet.new())}
+  end
+
+  @impl true
+  def handle_event("extract_contracts", _params, socket) do
+    lv_pid = self()
+    total = length(SeedLoader.seed_positions())
+
+    socket =
+      socket
+      |> assign(:extracting, true)
+      |> assign(:extraction_log, [
+        "Starting two-stage extraction (Haiku → Opus) — #{total} seed contracts"
+      ])
+      |> assign(:extraction_current, nil)
+
+    spawn(fn ->
+      try do
+        summary = SeedLoader.reload_all(caller_pid: lv_pid)
+        send(lv_pid, {:extraction_done, summary})
+
+        # Generate delivery schedules from extracted clauses
+        SeedLoader.generate_schedules(lv_pid)
+      rescue
+        e ->
+          Logger.error("Contract extraction crashed: #{Exception.message(e)}")
+          send(lv_pid, {:extraction_error, Exception.message(e)})
+      end
+    end)
+
+    {:noreply, socket}
   end
 
   # ── Solve page events ─────────────────────────────────────
 
   @impl true
-  def handle_event("update_prompt", %{"prompt" => text}, socket) do
+  def handle_event("update_prompt", params, socket) do
+    text = params["prompt"] || params["value"] || ""
     {:noreply, assign(socket, :whatif_prompt, text)}
   end
 
@@ -209,6 +272,72 @@ defmodule TradingDesk.WhatifLive do
   @impl true
   def handle_info({:presolve_pipeline_done, _all_results}, socket) do
     {:noreply, assign(socket, :framing, false)}
+  end
+
+  @impl true
+  def handle_info({:extraction_progress, idx, total, counterparty, status, detail}, socket) do
+    line = case status do
+      :extracting -> "[#{idx}/#{total}] #{counterparty} — extracting clauses..."
+      :done       -> "[#{idx}/#{total}] #{counterparty} — #{detail}"
+      :error      -> "[#{idx}/#{total}] #{counterparty} — FAILED: #{detail}"
+    end
+
+    log = socket.assigns.extraction_log ++ [line]
+
+    {:noreply,
+     socket
+     |> assign(:extraction_log, log)
+     |> assign(:extraction_current, if(status == :extracting, do: counterparty, else: nil))}
+  end
+
+  @impl true
+  def handle_info({:extraction_stage, stage, detail}, socket) do
+    line = "  Stage #{stage}: #{detail}"
+    log = socket.assigns.extraction_log ++ [line]
+    {:noreply, assign(socket, :extraction_log, log)}
+  end
+
+  @impl true
+  def handle_info({:contract_loaded, _counterparty, _n_clauses}, socket) do
+    # Refresh the table immediately so new rows appear as each contract lands
+    contracts_data = load_contracts(socket.assigns.product_group)
+    {:noreply, assign(socket, :contracts_data, contracts_data)}
+  end
+
+  @impl true
+  def handle_info({:extraction_done, summary}, socket) do
+    contracts_data = load_contracts(socket.assigns.product_group)
+
+    log = socket.assigns.extraction_log ++ [
+      "---",
+      "Done: #{summary.loaded} loaded, #{summary.errors} errors | " <>
+      "#{summary.total_clauses} clauses (#{summary.total_penalty_clauses} penalty) | " <>
+      "Open book: #{format_number(summary.total_purchase_open)} MT buy / #{format_number(summary.total_sale_open)} MT sell | " <>
+      "Net: #{format_number(summary.net_position)} MT"
+    ]
+
+    {:noreply,
+     socket
+     |> assign(:extracting, false)
+     |> assign(:contracts_data, contracts_data)
+     |> assign(:extraction_log, log)
+     |> assign(:extraction_current, nil)}
+  end
+
+  @impl true
+  def handle_info({:schedule_progress, _phase, message}, socket) do
+    log = socket.assigns.extraction_log ++ [message]
+    {:noreply, assign(socket, :extraction_log, log)}
+  end
+
+  @impl true
+  def handle_info({:extraction_error, message}, socket) do
+    log = socket.assigns.extraction_log ++ ["FAILED: #{message}"]
+    {:noreply,
+     socket
+     |> assign(:extracting, false)
+     |> assign(:extraction_log, log)
+     |> assign(:extraction_current, nil)}
   end
 
   @impl true
@@ -330,51 +459,143 @@ defmodule TradingDesk.WhatifLive do
             <p style="font-size:12px;color:#7b8fa4;margin-top:4px">Active contracts for this product group</p>
           </div>
         </div>
-        <button phx-click="nav" phx-value-step="solve"
-          style="padding:8px 20px;border:1px solid #10b981;border-radius:6px;background:#071a12;color:#10b981;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px">
-          NEXT: SOLVE &rarr;
-        </button>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button phx-click="clear_contracts"
+            data-confirm="Clear all contracts from memory? This does not affect the database."
+            style="padding:8px 16px;border:1px solid #ef444466;border-radius:6px;background:#1f0a0a;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.5px">
+            CLEAR TABLE
+          </button>
+          <button phx-click="extract_contracts" disabled={@extracting}
+            style={"padding:8px 16px;border:1px solid #{if @extracting, do: "#475569", else: "#60a5fa"};border-radius:6px;background:#{if @extracting, do: "#111827", else: "#0f1a2e"};color:#{if @extracting, do: "#475569", else: "#60a5fa"};font-size:11px;font-weight:700;cursor:#{if @extracting, do: "wait", else: "pointer"};letter-spacing:0.5px"}>
+            <%= if @extracting, do: "EXTRACTING...", else: "EXTRACT CLAUSES" %>
+          </button>
+          <button phx-click="nav" phx-value-step="solve"
+            style="padding:8px 20px;border:1px solid #10b981;border-radius:6px;background:#071a12;color:#10b981;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px">
+            NEXT: SOLVE &rarr;
+          </button>
+        </div>
       </div>
 
-      <%= if @contracts_data == [] do %>
+      <%!-- Extraction log --%>
+      <%= if @extraction_log != [] or @extracting do %>
+        <div style="background:#0d1117;border:1px solid #1e293b;border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:11px;font-family:monospace;line-height:1.8;max-height:320px;overflow-y:auto" id="extraction-log">
+          <%= for line <- @extraction_log do %>
+            <% color = cond do
+              String.contains?(line, "FAILED") -> "#ef4444"
+              String.contains?(line, "Done:") -> "#10b981"
+              String.contains?(line, "Starting") -> "#60a5fa"
+              String.contains?(line, "extracting") -> "#f59e0b"
+              String.starts_with?(line, "---") -> "#1e293b"
+              String.contains?(line, "clauses") -> "#34d399"
+              true -> "#94a3b8"
+            end %>
+            <div style={"color:#{color}"}><span style="color:#475569;margin-right:6px">&gt;</span><%= line %></div>
+          <% end %>
+          <%= if @extracting do %>
+            <div style="color:#f59e0b;animation:pulse 1.5s ease-in-out infinite">
+              <span style="color:#475569;margin-right:6px">&gt;</span>
+              <%= if @extraction_current do %>
+                Processing: <%= @extraction_current %> ...
+              <% else %>
+                Waiting for Claude Opus responses...
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+        <style>
+          @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        </style>
+      <% end %>
+
+      <%= if @contracts_data == [] and not @extracting do %>
         <div style="text-align:center;padding:60px 20px;color:#475569">
           <div style="font-size:20px;margin-bottom:8px">No contracts loaded</div>
-          <div style="font-size:12px">Contracts will appear here once ingested via the full Trading Desk.</div>
-        </div>
-      <% else %>
-        <div style="background:#0d1117;border:1px solid #1e293b;border-radius:8px;overflow:hidden">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead>
-              <tr style="background:#111827;border-bottom:1px solid #1e293b">
-                <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">COUNTERPARTY</th>
-                <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">DIRECTION</th>
-                <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">STATUS</th>
-                <th style="text-align:right;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">QTY (MT)</th>
-                <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">INCOTERM</th>
-                <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">PRODUCT</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for c <- @contracts_data do %>
-                <tr style="border-bottom:1px solid #1e293b11">
-                  <td style="padding:10px 14px;color:#e2e8f0;font-weight:600"><%= c.counterparty %></td>
-                  <td style="padding:10px 14px">
-                    <span style={"color:#{if c.direction == :purchase, do: "#34d399", else: "#f59e0b"};font-weight:600"}>
-                      <%= if c.direction == :purchase, do: "BUY", else: "SELL" %>
-                    </span>
-                  </td>
-                  <td style="padding:10px 14px">
-                    <span style={"background:#{status_bg_color(c.status)};color:#{status_fg_color(c.status)};padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700"}><%= c.status |> to_string() |> String.upcase() %></span>
-                  </td>
-                  <td style="padding:10px 14px;text-align:right;font-family:monospace;color:#94a3b8"><%= format_number(c.quantity) %></td>
-                  <td style="padding:10px 14px;color:#94a3b8"><%= c.incoterm %></td>
-                  <td style="padding:10px 14px;color:#7b8fa4"><%= c.product %></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
+          <div style="font-size:12px">Click <span style="color:#60a5fa;font-weight:600">EXTRACT CLAUSES</span> to send seed contracts to the LLM and populate the table.</div>
         </div>
       <% end %>
+      <%= if @contracts_data != [] do %>
+          <div style="background:#0d1117;border:1px solid #1e293b;border-radius:8px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="background:#111827;border-bottom:1px solid #1e293b">
+                  <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">COUNTERPARTY</th>
+                  <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">DIRECTION</th>
+                  <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">STATUS</th>
+                  <th style="text-align:right;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">QTY (MT)</th>
+                  <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">INCOTERM</th>
+                  <th style="text-align:left;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">PRODUCT</th>
+                  <th style="text-align:right;padding:10px 14px;color:#60a5fa;font-weight:700;font-size:10px;letter-spacing:0.5px">CLAUSES</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for c <- @contracts_data do %>
+                  <% expanded = MapSet.member?(@expanded_contracts, c.counterparty) %>
+                  <tr phx-click="toggle_clauses" phx-value-cp={c.counterparty}
+                    style={"border-bottom:1px solid #1e293b11;cursor:pointer;#{if expanded, do: "background:#111827", else: ""}"}>
+                    <td style="padding:10px 14px;color:#e2e8f0;font-weight:600">
+                      <span style={"display:inline-block;width:14px;color:#475569;font-size:10px;margin-right:4px;transition:transform 0.2s;#{if expanded, do: "transform:rotate(90deg)", else: ""}"}>&rsaquo;</span>
+                      <%= c.counterparty %>
+                    </td>
+                    <td style="padding:10px 14px">
+                      <span style={"color:#{if c.direction in [:supplier, :purchase], do: "#34d399", else: "#f59e0b"};font-weight:600"}>
+                        <%= if c.direction in [:supplier, :purchase], do: "BUY", else: "SELL" %>
+                      </span>
+                    </td>
+                    <td style="padding:10px 14px">
+                      <span style={"background:#{status_bg_color(c.status)};color:#{status_fg_color(c.status)};padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700"}><%= c.status |> to_string() |> String.upcase() %></span>
+                    </td>
+                    <td style="padding:10px 14px;text-align:right;font-family:monospace;color:#94a3b8"><%= format_number(c.quantity) %></td>
+                    <td style="padding:10px 14px;color:#94a3b8"><%= c.incoterm %></td>
+                    <td style="padding:10px 14px;color:#7b8fa4"><%= c.product %></td>
+                    <td style="padding:10px 14px;text-align:right;font-family:monospace;color:#c4b5fd"><%= c.clause_count %></td>
+                  </tr>
+                  <%= if expanded and c.clauses != [] do %>
+                    <tr>
+                      <td colspan="7" style="padding:0;background:#0a0e14">
+                        <div style="padding:8px 14px 12px 32px">
+                          <table style="width:100%;border-collapse:collapse;font-size:11px">
+                            <thead>
+                              <tr style="border-bottom:1px solid #1e293b">
+                                <th style="text-align:left;padding:6px 8px;color:#7c3aed;font-weight:700;font-size:9px;letter-spacing:0.5px">CLAUSE ID</th>
+                                <th style="text-align:left;padding:6px 8px;color:#7c3aed;font-weight:700;font-size:9px;letter-spacing:0.5px">CATEGORY</th>
+                                <th style="text-align:left;padding:6px 8px;color:#7c3aed;font-weight:700;font-size:9px;letter-spacing:0.5px">PARAMETER</th>
+                                <th style="text-align:center;padding:6px 8px;color:#7c3aed;font-weight:700;font-size:9px;letter-spacing:0.5px">OPERATOR</th>
+                                <th style="text-align:right;padding:6px 8px;color:#7c3aed;font-weight:700;font-size:9px;letter-spacing:0.5px">VALUE</th>
+                                <th style="text-align:left;padding:6px 8px;color:#7c3aed;font-weight:700;font-size:9px;letter-spacing:0.5px">UNIT</th>
+                                <th style="text-align:right;padding:6px 8px;color:#7c3aed;font-weight:700;font-size:9px;letter-spacing:0.5px">PENALTY</th>
+                                <th style="text-align:left;padding:6px 8px;color:#7c3aed;font-weight:700;font-size:9px;letter-spacing:0.5px">CONFIDENCE</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <%= for cl <- c.clauses do %>
+                                <% ef = cl["extracted_fields"] || %{} %>
+                                <tr style="border-bottom:1px solid #1e293b08">
+                                  <td style="padding:5px 8px;color:#c4b5fd;font-family:monospace;font-size:10px"><%= cl["clause_id"] || "—" %></td>
+                                  <td style="padding:5px 8px;color:#7b8fa4"><%= cl["category"] || "—" %></td>
+                                  <td style="padding:5px 8px;color:#94a3b8;font-family:monospace"><%= ef["parameter"] || "—" %></td>
+                                  <td style="padding:5px 8px;text-align:center;color:#60a5fa;font-family:monospace;font-weight:700"><%= ef["operator"] || "—" %></td>
+                                  <td style="padding:5px 8px;text-align:right;color:#e2e8f0;font-family:monospace"><%= format_clause_value(ef) %></td>
+                                  <td style="padding:5px 8px;color:#475569;font-size:10px"><%= ef["unit"] || "" %></td>
+                                  <td style="padding:5px 8px;text-align:right;color:#f87171;font-family:monospace"><%= if ef["penalty_per_unit"], do: ef["penalty_per_unit"], else: "" %></td>
+                                  <td style="padding:5px 8px"><%= render_confidence(cl["confidence"]) %></td>
+                                </tr>
+                                <%= if (cl["description"] || "") != "" do %>
+                                  <tr style="border-bottom:1px solid #1e293b15">
+                                    <td colspan="8" style="padding:2px 8px 6px 24px;color:#64748b;font-size:10px;line-height:1.4;font-style:italic"><%= cl["description"] %></td>
+                                  </tr>
+                                <% end %>
+                              <% end %>
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  <% end %>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
     </div>
     """
   end
@@ -686,29 +907,85 @@ defmodule TradingDesk.WhatifLive do
   defp format_margin(_), do: "0.0"
 
   defp load_contracts(product_group) do
-    store_key = case product_group do
-      :ammonia_domestic -> :ammonia
-      other -> other
+    import Ecto.Query
+
+    pg_str = case product_group do
+      :ammonia_domestic -> "ammonia"
+      other -> to_string(other)
     end
 
     try do
-      TradingDesk.Contracts.Store.get_active_set(store_key)
-      |> Enum.map(fn c ->
+      # Read from Postgres — get all contract versions for this product group
+      all_contracts =
+        TradingDesk.DB.ContractRecord
+        |> where([c], c.product_group == ^pg_str and is_nil(c.deleted_at))
+        |> order_by([c], [asc: c.counterparty, desc: c.version])
+        |> TradingDesk.Repo.all()
+
+      # For each counterparty, pick the best version:
+      # prefer the latest version that has clauses, otherwise fall back to latest
+      all_contracts
+      |> Enum.group_by(& &1.counterparty)
+      |> Enum.map(fn {_cp, versions} ->
+        c = Enum.find(versions, hd(versions), fn v ->
+          case v.clauses_data do
+            %{"clauses" => clauses} when is_list(clauses) and clauses != [] -> true
+            _ -> false
+          end
+        end)
+
+        clause_count = case c.clauses_data do
+          %{"clauses" => clauses} when is_list(clauses) -> length(clauses)
+          _ -> 0
+        end
+
+        clauses = case c.clauses_data do
+          %{"clauses" => list} when is_list(list) -> list
+          _ -> []
+        end
+
         %{
           counterparty: c.counterparty || "Unknown",
-          direction: c.counterparty_type || :unknown,
-          status: c.status || :pending,
-          quantity: c.quantity_mt || 0,
-          incoterm: (c.incoterm || "") |> to_string() |> String.upcase(),
-          product: c.product || ""
+          direction: safe_direction(c.counterparty_type),
+          status: safe_status(c.status),
+          quantity: c.open_position || 0,
+          incoterm: (c.incoterm || "") |> String.upcase(),
+          product: c.product_group || "",
+          clause_count: clause_count,
+          clauses: clauses
         }
       end)
+      |> Enum.sort_by(& &1.counterparty)
     rescue
       _ -> []
     catch
       :exit, _ -> []
     end
   end
+
+  defp format_clause_value(%{"operator" => "between", "value" => lo, "value_upper" => hi}) when not is_nil(lo) and not is_nil(hi) do
+    "#{lo} – #{hi}"
+  end
+  defp format_clause_value(%{"value" => v}) when not is_nil(v), do: to_string(v)
+  defp format_clause_value(_), do: "—"
+
+  defp render_confidence("high"), do: assigns_to_heex(%{}, ~S|<span style="color:#10b981;font-size:10px;font-weight:600">HIGH</span>|)
+  defp render_confidence("medium"), do: assigns_to_heex(%{}, ~S|<span style="color:#f59e0b;font-size:10px;font-weight:600">MED</span>|)
+  defp render_confidence("low"), do: assigns_to_heex(%{}, ~S|<span style="color:#ef4444;font-size:10px;font-weight:600">LOW</span>|)
+  defp render_confidence(_), do: ""
+
+  defp assigns_to_heex(_assigns, html), do: Phoenix.HTML.raw(html)
+
+  defp safe_direction("supplier"), do: :supplier
+  defp safe_direction("customer"), do: :customer
+  defp safe_direction(a) when is_atom(a), do: a
+  defp safe_direction(_), do: :unknown
+
+  defp safe_status("approved"), do: :approved
+  defp safe_status("pending_review"), do: :pending
+  defp safe_status("draft"), do: :pending
+  defp safe_status(a) when is_atom(a), do: a
+  defp safe_status(_), do: :pending
 
   defp status_bg_color(:approved), do: "#10b98122"
   defp status_bg_color(:pending), do: "#f59e0b22"
@@ -744,6 +1021,13 @@ defmodule TradingDesk.WhatifLive do
   end
 
   defp phase_active?(current, target), do: current == target
+
+  defp model_label do
+    case ModelRegistry.default() do
+      nil -> "LLM"
+      m -> m.name
+    end
+  end
 
   defp safe_call(fun, default) do
     try do
