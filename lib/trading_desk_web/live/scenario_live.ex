@@ -1730,6 +1730,7 @@ defmodule TradingDesk.ScenarioLive do
               <option value={pg.id} selected={pg.id == @product_group}><%= pg.name %></option>
             <% end %>
           </select>
+          <a href="/home" style="color:#94a3b8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">HOME</a>
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
           <a href="/decisions" style={"position:relative;color:#f59e0b;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #{if @notifications_unread > 0, do: "#f59e0b44", else: "#1e293b"};border-radius:4px;background:#{if @notifications_unread > 0, do: "#1c1a0f", else: "transparent"}"}>
             DECISIONS

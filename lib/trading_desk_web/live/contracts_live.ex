@@ -282,7 +282,7 @@ defmodule TradingDesk.ContractsLive do
       <%!-- === TOP BAR === --%>
       <div style="background:#0d1117;border-bottom:1px solid #1b2838;padding:10px 20px;display:flex;justify-content:space-between;align-items:center">
         <div style="display:flex;align-items:center;gap:12px">
-          <a href="/" style="color:#94a3b8;text-decoration:none;font-size:12px">&larr; DESK</a>
+          <a href="/home" style="color:#94a3b8;text-decoration:none;font-size:12px">&larr; HOME</a>
           <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">CONTRACT MANAGEMENT</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
