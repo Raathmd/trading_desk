@@ -29,6 +29,7 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.Fleet.TrackedVessel
   alias TradingDesk.Schedule.DeliveryScheduler
   alias TradingDesk.Workflow.PendingDeliveryChange
+  alias TradingDesk.Decisions.DecisionLedger
 
   @impl true
   def mount(_params, session, socket) do
@@ -38,6 +39,7 @@ defmodule TradingDesk.ScenarioLive do
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "auto_runner")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "solve_pipeline")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "sap_events")
+      Phoenix.PubSub.subscribe(TradingDesk.PubSub, "decisions")
     end
 
     # Load traders from DB; default to first active trader
@@ -53,7 +55,9 @@ defmodule TradingDesk.ScenarioLive do
     trader_id = if selected_trader, do: to_string(selected_trader.id), else: "trader_1"
 
     # Defensive: GenServer calls may fail if services haven't started yet
-    live_vars = safe_call(fn -> LiveState.get() end, ProductGroup.default_values(product_group))
+    # Use effective state (LiveState + applied decisions) as the base for traders
+    live_vars = safe_call(fn -> DecisionLedger.effective_state(product_group) end,
+      safe_call(fn -> LiveState.get() end, ProductGroup.default_values(product_group)))
     auto_result = safe_call(fn -> TradingDesk.Scenarios.AutoRunner.latest() end, nil)
     vessel_data = safe_call(fn -> LiveState.get_supplementary(:vessel_tracking) end, nil)
     tides_data = safe_call(fn -> LiveState.get_supplementary(:tides) end, nil)
@@ -474,6 +478,48 @@ defmodule TradingDesk.ScenarioLive do
   end
 
   @impl true
+  def handle_event("commit_decision", %{"reason" => reason}, socket) do
+    # Build variable_changes from overrides — only the variables the trader changed
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+    live = socket.assigns.live_vars
+
+    variable_changes =
+      overrides
+      |> MapSet.to_list()
+      |> Enum.reduce(%{}, fn key, acc ->
+        val = Map.get(current, key)
+        if val != nil, do: Map.put(acc, to_string(key), val), else: acc
+      end)
+
+    if map_size(variable_changes) == 0 do
+      {:noreply, assign(socket, :scenario_saved_flash, "No overrides to commit")}
+    else
+      trader = socket.assigns.selected_trader
+      pg = socket.assigns.product_group
+      audit_id = socket.assigns[:last_audit_id]
+
+      attrs = %{
+        trader_id: trader && trader.id,
+        trader_name: (trader && trader.name) || "Unknown",
+        product_group: to_string(pg),
+        variable_changes: variable_changes,
+        change_modes: variable_changes |> Map.keys() |> Enum.map(&{&1, "absolute"}) |> Map.new(),
+        reason: if(reason == "", do: socket.assigns.trader_action, else: reason),
+        audit_id: if(audit_id, do: to_string(audit_id), else: nil),
+        intent: socket.assigns.intent
+      }
+
+      case DecisionLedger.propose(attrs) do
+        {:ok, decision} ->
+          {:noreply, assign(socket, :scenario_saved_flash, "Decision ##{decision.id} proposed — go to DECISIONS to apply")}
+
+        {:error, _changeset} ->
+          {:noreply, assign(socket, :scenario_saved_flash, "Failed to commit decision")}
+      end
+    end
+  end
+
   @impl true
   def handle_event("save_and_send_ops", _params, socket) do
     case socket.assigns.result do
@@ -1244,7 +1290,10 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def handle_info({:data_updated, _source}, socket) do
     pg = socket.assigns.product_group
-    live = LiveState.get()
+
+    # Use effective state (LiveState + applied decisions) instead of raw LiveState
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, nil)
+    live = if effective, do: effective, else: LiveState.get()
 
     # Refresh API status on the APIs tab if it's active
     socket = if socket.assigns.active_tab == :apis do
@@ -1260,8 +1309,10 @@ defmodule TradingDesk.ScenarioLive do
       current = socket.assigns.current_vars
       valid_keys = MapSet.new(ProductGroup.variable_keys(pg))
 
+      live_map = if is_struct(live), do: Map.from_struct(live), else: live
+
       updated_current =
-        Enum.reduce(Map.from_struct(live), current, fn {key, val}, acc ->
+        Enum.reduce(live_map, current, fn {key, val}, acc ->
           if MapSet.member?(overrides, key) or not MapSet.member?(valid_keys, key) do
             acc
           else
@@ -1291,6 +1342,101 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_info({:supplementary_updated, _}, socket) do
+    {:noreply, socket}
+  end
+
+  # Decision ledger events — refresh effective state when decisions change
+  @impl true
+  def handle_info({:decision_applied, _decision}, socket) do
+    pg = socket.assigns.product_group
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, socket.assigns.live_vars)
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+
+    # Merge effective state into current_vars, preserving local overrides
+    updated_current =
+      Enum.reduce(effective, current, fn {key, val}, acc ->
+        if MapSet.member?(overrides, key), do: acc, else: Map.put(acc, key, val)
+      end)
+
+    socket =
+      socket
+      |> assign(:live_vars, effective)
+      |> assign(:current_vars, updated_current)
+      |> assign(:model_summary, build_model_summary_text(Map.put(socket.assigns, :current_vars, updated_current)))
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:decision_revoked, _decision}, socket) do
+    pg = socket.assigns.product_group
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, socket.assigns.live_vars)
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+
+    updated_current =
+      Enum.reduce(effective, current, fn {key, val}, acc ->
+        if MapSet.member?(overrides, key), do: acc, else: Map.put(acc, key, val)
+      end)
+
+    socket =
+      socket
+      |> assign(:live_vars, effective)
+      |> assign(:current_vars, updated_current)
+      |> assign(:model_summary, build_model_summary_text(Map.put(socket.assigns, :current_vars, updated_current)))
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:decision_superseded, _payload}, socket) do
+    pg = socket.assigns.product_group
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, socket.assigns.live_vars)
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+
+    updated_current =
+      Enum.reduce(effective, current, fn {key, val}, acc ->
+        if MapSet.member?(overrides, key), do: acc, else: Map.put(acc, key, val)
+      end)
+
+    socket =
+      socket
+      |> assign(:live_vars, effective)
+      |> assign(:current_vars, updated_current)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:decision_proposed, _decision}, socket) do
+    # Proposed decisions don't affect state, but we could show a notification
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:decision_rejected, _decision}, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:effective_state_changed, _}, socket) do
+    pg = socket.assigns.product_group
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, socket.assigns.live_vars)
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+
+    updated_current =
+      Enum.reduce(effective, current, fn {key, val}, acc ->
+        if MapSet.member?(overrides, key), do: acc, else: Map.put(acc, key, val)
+      end)
+
+    socket =
+      socket
+      |> assign(:live_vars, effective)
+      |> assign(:current_vars, updated_current)
+
     {:noreply, socket}
   end
 
@@ -1418,6 +1564,7 @@ defmodule TradingDesk.ScenarioLive do
             <% end %>
           </select>
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
+          <a href="/decisions" style="color:#f59e0b;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">DECISIONS</a>
           <a href="/architecture_overview.html" target="_blank" style="color:#38bdf8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Architecture &amp; Executive Overview">OVERVIEW</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
@@ -1924,9 +2071,23 @@ defmodule TradingDesk.ScenarioLive do
                 <div style="display:flex;gap:8px;margin-top:12px">
                   <form phx-submit="save_scenario" style="display:flex;gap:8px;flex:1">
                     <input type="text" name="name" placeholder="Scenario name..." style="flex:1;background:#0a0f18;border:1px solid #1e293b;color:#c8d6e5;padding:8px;border-radius:6px;font-size:12px" />
-                    <button type="submit" style="background:#1e293b;border:none;color:#94a3b8;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
+                    <button type="submit" style="background:#1e293b;border:none;color:#94a3b8;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Save</button>
                   </form>
                 </div>
+                <%!-- Commit Decision — proposes overrides to the shared decision ledger --%>
+                <%= if MapSet.size(@overrides) > 0 do %>
+                  <div style="margin-top:8px;padding-top:8px;border-top:1px solid #1e293b">
+                    <form phx-submit="commit_decision" style="display:flex;gap:8px;align-items:center">
+                      <input type="text" name="reason" placeholder="Decision reason (e.g. barge #7 in for repair)..." style="flex:1;background:#0a0f18;border:1px solid #f59e0b44;color:#c8d6e5;padding:8px;border-radius:6px;font-size:12px" />
+                      <button type="submit" style="background:#1c1a0f;border:1px solid #f59e0b55;color:#f59e0b;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:0.5px;white-space:nowrap">
+                        COMMIT DECISION (<%= MapSet.size(@overrides) %>)
+                      </button>
+                    </form>
+                    <div style="font-size:9px;color:#7b8fa4;margin-top:4px">
+                      Proposes your <%= MapSet.size(@overrides) %> override(s) to the decision ledger. Other traders can review and apply.
+                    </div>
+                  </div>
+                <% end %>
               </div>
             <% end %>
 

@@ -19,6 +19,7 @@ defmodule TradingDesk.Application do
       TradingDesk.Solver.SolveAuditStore,
       TradingDesk.Scenarios.Store,
       TradingDesk.Scenarios.AutoRunner,
+      TradingDesk.Decisions.DecisionLedger,
       TradingDesk.Contracts.Store,
       TradingDesk.Contracts.CurrencyTracker,
       TradingDesk.Contracts.NetworkScanner,
