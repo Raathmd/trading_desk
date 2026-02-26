@@ -153,9 +153,9 @@ defmodule TradingDesk.LLM.Serving do
     {:ok, generation_config} = Bumblebee.load_generation_config(repo)
 
     generation_config =
-      Bumblebee.configure(generation_config, %{
+      Bumblebee.configure(generation_config,
         max_new_tokens: max_tokens
-      })
+      )
 
     Bumblebee.Text.generation(model_info, tokenizer, generation_config,
       compile: [batch_size: @batch_size, sequence_length: seq_len],

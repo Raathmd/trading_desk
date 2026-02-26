@@ -400,7 +400,9 @@ defmodule TradingDesk.DecisionsLive do
 
   # Find proposed decisions that conflict (touch same vars) with a given decision
   defp has_conflicts?(decision, all_decisions) do
-    if decision.status != "proposed", do: false, else:
+    if decision.status != "proposed" do
+      false
+    else
       changed_keys = Map.keys(decision.variable_changes)
 
       Enum.any?(all_decisions, fn other ->
@@ -408,6 +410,7 @@ defmodule TradingDesk.DecisionsLive do
         and other.status in ["proposed", "applied"]
         and Enum.any?(Map.keys(other.variable_changes), &(&1 in changed_keys))
       end)
+    end
   end
 
   defp conflicting_decisions(decision, all_decisions) do

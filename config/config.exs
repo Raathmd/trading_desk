@@ -36,4 +36,4 @@ config :nx, default_backend: EXLA.Backend
 # Each 7B model needs ~8 GB RAM. Comment out models to reduce memory usage.
 # Available: :mistral_7b, :zephyr_7b
 # Set to nil or remove to load ALL registered models.
-config :trading_desk, :llm_enabled_models, [:mistral_7b, :zephyr_7b]
+config :trading_desk, :llm_enabled_models, [:mistral_7b]
