@@ -1522,25 +1522,33 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
   # ──────────────────────────────────────────────────────────
 
   defp clause(clause_id, type, category, description, opts \\ []) do
+    base_fields = Keyword.get(opts, :fields, %{})
+
+    merged_fields =
+      base_fields
+      |> maybe_put("parameter", Keyword.get(opts, :parameter))
+      |> maybe_put("operator", Keyword.get(opts, :operator))
+      |> maybe_put("value", Keyword.get(opts, :value))
+      |> maybe_put("value_upper", Keyword.get(opts, :value_upper))
+      |> maybe_put("unit", Keyword.get(opts, :unit))
+      |> maybe_put("penalty_per_unit", Keyword.get(opts, :penalty_per_unit))
+      |> maybe_put("penalty_cap", Keyword.get(opts, :penalty_cap))
+      |> maybe_put("period", Keyword.get(opts, :period))
+      |> maybe_put("anchors_matched", Keyword.get(opts, :anchors, []))
+
     %Clause{
       id:               Clause.generate_id(),
       clause_id:        clause_id,
       type:             type,
       category:         category,
       description:      description,
-      parameter:        Keyword.get(opts, :parameter),
-      operator:         Keyword.get(opts, :operator),
-      value:            Keyword.get(opts, :value),
-      value_upper:      Keyword.get(opts, :value_upper),
-      unit:             Keyword.get(opts, :unit),
-      penalty_per_unit: Keyword.get(opts, :penalty_per_unit),
-      penalty_cap:      Keyword.get(opts, :penalty_cap),
-      period:           Keyword.get(opts, :period),
       confidence:       Keyword.get(opts, :confidence, :high),
       reference_section: Keyword.get(opts, :section),
-      anchors_matched:  Keyword.get(opts, :anchors, []),
-      extracted_fields: Keyword.get(opts, :fields, %{}),
+      extracted_fields: merged_fields,
       extracted_at:     @now
     }
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put_new(map, key, value)
 end

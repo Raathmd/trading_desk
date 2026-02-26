@@ -19,8 +19,7 @@ defmodule TradingDesk.Contracts.FolderScanner do
   Contract text is read via DocumentReader, then sent to the **local LLM**
   (Mistral 7B via Bumblebee/Nx.Serving) for structured clause extraction.
   The LLM returns JSON with clause data that maps directly to Clause structs
-  used by the solver's ConstraintBridge. Falls back to the deterministic
-  Parser if the local LLM is unavailable.
+  used by the solver's ConstraintBridge.
 
   ## Contract key
 
@@ -39,7 +38,6 @@ defmodule TradingDesk.Contracts.FolderScanner do
     Contract,
     DocumentReader,
     HashVerifier,
-    Parser,
     SapPositions,
     Store,
     TemplateRegistry
@@ -383,26 +381,17 @@ defmodule TradingDesk.Contracts.FolderScanner do
   # 5. Store.ingest → contracts table (ETS + Postgres async)
   # 6. Generate scheduled deliveries async
   #
-  # Falls back to deterministic Parser if LLM unavailable.
   # ──────────────────────────────────────────────────────────
 
   defp extract_and_store(path, product_group, meta) do
     filename = Path.basename(path)
 
     with {:hash, {:ok, file_hash, file_size}} <- {:hash, HashVerifier.compute_file_hash(path)},
-         {:read, {:ok, text}} <- {:read, DocumentReader.read(path)} do
+         {:read, {:ok, text}} <- {:read, DocumentReader.read(path)},
+         {:llm, {:ok, llm_clauses}} <- {:llm, extract_clauses_via_llm(text, product_group)} do
 
-      # Try local LLM extraction, fall back to deterministic parser
-      clauses = case extract_clauses_via_llm(text, product_group) do
-        {:ok, llm_clauses} ->
-          Logger.info("FolderScanner: local LLM extracted #{length(llm_clauses)} clauses from #{filename}")
-          llm_clauses
-
-        {:error, reason} ->
-          Logger.info("FolderScanner: LLM unavailable (#{inspect(reason)}), using deterministic parser for #{filename}")
-          {parser_clauses, _warnings, _family} = Parser.parse(text)
-          parser_clauses
-      end
+      clauses = llm_clauses
+      Logger.info("FolderScanner: LLM extracted #{length(clauses)} clauses from #{filename}")
 
       # Detect contract family from text
       {family_id, family_direction, family_incoterm, family_term_type} =
@@ -455,6 +444,7 @@ defmodule TradingDesk.Contracts.FolderScanner do
     else
       {:hash, {:error, reason}} -> {:error, {:hash_failed, reason}}
       {:read, {:error, reason}} -> {:error, {:read_failed, reason}}
+      {:llm, {:error, reason}} -> {:error, {:llm_extraction_failed, reason}}
     end
   end
 

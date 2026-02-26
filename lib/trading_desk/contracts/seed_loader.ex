@@ -15,7 +15,9 @@ defmodule TradingDesk.Contracts.SeedLoader do
     SeedLoader.open_book_summary()  # aggregate open positions
   """
 
-  alias TradingDesk.Contracts.{Parser, Contract, Store, ConstraintBridge}
+  alias TradingDesk.Contracts.{Contract, Store, ConstraintBridge, TemplateRegistry}
+  alias TradingDesk.Contracts.Clause
+  alias TradingDesk.LLM.{Pool, ModelRegistry}
 
   require Logger
 
@@ -201,12 +203,19 @@ defmodule TradingDesk.Contracts.SeedLoader do
 
   defp load_one(file_path, counterparty, cp_type, open_qty) do
     text = File.read!(file_path)
-    {clauses, _warnings, detected_family} = Parser.parse(text)
+
+    clauses =
+      case extract_clauses_via_llm(text) do
+        {:ok, llm_clauses} -> llm_clauses
+        {:error, reason} ->
+          Logger.warning("SeedLoader: LLM extraction failed for #{counterparty}: #{inspect(reason)}, using empty clauses")
+          []
+      end
 
     {family_id, family} =
-      case detected_family do
+      case TemplateRegistry.detect_family(text) do
         {:ok, fid, fam} -> {fid, fam}
-        :unknown -> {nil, nil}
+        _ -> {nil, nil}
       end
 
     incoterm =
@@ -315,4 +324,124 @@ defmodule TradingDesk.Contracts.SeedLoader do
       c.clause_id in ["PENALTY_VOLUME_SHORTFALL", "PENALTY_LATE_DELIVERY", "LAYTIME_DEMURRAGE"]
     end)
   end
+
+  # ── LLM clause extraction ────────────────────────────────
+
+  defp extract_clauses_via_llm(text) do
+    model = ModelRegistry.default()
+
+    if is_nil(model) do
+      {:error, :no_model_registered}
+    else
+      prompt = build_extraction_prompt(text)
+
+      case Pool.generate(model.id, prompt, max_tokens: 1024) do
+        {:ok, raw_text} -> parse_llm_clauses(raw_text)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp build_extraction_prompt(contract_text) do
+    inventory =
+      TemplateRegistry.canonical_clauses()
+      |> Enum.sort_by(fn {id, _} -> id end)
+      |> Enum.map_join(", ", fn {id, _} -> id end)
+
+    max_chars = 3000
+    truncated = if String.length(contract_text) > max_chars do
+      String.slice(contract_text, 0, max_chars) <> "\n[...truncated...]"
+    else
+      contract_text
+    end
+
+    """
+    Extract structured clause data from this commodity trading contract.
+    Return ONLY valid JSON with this exact structure:
+
+    {"clauses":[{"clause_id":"PRICE","category":"commercial","source_text":"exact quote","value":340.0,"unit":"$/ton","operator":"==","confidence":"high"}]}
+
+    Known clause IDs: #{inventory}
+
+    For penalty clauses, include "penalty_rate" with the $/ton or $/day rate.
+    For price clauses, "value" is the price in $/ton.
+    For quantity clauses, "value" is the quantity in metric tons.
+
+    CONTRACT TEXT:
+    #{truncated}
+    """
+  end
+
+  defp parse_llm_clauses(raw_text) do
+    json_str = extract_json(raw_text)
+    now = DateTime.utc_now()
+
+    case Jason.decode(json_str) do
+      {:ok, %{"clauses" => clauses}} when is_list(clauses) ->
+        built = Enum.map(clauses, fn c ->
+          base_fields = %{}
+          merged_fields =
+            base_fields
+            |> maybe_put("parameter", c["parameter"])
+            |> maybe_put("operator", c["operator"])
+            |> maybe_put("value", c["value"])
+            |> maybe_put("value_upper", c["value_upper"])
+            |> maybe_put("unit", c["unit"])
+            |> maybe_put("penalty_per_unit", c["penalty_rate"] || c["demurrage_rate"])
+            |> maybe_put("period", c["period"])
+            |> maybe_put("anchors_matched", c["anchors_matched"] || [])
+
+          %Clause{
+            id: Clause.generate_id(),
+            clause_id: c["clause_id"],
+            type: map_clause_type(c["category"]),
+            category: safe_atom(c["category"]),
+            description: c["source_text"] || "",
+            reference_section: c["section_ref"],
+            confidence: safe_atom(c["confidence"] || "high"),
+            extracted_fields: merged_fields,
+            extracted_at: now
+          }
+        end)
+
+        {:ok, built}
+
+      {:ok, _} -> {:error, :no_clauses_in_response}
+      {:error, reason} -> {:error, {:json_parse_failed, reason}}
+    end
+  end
+
+  defp extract_json(text) do
+    cond do
+      String.contains?(text, "```json") ->
+        text |> String.split("```json") |> Enum.at(1, "") |> String.split("```") |> List.first("") |> String.trim()
+      String.contains?(text, "```") ->
+        text |> String.split("```") |> Enum.at(1, "") |> String.trim()
+      true ->
+        String.trim(text)
+    end
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put_new(map, key, value)
+
+  defp map_clause_type(cat) when is_binary(cat) do
+    case String.downcase(cat) do
+      "commercial" -> :price_term
+      "core_terms" -> :obligation
+      "logistics" -> :delivery
+      "logistics_cost" -> :penalty
+      "credit_legal" -> :penalty
+      "compliance" -> :compliance
+      "legal" -> :legal
+      "operational" -> :operational
+      "metadata" -> :metadata
+      _ -> :condition
+    end
+  end
+  defp map_clause_type(_), do: :condition
+
+  defp safe_atom(nil), do: nil
+  defp safe_atom(a) when is_atom(a), do: a
+  defp safe_atom(s) when is_binary(s), do: String.to_atom(String.downcase(s))
 end
