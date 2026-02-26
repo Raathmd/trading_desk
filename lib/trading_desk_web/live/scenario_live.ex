@@ -167,6 +167,9 @@ defmodule TradingDesk.ScenarioLive do
       # LLM output persistence
       |> assign(:last_audit_id, nil)
       |> assign(:llm_outputs_saved, false)
+      # Scenario picker popup
+      |> assign(:show_scenario_picker, false)
+      |> assign(:scenario_picker_selected, nil)
 
     # Build the initial model summary from the fully-assigned socket
     socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
@@ -574,8 +577,68 @@ defmodule TradingDesk.ScenarioLive do
           |> assign(:active_tab, :trader)
           |> assign(:explanation, analyst_note)
           |> assign(:explaining, false)
+          # Close the picker popup if it was open
+          |> assign(:show_scenario_picker, false)
+          |> assign(:scenario_picker_selected, nil)
 
         # Rebuild model summary from restored variables
+        socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
+
+        {:noreply, socket}
+    end
+  end
+
+  # ── Scenario Picker (apply overrides onto current effective state) ──
+
+  @impl true
+  def handle_event("open_scenario_picker", _params, socket) do
+    {:noreply, assign(socket, show_scenario_picker: true, scenario_picker_selected: nil)}
+  end
+
+  @impl true
+  def handle_event("close_scenario_picker", _params, socket) do
+    {:noreply, assign(socket, show_scenario_picker: false, scenario_picker_selected: nil)}
+  end
+
+  @impl true
+  def handle_event("preview_scenario", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    scenario = Enum.find(socket.assigns.saved_scenarios, &(&1.id == id))
+    {:noreply, assign(socket, :scenario_picker_selected, scenario)}
+  end
+
+  @impl true
+  def handle_event("apply_scenario_overrides", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    case Enum.find(socket.assigns.saved_scenarios, &(&1.id == id)) do
+      nil -> {:noreply, socket}
+      scenario ->
+        # Compute which variables the trader actually changed vs. the live base
+        # at the time they saved. We diff the scenario variables against current
+        # effective state — only keys where the scenario value differs are applied.
+        effective = socket.assigns.live_vars
+        saved_vars = scenario.variables
+
+        {merged, override_keys} =
+          Enum.reduce(saved_vars, {effective, MapSet.new()}, fn {key, saved_val}, {acc_vars, acc_keys} ->
+            live_val = Map.get(effective, key)
+            if saved_val != nil and saved_val != live_val do
+              {Map.put(acc_vars, key, saved_val), MapSet.put(acc_keys, key)}
+            else
+              {acc_vars, acc_keys}
+            end
+          end)
+
+        socket =
+          socket
+          |> assign(:current_vars, merged)
+          |> assign(:overrides, override_keys)
+          |> assign(:result, nil)
+          |> assign(:active_tab, :trader)
+          |> assign(:show_scenario_picker, false)
+          |> assign(:scenario_picker_selected, nil)
+          |> assign(:scenario_saved_flash, "Applied #{MapSet.size(override_keys)} override(s) from \"#{scenario.name}\"")
+
         socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
 
         {:noreply, socket}
@@ -1659,10 +1722,16 @@ defmodule TradingDesk.ScenarioLive do
                 <% end %>
               </select>
             </div>
-            <button phx-click="reset"
-              style="width:100%;padding:7px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#94a3b8;cursor:pointer;margin-top:8px">
-              📡 RESET TO LIVE
-            </button>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+              <button phx-click="reset"
+                style="padding:7px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#94a3b8;cursor:pointer">
+                📡 RESET TO LIVE
+              </button>
+              <button phx-click="open_scenario_picker" disabled={length(@saved_scenarios) == 0}
+                style={"padding:7px;border:1px solid #{if length(@saved_scenarios) > 0, do: "#eab30844", else: "#1e293b"};border-radius:6px;font-weight:600;font-size:11px;background:#{if length(@saved_scenarios) > 0, do: "#1c1a0f", else: "transparent"};color:#{if length(@saved_scenarios) > 0, do: "#eab308", else: "#475569"};cursor:#{if length(@saved_scenarios) > 0, do: "pointer", else: "default"}"}>
+                LOAD SCENARIO
+              </button>
+            </div>
             <div style="text-align:center;margin-top:6px;font-size:12px;color:#94a3b8">
               <%= MapSet.size(@overrides) %> override<%= if MapSet.size(@overrides) != 1, do: "s", else: "" %> active
             </div>
@@ -4570,6 +4639,131 @@ defmodule TradingDesk.ScenarioLive do
         </div>
       </div>
 
+      <%!-- === SCENARIO PICKER POPUP === --%>
+      <%= if @show_scenario_picker do %>
+        <div style="position:fixed;inset:0;z-index:1000">
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.7)"
+               phx-click="close_scenario_picker"></div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+            <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:720px;max-height:85vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5);pointer-events:auto">
+
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <span style="font-size:14px;font-weight:700;color:#eab308;letter-spacing:1px">LOAD SCENARIO</span>
+                <button phx-click="close_scenario_picker" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
+              </div>
+
+              <div style="font-size:12px;color:#7b8fa4;margin-bottom:14px">
+                Apply a scenario's overrides onto current live data. Only variables that differ from current state will be set.
+              </div>
+
+              <div style="display:flex;gap:16px">
+                <%!-- Left: scenario list --%>
+                <div style={"flex:#{if @scenario_picker_selected, do: "0 0 300px", else: "1"};overflow-y:auto;max-height:60vh"}>
+                  <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead><tr style="border-bottom:1px solid #1e293b">
+                      <th style="text-align:left;padding:6px;color:#94a3b8;font-size:11px">Name</th>
+                      <th style="text-align:right;padding:6px;color:#94a3b8;font-size:11px">Profit</th>
+                      <th style="text-align:right;padding:6px;color:#94a3b8;font-size:11px">Saved</th>
+                    </tr></thead>
+                    <tbody>
+                      <%= for sc <- @saved_scenarios do %>
+                        <% is_selected = @scenario_picker_selected && @scenario_picker_selected.id == sc.id %>
+                        <tr phx-click="preview_scenario" phx-value-id={sc.id}
+                          style={"cursor:pointer;border-bottom:1px solid #1e293b22;transition:background 0.15s;background:#{if is_selected, do: "#1c1a0f", else: "transparent"};border-left:2px solid #{if is_selected, do: "#eab308", else: "transparent"}"}>
+                          <td style="padding:8px 6px;font-weight:600;color:#c8d6e5;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= sc.name %></td>
+                          <td style="text-align:right;padding:8px 6px;font-family:monospace;color:#10b981;font-size:11px">
+                            <%= if sc.result, do: "$#{format_number(sc.result.profit)}", else: "—" %>
+                          </td>
+                          <td style="text-align:right;padding:8px 6px;color:#7b8fa4;font-size:11px;white-space:nowrap">
+                            <%= if sc.saved_at, do: Calendar.strftime(sc.saved_at, "%m/%d %H:%M"), else: "" %>
+                          </td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+
+                <%!-- Right: selected scenario detail --%>
+                <%= if @scenario_picker_selected do %>
+                  <div style="flex:1;border-left:1px solid #1e293b;padding-left:16px;overflow-y:auto;max-height:60vh">
+                    <div style="font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:4px"><%= @scenario_picker_selected.name %></div>
+                    <div style="font-size:11px;color:#7b8fa4;margin-bottom:12px">
+                      Saved <%= if @scenario_picker_selected.saved_at, do: Calendar.strftime(@scenario_picker_selected.saved_at, "%Y-%m-%d %H:%M UTC"), else: "—" %>
+                    </div>
+
+                    <%!-- Result summary --%>
+                    <%= if @scenario_picker_selected.result do %>
+                      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
+                        <div style="background:#0a0f18;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">Profit</div>
+                          <div style="font-size:13px;font-weight:700;color:#10b981;font-family:monospace">$<%= format_number(@scenario_picker_selected.result.profit) %></div>
+                        </div>
+                        <div style="background:#0a0f18;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">ROI</div>
+                          <div style="font-size:13px;font-weight:700;color:#38bdf8;font-family:monospace"><%= Float.round((@scenario_picker_selected.result.roi || 0) * 1.0, 1) %>%</div>
+                        </div>
+                        <div style="background:#0a0f18;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">Tons</div>
+                          <div style="font-size:13px;font-weight:700;color:#c8d6e5;font-family:monospace"><%= format_number(@scenario_picker_selected.result.tons) %></div>
+                        </div>
+                      </div>
+                    <% end %>
+
+                    <%!-- Overrides diff — what would change --%>
+                    <% diffs = scenario_overrides(@scenario_picker_selected, @live_vars) %>
+                    <%= if length(diffs) > 0 do %>
+                      <div style="font-size:11px;color:#eab308;letter-spacing:1px;font-weight:700;margin-bottom:6px">
+                        OVERRIDES TO APPLY (<%= length(diffs) %>)
+                      </div>
+                      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:14px">
+                        <thead><tr style="border-bottom:1px solid #1e293b">
+                          <th style="text-align:left;padding:4px;color:#94a3b8">Variable</th>
+                          <th style="text-align:right;padding:4px;color:#94a3b8">Current</th>
+                          <th style="text-align:center;padding:4px;color:#475569">→</th>
+                          <th style="text-align:right;padding:4px;color:#94a3b8">Scenario</th>
+                        </tr></thead>
+                        <tbody>
+                          <%= for {key, saved_val, live_val} <- diffs do %>
+                            <tr style="border-bottom:1px solid #1e293b11">
+                              <td style="padding:4px;color:#c8d6e5;font-weight:600"><%= humanize_key(key) %></td>
+                              <td style="text-align:right;padding:4px;font-family:monospace;color:#7b8fa4"><%= format_var_value(live_val) %></td>
+                              <td style="text-align:center;padding:4px;color:#475569">→</td>
+                              <td style="text-align:right;padding:4px;font-family:monospace;color:#eab308;font-weight:600"><%= format_var_value(saved_val) %></td>
+                            </tr>
+                          <% end %>
+                        </tbody>
+                      </table>
+                    <% else %>
+                      <div style="font-size:12px;color:#7b8fa4;padding:12px;text-align:center;background:#0a0f18;border-radius:6px">
+                        All variables match current live state — nothing to apply.
+                      </div>
+                    <% end %>
+
+                    <%!-- Apply button --%>
+                    <div style="display:flex;gap:8px">
+                      <button phx-click="apply_scenario_overrides" phx-value-id={@scenario_picker_selected.id}
+                        disabled={length(diffs) == 0}
+                        style={"flex:1;padding:10px;border:none;border-radius:6px;font-weight:700;font-size:12px;letter-spacing:0.5px;cursor:#{if length(diffs) > 0, do: "pointer", else: "default"};background:#{if length(diffs) > 0, do: "linear-gradient(135deg,#ca8a04,#eab308)", else: "#1e293b"};color:#{if length(diffs) > 0, do: "#111", else: "#475569"}"}>
+                        APPLY <%= length(diffs) %> OVERRIDE<%= if length(diffs) != 1, do: "S", else: "" %>
+                      </button>
+                      <button phx-click="load_scenario" phx-value-id={@scenario_picker_selected.id}
+                        style="padding:10px 14px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#94a3b8;cursor:pointer"
+                        title="Restore full scenario (replaces all variables with saved values)">
+                        FULL RESTORE
+                      </button>
+                    </div>
+                    <div style="font-size:9px;color:#7b8fa4;margin-top:6px">
+                      <strong>Apply</strong> merges overrides onto current live data. <strong>Full Restore</strong> replaces all variables with saved values (may be stale).
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      <% end %>
+
       <%!-- === PRE-SOLVE REVIEW POPUP === --%>
       <%= if @show_review do %>
         <div style="position:fixed;inset:0;z-index:1000">
@@ -4985,6 +5179,42 @@ defmodule TradingDesk.ScenarioLive do
     |> String.trim_leading(",")
   end
   defp format_number(val), do: to_string(val)
+
+  @doc false
+  defp scenario_overrides(scenario, effective_vars) do
+    # Compute which variables in a saved scenario differ from current effective state.
+    # Returns a list of {key, saved_value, current_value} tuples.
+    scenario.variables
+    |> Enum.reduce([], fn {key, saved_val}, acc ->
+      live_val = Map.get(effective_vars, key)
+      if saved_val != nil and saved_val != live_val do
+        [{key, saved_val, live_val} | acc]
+      else
+        acc
+      end
+    end)
+    |> Enum.sort_by(fn {key, _, _} -> to_string(key) end)
+  end
+
+  defp humanize_key(key) when is_atom(key), do: humanize_key(to_string(key))
+  defp humanize_key(key) when is_binary(key) do
+    key
+    |> String.replace("_", " ")
+    |> String.split(" ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
+  end
+
+  defp format_var_value(nil), do: "—"
+  defp format_var_value(true), do: "Yes"
+  defp format_var_value(false), do: "No"
+  defp format_var_value(val) when is_float(val) do
+    if val == Float.round(val, 0) and abs(val) >= 1,
+      do: format_number(val),
+      else: Float.round(val, 2) |> to_string()
+  end
+  defp format_var_value(val) when is_integer(val), do: format_number(val * 1.0)
+  defp format_var_value(val), do: to_string(val)
 
   defp load_contracts_data do
     book = TradingDesk.Contracts.SapPositions.book_summary()
