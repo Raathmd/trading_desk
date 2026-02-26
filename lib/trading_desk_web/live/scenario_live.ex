@@ -290,7 +290,13 @@ defmodule TradingDesk.ScenarioLive do
     else
       outputs = build_llm_output_records(socket.assigns)
       TradingDesk.DB.Writer.persist_llm_outputs(audit_id, outputs)
-      {:noreply, assign(socket, llm_outputs_saved: true)}
+
+      # Refresh solve history so the LLM badge appears
+      socket = assign(socket,
+        llm_outputs_saved: true,
+        solve_history: load_solve_history(socket.assigns.product_group, socket.assigns.trader_id)
+      )
+      {:noreply, socket}
     end
   end
 
@@ -359,9 +365,10 @@ defmodule TradingDesk.ScenarioLive do
       ts = DateTime.utc_now() |> Calendar.strftime("%Y-%m-%d %H:%M")
       name = "Analysis #{ts}"
       result_with_note = Map.put(result, :analyst_note, explanation)
+      audit_id = socket.assigns[:last_audit_id]
       try do
         Store.save(socket.assigns.trader_id, name,
-          socket.assigns.current_vars, result_with_note, nil)
+          socket.assigns.current_vars, result_with_note, audit_id)
       rescue
         _ -> :ok
       end
@@ -444,7 +451,8 @@ defmodule TradingDesk.ScenarioLive do
       result ->
         pg = to_string(socket.assigns.product_group)
         trader_id = socket.assigns.trader_id
-        {:ok, saved} = Store.save(trader_id, name, socket.assigns.current_vars, result, nil, pg)
+        audit_id = socket.assigns[:last_audit_id]
+        {:ok, saved} = Store.save(trader_id, name, socket.assigns.current_vars, result, audit_id, pg)
         scenarios = Store.list(trader_id)
 
         # Create pending delivery changes for the workflow tab
@@ -483,7 +491,8 @@ defmodule TradingDesk.ScenarioLive do
         preview = if action != "", do: " — #{String.slice(action, 0, 42)}", else: ""
         name = "#{timestamp_str}#{preview}"
 
-        {:ok, _} = Store.save(trader_id, name, socket.assigns.current_vars, result, nil)
+        audit_id = socket.assigns[:last_audit_id]
+        {:ok, _} = Store.save(trader_id, name, socket.assigns.current_vars, result, audit_id)
         scenarios = Store.list(trader_id)
 
         ops_ctx = %{
@@ -4274,14 +4283,17 @@ defmodule TradingDesk.ScenarioLive do
 
                         <%!-- Source --%>
                         <td style="padding:8px">
-                          <%= if solve.source == :trader do %>
-                            <span style="display:inline-flex;align-items:center;gap:4px">
+                          <span style="display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap">
+                            <%= if solve.source == :trader do %>
                               <span style="background:#1e3a5f;color:#38bdf8;font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">MANUAL</span>
                               <span style="color:#94a3b8;font-size:12px"><%= solve.trader_id || "trader" %></span>
-                            </span>
-                          <% else %>
-                            <span style="background:#14532d;color:#4ade80;font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">AUTO</span>
-                          <% end %>
+                            <% else %>
+                              <span style="background:#14532d;color:#4ade80;font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">AUTO</span>
+                            <% end %>
+                            <%= if solve.has_llm_outputs do %>
+                              <span style="background:#1e1045;color:#c4b5fd;font-size:10px;font-weight:700;padding:2px 5px;border-radius:3px;letter-spacing:0.5px">LLM</span>
+                            <% end %>
+                          </span>
                         </td>
 
                         <%!-- Mode --%>
@@ -5140,10 +5152,19 @@ defmodule TradingDesk.ScenarioLive do
       end)
 
     # Merge, deduplicate by audit_id, sort newest first
-    (auto_entries ++ trader_entries)
-    |> Enum.uniq_by(& &1.audit_id)
-    |> Enum.sort_by(& &1.completed_at, {:desc, DateTime})
-    |> Enum.take(50)
+    entries =
+      (auto_entries ++ trader_entries)
+      |> Enum.uniq_by(& &1.audit_id)
+      |> Enum.sort_by(& &1.completed_at, {:desc, DateTime})
+      |> Enum.take(50)
+
+    # Check which entries have saved LLM outputs
+    audit_ids = entries |> Enum.map(& &1.audit_id) |> Enum.reject(&is_nil/1)
+    ids_with_llm = TradingDesk.DB.SolveLlmOutput.audit_ids_with_outputs(audit_ids)
+
+    Enum.map(entries, fn e ->
+      Map.put(e, :has_llm_outputs, MapSet.member?(ids_with_llm, e.audit_id))
+    end)
   end
 
   defp extract_auto_result(%{distribution: dist}) when is_map(dist) do

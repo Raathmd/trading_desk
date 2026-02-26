@@ -10,6 +10,7 @@ defmodule TradingDesk.DB.SolveLlmOutput do
 
   use Ecto.Schema
   import Ecto.Changeset
+  import Ecto.Query
 
   @primary_key false
   schema "solve_llm_outputs" do
@@ -35,5 +36,29 @@ defmodule TradingDesk.DB.SolveLlmOutput do
     |> validate_required(@required)
     |> validate_inclusion(:phase, ~w(presolve_framing presolve_explanation postsolve_explanation))
     |> validate_inclusion(:status, ~w(ok error))
+  end
+
+  @doc "Returns the set of solve_audit_ids that have at least one LLM output row."
+  def audit_ids_with_outputs(audit_ids) when is_list(audit_ids) do
+    from(o in __MODULE__,
+      where: o.solve_audit_id in ^audit_ids,
+      select: o.solve_audit_id,
+      distinct: true
+    )
+    |> TradingDesk.Repo.all()
+    |> MapSet.new()
+  rescue
+    _ -> MapSet.new()
+  end
+
+  @doc "Returns all LLM outputs for a given solve_audit_id."
+  def list_by_audit(solve_audit_id) do
+    from(o in __MODULE__,
+      where: o.solve_audit_id == ^solve_audit_id,
+      order_by: [asc: o.phase, asc: o.model_id]
+    )
+    |> TradingDesk.Repo.all()
+  rescue
+    _ -> []
   end
 end
