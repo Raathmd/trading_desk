@@ -1,18 +1,23 @@
 defmodule TradingDesk.Analyst do
   @moduledoc """
-  Claude-powered analyst that explains trading scenarios, Monte Carlo results,
+  LLM-powered analyst that explains trading scenarios, Monte Carlo results,
   and agent decisions in plain English. Works with any product group.
 
+  Uses the local HuggingFace model (Mistral 7B via Bumblebee) by default.
+  Falls back to the Claude API if the local model is unavailable and
+  ANTHROPIC_API_KEY is set.
+
   Counterparty names and vessel names are anonymized before being sent to
-  the Claude API. The response is de-anonymized before returning to the caller.
+  any LLM. The response is de-anonymized before returning to the caller.
   """
 
   require Logger
 
   alias TradingDesk.ProductGroup
   alias TradingDesk.Anonymizer
+  alias TradingDesk.LLM.{Pool, ModelRegistry}
 
-  @model "claude-sonnet-4-5-20250929"
+  @claude_model "claude-sonnet-4-5-20250929"
 
   @doc """
   Explain a solve result for the trader.
@@ -53,7 +58,7 @@ defmodule TradingDesk.Analyst do
     Focus on the key drivers (margins, constraints, or risks). Be concise and tactical.
     """
 
-    call_claude(prompt)
+    call_llm(prompt)
   end
 
   @doc """
@@ -159,7 +164,7 @@ defmodule TradingDesk.Analyst do
     Plain prose, no bullet lists.
     """
 
-    case call_claude(prompt, max_tokens: 1000) do
+    case call_llm(prompt, max_tokens: 1000) do
       {:ok, raw_text} ->
         final_text = Anonymizer.deanonymize(raw_text, merged_anon_map)
         {:ok, final_text, impact}
@@ -202,7 +207,7 @@ defmodule TradingDesk.Analyst do
     What does the VaR/upside spread tell us? Should the trader proceed?
     """
 
-    call_claude(prompt)
+    call_llm(prompt)
   end
 
   @doc """
@@ -242,7 +247,7 @@ defmodule TradingDesk.Analyst do
     What changed? What's the agent watching?
     """
 
-    call_claude(prompt)
+    call_llm(prompt)
   end
 
   # ── Variable formatting ─────────────────────────────────────
@@ -558,30 +563,46 @@ defmodule TradingDesk.Analyst do
   # ── Generic prompt (for external callers) ───────────────────
 
   @doc """
-  Send an arbitrary prompt to Claude and return the raw text response.
+  Send an arbitrary prompt to the local LLM and return the raw text response.
 
-  Used by modules that need Claude analysis but don't fit the structured
+  Used by modules that need LLM analysis but don't fit the structured
   explain_solve / explain_distribution flow (e.g. DeliveryScheduler summaries).
 
   Returns `{:ok, text}` or `{:error, reason}`.
   """
   def prompt(text, opts \\ []) do
-    call_claude(text, opts)
+    call_llm(text, opts)
   end
 
-  # ── Claude API ──────────────────────────────────────────────
+  # ── LLM dispatch ─────────────────────────────────────────────
+  #
+  # Uses the local Bumblebee model (Mistral 7B) by default.
+  # Falls back to Claude API if the local model is unavailable.
 
-  defp call_claude(prompt, opts \\ []) do
+  defp call_llm(prompt, opts \\ []) do
+    default_model = ModelRegistry.default()
+
+    case Pool.generate(default_model.id, prompt, opts) do
+      {:ok, _text} = ok ->
+        ok
+
+      {:error, reason} ->
+        Logger.warning("Local LLM failed (#{inspect(reason)}), trying Claude fallback")
+        call_claude_fallback(prompt, opts)
+    end
+  end
+
+  defp call_claude_fallback(prompt, opts) do
     max_tokens = Keyword.get(opts, :max_tokens, 300)
     api_key = System.get_env("ANTHROPIC_API_KEY")
 
     if is_nil(api_key) or api_key == "" do
-      Logger.warning("ANTHROPIC_API_KEY not set, skipping analyst explanation")
-      {:error, :no_api_key}
+      Logger.warning("ANTHROPIC_API_KEY not set and local model failed — no LLM available")
+      {:error, :no_llm_available}
     else
       case Req.post("https://api.anthropic.com/v1/messages",
         json: %{
-          model: @model,
+          model: @claude_model,
           max_tokens: max_tokens,
           messages: [%{role: "user", content: prompt}]
         },
@@ -597,11 +618,11 @@ defmodule TradingDesk.Analyst do
 
         {:ok, %{status: status, body: body}} ->
           error_msg = extract_api_error(body)
-          Logger.error("Claude API error #{status}: #{error_msg}")
+          Logger.error("Claude fallback API error #{status}: #{error_msg}")
           {:error, :api_error}
 
         {:error, reason} ->
-          Logger.error("Claude API request failed: #{inspect(reason)}")
+          Logger.error("Claude fallback request failed: #{inspect(reason)}")
           {:error, :request_failed}
       end
     end

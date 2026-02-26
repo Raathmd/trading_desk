@@ -62,7 +62,7 @@ defmodule TradingDesk.TradeDB.TradeContract do
     field :llm_validation_json, :string
 
     # Timestamps
-    field :scan_date, :utc_datetime       # when Copilot parsed the document
+    field :scan_date, :utc_datetime       # when the LLM parsed the document
     field :created_at, :utc_datetime
     field :updated_at, :utc_datetime
   end

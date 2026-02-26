@@ -20,6 +20,10 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
   require Logger
 
   alias TradingDesk.Contracts.SapPositions
+  alias TradingDesk.DB.ScheduledDelivery
+  alias TradingDesk.Repo
+
+  import Ecto.Query
 
   # Maps counterparty name → destination atom for solver constraint routing
   @counterparty_destinations %{
@@ -96,6 +100,227 @@ defmodule TradingDesk.Schedule.DeliveryScheduler do
     TradingDesk.Analyst.prompt(prompt, max_tokens: 700)
   rescue
     e -> {:error, Exception.message(e)}
+  end
+
+  # ── Contract-based schedule generation (persisted to DB) ─────────────────
+
+  @doc """
+  Generate and persist scheduled deliveries for an ingested contract.
+
+  Creates delivery lines based on the contract's open position and term type,
+  links them to the contract via `contract_id` and `contract_hash` (file SHA-256).
+
+  If deliveries already exist for this contract_hash, they are skipped (idempotent).
+  """
+  @spec generate_from_contract(map()) :: {:ok, [map()]} | {:error, term()}
+  def generate_from_contract(%{} = contract) do
+    contract_hash = contract.file_hash
+
+    unless contract_hash do
+      {:error, :no_file_hash}
+    else
+      # Skip if deliveries already exist for this hash (idempotent)
+      existing = Repo.aggregate(
+        from(sd in ScheduledDelivery, where: sd.contract_hash == ^contract_hash),
+        :count
+      )
+
+      if existing > 0 do
+        {:ok, []}
+      else
+        do_generate(contract)
+      end
+    end
+  rescue
+    e ->
+      Logger.error("DeliveryScheduler.generate_from_contract failed: #{Exception.message(e)}")
+      {:error, e}
+  end
+
+  # Shared generation logic for both initial and regeneration paths
+  defp do_generate(contract) do
+    open_qty = contract.open_position || 0.0
+
+    if open_qty <= 0 do
+      {:ok, []}
+    else
+      today = Date.utc_today()
+      term_type = to_string(contract.term_type || :spot)
+      direction = to_string(contract.template_type || contract.counterparty_type)
+
+      dir = cond do
+        direction in ["purchase", "spot_purchase", "supplier"] -> "purchase"
+        true -> "sale"
+      end
+
+      lines = case term_type do
+        "long_term" -> spread_annual(open_qty, today, contract)
+        _ -> spread_spot(open_qty, today, contract)
+      end
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      dest = Map.get(@counterparty_destinations, contract.counterparty, :unknown)
+      contract_hash = contract.file_hash || "no_hash"
+
+      records =
+        lines
+        |> Enum.with_index(1)
+        |> Enum.map(fn {{date, qty}, idx} ->
+          %{
+            contract_id: contract.id,
+            contract_hash: contract_hash,
+            counterparty: contract.counterparty,
+            contract_number: contract.contract_number,
+            sap_contract_id: contract.sap_contract_id,
+            direction: dir,
+            product_group: to_string(contract.product_group),
+            incoterm: if(contract.incoterm, do: to_string(contract.incoterm)),
+            quantity_mt: Float.round(qty * 1.0, 0),
+            required_date: date,
+            estimated_date: date,
+            delay_days: 0,
+            status: "on_track",
+            delivery_index: idx,
+            total_deliveries: length(lines),
+            destination: to_string(dest),
+            notes: nil,
+            inserted_at: now,
+            updated_at: now
+          }
+        end)
+
+      {count, _} = Repo.insert_all(ScheduledDelivery, records)
+
+      Logger.info(
+        "DeliveryScheduler: generated #{count} delivery lines for " <>
+        "#{contract.counterparty} (open=#{open_qty} MT, hash=#{String.slice(contract_hash, 0, 12)}...)"
+      )
+
+      {:ok, records}
+    end
+  end
+
+  @doc """
+  Build the delivery schedule from persisted `scheduled_deliveries` records.
+
+  This is the single source of truth for the Schedule tab. Returns maps in
+  the shape the LiveView template expects (atom keys for direction, status, etc.).
+  Returns an empty list when no records exist — the user must run a folder scan
+  or seed to populate.
+  """
+  @spec build_schedule_from_db(atom()) :: [map()]
+  def build_schedule_from_db(product_group \\ :ammonia) do
+    pg = to_string(product_group)
+
+    from(sd in ScheduledDelivery,
+      where: sd.product_group == ^pg,
+      order_by: [asc: sd.required_date]
+    )
+    |> Repo.all()
+    |> Enum.map(&db_record_to_line/1)
+  rescue
+    e ->
+      Logger.error("build_schedule_from_db failed: #{Exception.message(e)}")
+      []
+  end
+
+  @doc """
+  Regenerate scheduled deliveries for a specific contract.
+
+  Called when SAP open position changes. Deletes old schedule lines for
+  this contract_id and creates new ones using the current open_position.
+  """
+  @spec regenerate_for_contract(map()) :: {:ok, [map()]} | {:error, term()}
+  def regenerate_for_contract(%{} = contract) do
+    contract_id = contract.id
+
+    if contract_id do
+      # Delete existing schedule lines for this contract
+      {deleted, _} =
+        from(sd in ScheduledDelivery, where: sd.contract_id == ^contract_id)
+        |> Repo.delete_all()
+
+      Logger.info(
+        "DeliveryScheduler: cleared #{deleted} old lines for #{contract.counterparty} " <>
+        "(open_position=#{contract.open_position || 0})"
+      )
+
+      # Generate fresh lines with current open_position
+      do_generate(contract)
+    else
+      {:error, :no_contract_id}
+    end
+  rescue
+    e ->
+      Logger.error("DeliveryScheduler.regenerate_for_contract failed: #{Exception.message(e)}")
+      {:error, e}
+  end
+
+  @doc """
+  List raw persisted scheduled delivery records for a product group.
+  """
+  @spec list_deliveries(atom()) :: [map()]
+  def list_deliveries(product_group) do
+    pg = to_string(product_group)
+
+    from(sd in ScheduledDelivery,
+      where: sd.product_group == ^pg,
+      order_by: [asc: sd.required_date]
+    )
+    |> Repo.all()
+  end
+
+  # Convert a DB ScheduledDelivery record to the map shape the Schedule tab expects
+  defp db_record_to_line(%ScheduledDelivery{} = sd) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    %{
+      id:               "#{sd.contract_number || "?"}-#{String.pad_leading("#{sd.delivery_index || 0}", 2, "0")}",
+      counterparty:     sd.counterparty,
+      contract_number:  sd.contract_number,
+      sap_contract_id:  sd.sap_contract_id,
+      direction:        safe_atom(sd.direction, :sale),
+      incoterm:         safe_atom(sd.incoterm, :fob),
+      product_group:    safe_atom(sd.product_group, :ammonia),
+      quantity_mt:      sd.quantity_mt || 0.0,
+      required_date:    sd.required_date,
+      estimated_date:   sd.estimated_date || sd.required_date,
+      delay_days:       sd.delay_days || 0,
+      status:           safe_atom(sd.status, :on_track),
+      delivery_status:  :open,
+      delivery_index:   sd.delivery_index || 1,
+      total_deliveries: sd.total_deliveries || 1,
+      destination:      safe_atom(sd.destination, :unknown),
+      notes:            sd.notes,
+      sap_created_at:   sd.inserted_at || now,
+      sap_updated_at:   sd.updated_at || now
+    }
+  end
+
+  defp safe_atom(nil, default), do: default
+  defp safe_atom(val, _default) when is_atom(val), do: val
+  defp safe_atom(val, default) when is_binary(val) do
+    String.to_existing_atom(val)
+  rescue
+    ArgumentError -> default
+  end
+
+  defp spread_annual(open_qty, today, contract) do
+    months = remaining_months(today)
+    n = max(length(months), 1)
+    qtys = spread_quantities(open_qty / n, n, contract.contract_number || "unknown")
+    Enum.zip(months, qtys)
+  end
+
+  defp spread_spot(open_qty, today, contract) do
+    n = cond do
+      open_qty > 15_000 -> 3
+      open_qty > 5_000  -> 2
+      true              -> 1
+    end
+    dates = spot_dates(today, n, contract.contract_number || "unknown")
+    qtys = spread_quantities(open_qty / n, n, contract.contract_number || "unknown")
+    Enum.zip(dates, qtys)
   end
 
   # ── Private — line generation ─────────────────────────────────────────────

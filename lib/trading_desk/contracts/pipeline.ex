@@ -7,7 +7,7 @@ defmodule TradingDesk.Contracts.Pipeline do
   independently and can be refreshed at any time.
 
   Full pipeline chain (run by full_extract_async):
-    1. Extract     — read document, parse clauses (local only, no network)
+    1. Extract     — read document, send to LLM for clause extraction
     2. Template    — validate extraction completeness against template
     3. LLM Verify  — local LLM second-pass check (if available)
     4. SAP Fetch   — retrieve contract data from SAP (on-network only)
@@ -30,12 +30,10 @@ defmodule TradingDesk.Contracts.Pipeline do
   """
 
   alias TradingDesk.Contracts.{
-    Contract,
-    CopilotIngestion,
+    ContractLlmClient,
+    ContractLlmIngestion,
     DocumentReader,
-    Parser,
     Store,
-    HashVerifier,
     SapValidator,
     TemplateValidator,
     LlmValidator,
@@ -96,22 +94,22 @@ defmodule TradingDesk.Contracts.Pipeline do
   # ──────────────────────────────────────────────────────────
 
   @doc """
-  Ingest a contract using Copilot's pre-extracted clause data.
-  This is the primary ingestion path — Copilot is the extraction service,
+  Ingest a contract using the LLM's pre-extracted clause data.
+  This is the primary ingestion path — the LLM is the extraction service,
   the app is the system of record.
 
-  Runs: Copilot ingest → template validate → parser cross-check → SAP validate.
+  Runs: LLM ingest → template validate → SAP validate.
   """
-  def ingest_copilot_async(file_path, extraction, opts \\ []) do
+  def ingest_llm_async(file_path, extraction, opts \\ []) do
     Task.Supervisor.async_nolink(
       TradingDesk.Contracts.TaskSupervisor,
       fn ->
-        broadcast(:copilot_chain_started, %{
-          file: if(file_path, do: Path.basename(file_path), else: "from_copilot"),
+        broadcast(:llm_chain_started, %{
+          file: if(file_path, do: Path.basename(file_path), else: "from_llm"),
           counterparty: extraction["counterparty"]
         })
 
-        case CopilotIngestion.ingest(file_path, extraction, opts) do
+        case ContractLlmIngestion.ingest(file_path, extraction, opts) do
           {:ok, contract} ->
             # Template validate
             contract = run_template_validation(contract)
@@ -127,7 +125,7 @@ defmodule TradingDesk.Contracts.Pipeline do
             end
 
             gate1 = StrictGate.gate_extraction(contract)
-            broadcast(:copilot_chain_complete, %{
+            broadcast(:llm_chain_complete, %{
               contract_id: contract.id,
               counterparty: contract.counterparty,
               clause_count: length(contract.clauses || []),
@@ -137,8 +135,8 @@ defmodule TradingDesk.Contracts.Pipeline do
             {:ok, contract}
 
           {:error, reason} ->
-            broadcast(:copilot_chain_failed, %{
-              file: if(file_path, do: Path.basename(file_path), else: "from_copilot"),
+            broadcast(:llm_chain_failed, %{
+              file: if(file_path, do: Path.basename(file_path), else: "from_llm"),
               reason: inspect(reason)
             })
             {:error, reason}
@@ -148,20 +146,20 @@ defmodule TradingDesk.Contracts.Pipeline do
   end
 
   @doc """
-  Batch ingest from Copilot — processes multiple contracts in parallel.
+  Batch ingest from LLM extraction — processes multiple contracts in parallel.
   `batch` is a list of {file_path, extraction_map} tuples.
   """
-  def ingest_copilot_batch_async(batch, opts \\ []) do
+  def ingest_llm_batch_async(batch, opts \\ []) do
     Task.Supervisor.async_nolink(
       TradingDesk.Contracts.TaskSupervisor,
       fn ->
-        broadcast(:copilot_batch_started, %{count: length(batch)})
+        broadcast(:llm_batch_started, %{count: length(batch)})
 
         results =
           batch
           |> Task.async_stream(
             fn {file_path, extraction} ->
-              CopilotIngestion.ingest(file_path, extraction, opts)
+              ContractLlmIngestion.ingest(file_path, extraction, opts)
             end,
             max_concurrency: 4,
             timeout: 60_000
@@ -174,7 +172,7 @@ defmodule TradingDesk.Contracts.Pipeline do
         succeeded = Enum.count(results, &match?({:ok, _}, &1))
         failed = Enum.count(results, &(not match?({:ok, _}, &1)))
 
-        broadcast(:copilot_batch_complete, %{
+        broadcast(:llm_batch_complete, %{
           total: length(batch),
           succeeded: succeeded,
           failed: failed
@@ -186,13 +184,12 @@ defmodule TradingDesk.Contracts.Pipeline do
   end
 
   # ──────────────────────────────────────────────────────────
-  # DETERMINISTIC PARSER PATH (verification / fallback)
+  # FULL EXTRACTION CHAIN
   # ──────────────────────────────────────────────────────────
 
   @doc """
-  Full extraction chain: read → parse → template validate → LLM verify → SAP validate.
+  Full extraction chain: read → LLM extract → template validate → LLM verify → SAP validate.
   Runs everything in sequence in a single background task. Stamps CurrencyTracker.
-  Use this when Copilot is unavailable, or as a fallback verification path.
   """
   def full_extract_async(file_path, counterparty, counterparty_type, product_group, opts \\ []) do
     Task.Supervisor.async_nolink(
@@ -271,60 +268,27 @@ defmodule TradingDesk.Contracts.Pipeline do
   end
 
   @doc """
-  Synchronous extraction — reads document, parses clauses, stores contract.
-  All local, no external calls.
+  Synchronous extraction — reads document, sends to LLM for clause extraction,
+  stores contract with solver-ready clauses.
   """
   def extract(file_path, counterparty, counterparty_type, product_group, opts \\ []) do
     with {:read, {:ok, text}} <- {:read, DocumentReader.read(file_path)},
-         {:hash, {:ok, file_hash, file_size}} <- {:hash, HashVerifier.compute_file_hash(file_path)} do
-      {clauses, warnings, detected_family} = Parser.parse(text)
+         {:llm, {:ok, extraction}} <- {:llm, ContractLlmClient.extract_text(text, product_group: product_group)} do
 
-      if length(warnings) > 0 do
-        Logger.warning(
-          "Contract parse warnings for #{counterparty}: #{length(warnings)} items\n" <>
-          Enum.join(warnings, "\n")
-        )
-      end
+      # Merge caller-provided identity into extraction
+      extraction = Map.merge(extraction, %{
+        "counterparty" => extraction["counterparty"] || counterparty,
+        "counterparty_type" => extraction["counterparty_type"] || to_string(counterparty_type)
+      })
 
-      # Auto-detect family if not specified in opts
-      {family_id, family_direction, family_incoterm, family_term_type} =
-        case detected_family do
-          {:ok, fid, family} ->
-            {fid, family.direction,
-             List.first(family.default_incoterms),
-             family.term_type}
-          _ ->
-            {nil, nil, nil, nil}
-        end
-
-      contract = %Contract{
-        counterparty: counterparty,
-        counterparty_type: counterparty_type,
-        product_group: product_group,
-        template_type: Keyword.get(opts, :template_type) || family_direction,
-        incoterm: Keyword.get(opts, :incoterm) || family_incoterm,
-        term_type: Keyword.get(opts, :term_type) || family_term_type,
-        company: Keyword.get(opts, :company),
-        source_file: Path.basename(file_path),
-        source_format: DocumentReader.detect_format(file_path),
-        clauses: clauses,
-        contract_date: Keyword.get(opts, :contract_date),
-        expiry_date: Keyword.get(opts, :expiry_date),
-        sap_contract_id: Keyword.get(opts, :sap_contract_id),
-        # Hash and inventory fields
-        family_id: family_id,
-        file_hash: file_hash,
-        file_size: file_size,
-        network_path: Keyword.get(opts, :network_path) || file_path,
-        verification_status: :pending
-      }
-
-      Store.ingest(contract)
+      ContractLlmIngestion.ingest(file_path, extraction,
+        Keyword.merge(opts, [product_group: product_group])
+      )
     else
       {:read, {:error, reason}} ->
         {:error, {:document_read_failed, reason}}
-      {:hash, {:error, reason}} ->
-        {:error, {:hash_failed, reason}}
+      {:llm, {:error, reason}} ->
+        {:error, {:llm_extraction_failed, reason}}
     end
   end
 

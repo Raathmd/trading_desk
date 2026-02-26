@@ -128,6 +128,16 @@ defmodule TradingDesk.Contracts.Inventory do
             "(#{length(clauses)} clauses, hash=#{String.slice(file_hash, 0, 12)}...)"
           )
 
+          # Fetch SAP open position then generate scheduled deliveries (async)
+          Task.Supervisor.start_child(
+            TradingDesk.Contracts.TaskSupervisor,
+            fn ->
+              # Try to get open position from SAP before generating schedule
+              with_position = fetch_sap_position_for(stored)
+              TradingDesk.Schedule.DeliveryScheduler.generate_from_contract(with_position)
+            end
+          )
+
           {:ok, stored}
 
         {:error, reason} ->
@@ -427,8 +437,12 @@ defmodule TradingDesk.Contracts.Inventory do
     end
   end
 
-  # Derive counterparty name from filename convention
-  # e.g., "Koch_Fertilizer_purchase_2026.docx" → "Koch Fertilizer"
+  @doc """
+  Derive counterparty name from filename convention.
+  e.g., "Koch_Fertilizer_purchase_2026.docx" → "Koch Fertilizer"
+  """
+  def derive_counterparty_from_filename(filename), do: derive_counterparty(filename)
+
   defp derive_counterparty(filename) do
     filename
     |> Path.rootname()
@@ -453,6 +467,23 @@ defmodule TradingDesk.Contracts.Inventory do
   defp resolve_path(%Contract{network_path: ""}), do: {:error, :no_network_path}
   defp resolve_path(%Contract{network_path: path}) do
     if File.exists?(path), do: {:ok, path}, else: {:error, :file_not_found}
+  end
+
+  # Try to fetch the SAP open position for this contract and update the Store.
+  # If SAP is unavailable, returns the contract as-is (open_position may be nil).
+  defp fetch_sap_position_for(contract) do
+    case TradingDesk.Contracts.SapPositions.fetch_position(contract.counterparty) do
+      {:ok, pos} when is_map(pos) ->
+        open_qty = pos.open_qty_mt || pos[:open_quantity] || 0.0
+        Store.update_open_position(contract.counterparty, contract.product_group, open_qty)
+        %{contract | open_position: open_qty}
+
+      _ ->
+        Logger.debug("Inventory: SAP position unavailable for #{contract.counterparty}, using existing open_position")
+        contract
+    end
+  rescue
+    _ -> contract
   end
 
   defp broadcast(event, payload) do

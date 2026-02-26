@@ -35,6 +35,7 @@ defmodule TradingDesk.Router do
 
     live "/",          ScenarioLive
     live "/contracts", ContractsLive
+    live "/decisions", DecisionsLive
   end
 
   # ── SAP integration endpoints (no browser auth needed) ───────────────────
