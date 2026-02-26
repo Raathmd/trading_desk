@@ -17,8 +17,13 @@ defmodule TradingDesk.LLM.ModelRegistry do
     provider: :local | :huggingface,
     model_id: String.t(),
     max_tokens: pos_integer(),
-    description: String.t()
+    description: String.t(),
+    endpoint: String.t() | nil,
+    temperature: float() | nil,
+    prompt_format: atom()
   }
+
+  @hf_base "https://api-inference.huggingface.co/models/"
 
   @models [
     %{
@@ -27,18 +32,44 @@ defmodule TradingDesk.LLM.ModelRegistry do
       provider: :local,
       model_id: "mistralai/Mistral-7B-Instruct-v0.3",
       max_tokens: 1024,
-      description: "Local Mistral 7B via Bumblebee — downloaded and compiled at startup"
+      description: "Local Mistral 7B via Bumblebee — downloaded and compiled at startup",
+      endpoint: nil,
+      temperature: 0.7,
+      prompt_format: :mistral
+    },
+    %{
+      id: :mixtral_8x7b,
+      name: "Mixtral 8x7B Instruct",
+      provider: :huggingface,
+      model_id: "mistralai/Mixtral-8x7B-Instruct-v0.1",
+      endpoint: @hf_base <> "mistralai/Mixtral-8x7B-Instruct-v0.1",
+      max_tokens: 1024,
+      temperature: 0.7,
+      prompt_format: :mistral,
+      description: "Mixtral MoE via HF API — strong reasoning, same instruct format as Mistral"
+    },
+    %{
+      id: :zephyr_7b,
+      name: "Zephyr 7B Beta",
+      provider: :huggingface,
+      model_id: "HuggingFaceH4/zephyr-7b-beta",
+      endpoint: @hf_base <> "HuggingFaceH4/zephyr-7b-beta",
+      max_tokens: 1024,
+      temperature: 0.7,
+      prompt_format: :zephyr,
+      description: "Zephyr 7B via HF API — fine-tuned for instruction following and analysis"
+    },
+    %{
+      id: :phi3_medium,
+      name: "Phi-3 Medium 14B",
+      provider: :huggingface,
+      model_id: "microsoft/Phi-3-medium-4k-instruct",
+      endpoint: @hf_base <> "microsoft/Phi-3-medium-4k-instruct",
+      max_tokens: 1024,
+      temperature: 0.7,
+      prompt_format: :phi3,
+      description: "Phi-3 Medium via HF API — efficient model with strong numerical reasoning"
     }
-    # To add more models at compile time, append here:
-    #
-    # %{
-    #   id: :phi_3_mini,
-    #   name: "Phi-3 Mini (local)",
-    #   provider: :local,
-    #   model_id: "microsoft/Phi-3-mini-4k-instruct",
-    #   max_tokens: 1024,
-    #   description: "Local Phi-3 Mini via Bumblebee"
-    # }
   ]
 
   @doc "Return all registered models."
