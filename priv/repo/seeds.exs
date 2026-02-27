@@ -25,4 +25,8 @@ Code.eval_file("priv/repo/seeds/tracked_vessels.exs")
 Logger.info("Seeds: users")
 Code.eval_file("priv/repo/seeds/users.exs")
 
+Logger.info("Seeds: variable_definitions")
+Code.require_file("priv/repo/seeds/variable_definitions_seed.exs")
+TradingDesk.Seeds.VariableDefinitionsSeed.run()
+
 Logger.info("Seeds: all complete")

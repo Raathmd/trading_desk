@@ -77,14 +77,9 @@ defmodule TradingDesk.Solver.Port do
   @doc """
   Solve a single scenario.
 
-  Accepts:
-    - `%Variables{}` struct (backward compat → ammonia_domestic)
-    - `{product_group, variable_map}` — called as solve(pg, vars)
+  `product_group` is an atom (e.g. `:ammonia_domestic`), `vars` is a map of
+  variable keys to values.
   """
-  def solve(%TradingDesk.Variables{} = vars) do
-    GenServer.call(__MODULE__, {:solve, :ammonia_domestic, vars}, 5_000)
-  end
-
   def solve(product_group, vars) when is_atom(product_group) and is_map(vars) do
     GenServer.call(__MODULE__, {:solve, product_group, vars}, 5_000)
   end
@@ -100,14 +95,9 @@ defmodule TradingDesk.Solver.Port do
   @doc """
   Run Monte Carlo around a center point.
 
-  Accepts:
-    - `(%Variables{}, n)` (backward compat → ammonia_domestic)
-    - `(product_group, variable_map, n)` for any product group
+  `product_group` is an atom, `center` is a variable map, `n_scenarios` is the
+  number of Monte Carlo samples to run.
   """
-  def monte_carlo(%TradingDesk.Variables{} = center, n_scenarios \\ 1000) do
-    GenServer.call(__MODULE__, {:monte_carlo, :ammonia_domestic, center, n_scenarios, []}, 30_000)
-  end
-
   def monte_carlo(product_group, center, n_scenarios)
       when is_atom(product_group) and is_map(center) do
     GenServer.call(__MODULE__, {:monte_carlo, product_group, center, n_scenarios, []}, 30_000)
@@ -193,14 +183,6 @@ defmodule TradingDesk.Solver.Port do
   end
 
   # --- Variable encoding ---
-
-  defp encode_variables(:ammonia_domestic, %TradingDesk.Variables{} = vars) do
-    # Convert struct to map and fill in any frame variables missing from the old struct
-    var_map = Map.from_struct(vars)
-    defaults = ProductGroup.default_values(:ammonia_domestic)
-    merged = Map.merge(defaults, var_map)
-    TradingDesk.VariablesDynamic.to_binary(merged, :ammonia_domestic)
-  end
 
   defp encode_variables(product_group, vars) when is_map(vars) do
     TradingDesk.VariablesDynamic.to_binary(vars, product_group)
