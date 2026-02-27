@@ -65,9 +65,15 @@ defmodule TradingDesk.LandingLive do
         </a>
       </div>
 
+      <%!-- Links --%>
+      <div style="margin-top:48px;display:flex;align-items:center;gap:12px;font-size:11px">
+        <a href="/process_flows.html" target="_blank" style="color:#2dd4bf;text-decoration:none;border:1px solid #1e293b;padding:4px 10px;border-radius:4px;font-weight:600">PROCESS FLOWS</a>
+        <a href="/architecture_overview.html" target="_blank" style="color:#38bdf8;text-decoration:none;border:1px solid #1e293b;padding:4px 10px;border-radius:4px;font-weight:600">OVERVIEW</a>
+      </div>
+
       <%!-- Footer --%>
       <%= if @current_user_email do %>
-        <div style="margin-top:48px;display:flex;align-items:center;gap:12px;font-size:11px">
+        <div style="margin-top:16px;display:flex;align-items:center;gap:12px;font-size:11px">
           <span style="color:#475569"><%= @current_user_email %></span>
           <a href="/logout" style="color:#7b8fa4;text-decoration:none;border:1px solid #1e293b;padding:4px 10px;border-radius:4px;font-weight:600">LOGOUT</a>
         </div>
