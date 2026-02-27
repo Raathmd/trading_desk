@@ -379,6 +379,17 @@ defmodule TradingDesk.ScenarioLive do
       _ -> send(self(), :do_solve)
     end
 
+    # Emit pre-solve event for vectorization pipeline
+    Task.start(fn ->
+      TradingDesk.EventEmitter.emit_event("trading_desk_pre_solve", %{
+        "product_group" => to_string(socket.assigns.product_group),
+        "commodity" => to_string(socket.assigns.product_group),
+        "trader_id" => socket.assigns.trader_id,
+        "market_snapshot" => vars,
+        "trader_rationale" => socket.assigns[:scenario_description] || socket.assigns.trader_action || ""
+      }, "trading_desk")
+    end)
+
     {:noreply, socket}
   end
 
@@ -1183,6 +1194,18 @@ defmodule TradingDesk.ScenarioLive do
     Pipeline.solve_async(vars,
       product_group: pg, caller_ref: :trader_solve,
       solver_opts: solver_opts, trader_notes: notes)
+
+    # Emit vector query event to find historically similar deals
+    Task.start(fn ->
+      TradingDesk.EventEmitter.emit_event("trading_desk_vector_query", %{
+        "product_group" => to_string(pg),
+        "commodity" => to_string(pg),
+        "trader_id" => socket.assigns.trader_id,
+        "market_snapshot" => vars,
+        "objective" => to_string(obj)
+      }, "trading_desk")
+    end)
+
     {:noreply, socket}
   end
 
@@ -1318,6 +1341,21 @@ defmodule TradingDesk.ScenarioLive do
           send(lv_pid, {:hf_postsolve_results, []})
       end
     end)
+
+    # Emit post-solve event for vectorization pipeline
+    Task.start(fn ->
+      TradingDesk.EventEmitter.emit_event("trading_desk_post_solve", %{
+        "product_group" => to_string(pg),
+        "recommendation" => %{
+          status: result.status,
+          profit: result.profit,
+          tons: result.tons,
+          roi: result.roi
+        },
+        "trader_id" => socket.assigns.trader_id
+      }, "trading_desk")
+    end)
+
     {:noreply, socket}
   end
 
@@ -1392,6 +1430,24 @@ defmodule TradingDesk.ScenarioLive do
           send(lv_pid, {:hf_postsolve_results, []})
       end
     end)
+
+    # Emit post-solve event for vectorization pipeline (Monte Carlo)
+    Task.start(fn ->
+      TradingDesk.EventEmitter.emit_event("trading_desk_post_solve", %{
+        "product_group" => to_string(pg),
+        "recommendation" => %{
+          mode: :monte_carlo,
+          signal: dist.signal,
+          mean: dist.mean,
+          p5: dist.p5,
+          p95: dist.p95,
+          n_feasible: dist.n_feasible,
+          n_scenarios: dist.n_scenarios
+        },
+        "trader_id" => socket.assigns.trader_id
+      }, "trading_desk")
+    end)
+
     {:noreply, socket}
   end
 

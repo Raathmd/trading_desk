@@ -267,6 +267,23 @@ defmodule TradingDesk.Decisions.DecisionLedger do
             )
 
             Logger.info("[DecisionLedger] Decision ##{applied.id} applied by reviewer #{reviewer_id}")
+
+            # Emit decision commitment event for vectorization pipeline
+            Task.start(fn ->
+              TradingDesk.EventEmitter.emit_event("trading_desk_decision_committed", %{
+                "decision_type" => "apply",
+                "product_group" => to_string(applied.product_group),
+                "trader_id" => applied.trader_id,
+                "trader_decision" => %{
+                  id: applied.id,
+                  variable_changes: applied.variable_changes,
+                  reason: applied.reason
+                },
+                "market_snapshot" => compute_effective_state(applied.product_group),
+                "trader_rationale" => applied.reason || ""
+              }, "trading_desk")
+            end)
+
             {:reply, {:ok, applied}, state}
 
           {:error, reason} ->
