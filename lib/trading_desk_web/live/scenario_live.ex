@@ -1739,6 +1739,7 @@ defmodule TradingDesk.ScenarioLive do
             <% end %>
           </a>
           <a href="/architecture_overview.html" target="_blank" style="color:#38bdf8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Architecture &amp; Executive Overview">OVERVIEW</a>
+          <a href="/process_flows.html" target="_blank" style="color:#2dd4bf;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Process Flows &amp; Data Sources">PROCESS FLOWS</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
           <%!-- Logged-in user + logout --%>

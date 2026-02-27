@@ -284,6 +284,7 @@ defmodule TradingDesk.ContractsLive do
         <div style="display:flex;align-items:center;gap:12px">
           <a href="/home" style="color:#94a3b8;text-decoration:none;font-size:12px">&larr; HOME</a>
           <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">CONTRACT MANAGEMENT</span>
+          <a href="/process_flows.html" target="_blank" style="color:#2dd4bf;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Process Flows &amp; Data Sources">PROCESS FLOWS</a>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <%= for pg <- @product_groups do %>
