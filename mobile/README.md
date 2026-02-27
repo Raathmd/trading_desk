@@ -40,7 +40,7 @@ The app passes this descriptor + current variable values directly to the Zig sol
 ## Building the solver library
 
 ### Prerequisites
-- [Zig 0.13+](https://ziglang.org/download/)
+- [Zig 0.15.2+](https://ziglang.org/download/)
 - HiGHS static library for each target (see `native/BUILDING_HIGHS.md`)
 
 ### iOS (arm64)

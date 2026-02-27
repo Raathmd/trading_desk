@@ -19,11 +19,21 @@ defmodule TradingDesk.Application do
       TradingDesk.Solver.SolveAuditStore,
       TradingDesk.Scenarios.Store,
       TradingDesk.Scenarios.AutoRunner,
+      TradingDesk.Decisions.DecisionLedger,
       TradingDesk.Contracts.Store,
       TradingDesk.Contracts.CurrencyTracker,
       TradingDesk.Contracts.NetworkScanner,
       TradingDesk.Contracts.SapRefreshScheduler,
       {Task.Supervisor, name: TradingDesk.Contracts.TaskSupervisor},
+      # Local LLM inference — one Nx.Serving per enabled model
+      # Configure :llm_enabled_models in config to control which load
+    ] ++
+      Enum.map(TradingDesk.LLM.ModelRegistry.local_models(), fn model ->
+        {TradingDesk.LLM.Serving, model}
+      end) ++
+    [
+      {Task.Supervisor, name: TradingDesk.LLM.TaskSupervisor},
+      TradingDesk.LLM.Pool,
       TradingDesk.Data.AIS.AISStreamConnector,
       TradingDesk.Endpoint
     ]

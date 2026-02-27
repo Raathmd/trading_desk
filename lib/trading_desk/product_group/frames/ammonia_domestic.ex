@@ -102,6 +102,12 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
       %{key: :barge_count, label: "Barges Available", unit: "", min: 1, max: 30, step: 1,
         default: 14.0, source: :internal, group: :operations, type: :float, delta_threshold: 1.0,
         perturbation: %{stddev: 2.0, min: 1, max: 30}},
+      # Minimum tonnes that must be lifted from Meredosia this cycle (contract floor).
+      # Populated by the constraint bridge from active supplier TAKE_OR_PAY clauses.
+      # Default 0 = no committed floor when no long-term supply contract is active.
+      %{key: :committed_lift_mer, label: "Committed Lift Mer", unit: "tons", min: 0, max: 15_000, step: 100,
+        default: 0.0, source: :contract, group: :operations, type: :float, delta_threshold: 500.0,
+        perturbation: %{stddev: 0.0, min: 0, max: 15_000}},
       %{key: :demand_stl, label: "StL Max Demand", unit: "tons", min: 0, max: 20_000, step: 500,
         default: 10_000.0, source: :internal, group: :operations, type: :float, delta_threshold: 500.0,
         perturbation: %{stddev: 1500, min: 0, max: 20_000}},
@@ -166,7 +172,8 @@ defmodule TradingDesk.ProductGroup.Frames.AmmoniaDomestic do
 
     [
       %{key: :supply_mer, name: "Supply Meredosia", type: :supply, terminal: "Meredosia",
-        bound_variable: :inv_mer, routes: [:mer_stl, :mer_mem]},
+        bound_variable: :inv_mer, bound_min_variable: :committed_lift_mer,
+        routes: [:mer_stl, :mer_mem]},
       %{key: :supply_nio, name: "Supply Niota", type: :supply, terminal: "Niota",
         bound_variable: :inv_nio, routes: [:nio_stl, :nio_mem]},
       %{key: :cap_stl, name: "StL Capacity", type: :demand_cap, destination: "St. Louis",

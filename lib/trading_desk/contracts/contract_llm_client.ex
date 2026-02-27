@@ -1,15 +1,16 @@
-defmodule TradingDesk.Contracts.CopilotClient do
+defmodule TradingDesk.Contracts.ContractLlmClient do
   @moduledoc """
-  LLM client for on-demand clause extraction from SharePoint files.
+  LLM client for on-demand clause extraction from contract documents.
 
   Called by ScanCoordinator when a contract file needs to be extracted.
   Two modes:
 
-    1. `extract_file/3` — given a Graph API file reference (drive_id + item_id),
+    1. `extract_file/4` — given a Graph API file reference (drive_id + item_id),
        fetches the file content via Graph API, extracts text, sends to LLM.
-       Copilot handles all file access — Zig scanner never downloads content.
+       The LLM receives solver frame context for the product group so it can
+       map clauses directly to solver variables.
 
-    2. `extract_text/1` — given pre-extracted text, sends directly to LLM.
+    2. `extract_text/2` — given pre-extracted text, sends directly to LLM.
        Used when text is already available (e.g. from a local file test).
 
   ## Architecture
@@ -18,11 +19,11 @@ defmodule TradingDesk.Contracts.CopilotClient do
   ScanCoordinator: "this file changed, extract it"
        │
        ▼
-  CopilotClient.extract_file(drive_id, item_id, token)
+  ContractLlmClient.extract_file(drive_id, item_id, token)
        │
        ├── Graph API: download file content
        ├── DocumentReader: convert binary → text
-       └── LLM: extract clauses from text
+       └── LLM: extract solver-ready clauses from text
        │
        ▼
   Returns: {:ok, %{"clauses" => [...], "counterparty" => "Koch", ...}}
@@ -30,13 +31,14 @@ defmodule TradingDesk.Contracts.CopilotClient do
 
   ## Configuration
 
-    COPILOT_ENDPOINT  — LLM API endpoint (OpenAI-compatible, required)
-    COPILOT_API_KEY   — API key (required)
-    COPILOT_MODEL     — model identifier (default: gpt-4o)
-    COPILOT_TIMEOUT   — request timeout in ms (default: 120000)
+    CONTRACT_LLM_ENDPOINT  — LLM API endpoint (OpenAI-compatible, required)
+    CONTRACT_LLM_API_KEY   — API key (required)
+    CONTRACT_LLM_MODEL     — model identifier (default: gpt-4o)
+    CONTRACT_LLM_TIMEOUT   — request timeout in ms (default: 120000)
   """
 
-  alias TradingDesk.Contracts.{TemplateRegistry, DocumentReader}
+  alias TradingDesk.Contracts.DocumentReader
+  alias TradingDesk.ProductGroup
 
   require Logger
 
@@ -53,7 +55,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
   Extract clauses from a SharePoint file by reference.
 
   Downloads the file via Graph API, extracts text, sends to LLM.
-  Copilot handles all file access — Zig scanner never downloads content.
+  The LLM client handles all file access — Zig scanner never downloads content.
 
   Returns:
     {:ok, %{"clauses" => [...], "counterparty" => "Koch", ...}}
@@ -62,11 +64,12 @@ defmodule TradingDesk.Contracts.CopilotClient do
           {:ok, map()} | {:error, term()}
   def extract_file(drive_id, item_id, graph_token, opts \\ []) do
     filename = Keyword.get(opts, :filename, "document")
+    product_group = Keyword.get(opts, :product_group, :ammonia_domestic)
 
     with {:ok, config} <- get_config(),
          {:ok, content} <- download_from_graph(drive_id, item_id, graph_token),
          {:ok, text} <- extract_text_from_binary(content, filename),
-         {:ok, extraction} <- call_llm(text, config) do
+         {:ok, extraction} <- call_llm(text, config, product_group) do
       {:ok, Map.merge(extraction, %{
         "graph_drive_id" => drive_id,
         "graph_item_id" => item_id,
@@ -86,7 +89,9 @@ defmodule TradingDesk.Contracts.CopilotClient do
     [{%{name: "Koch.pdf", ...}, {:ok, extraction}}, ...]
   """
   @spec extract_files([map()], String.t(), keyword()) :: [{map(), {:ok, map()} | {:error, term()}}]
-  def extract_files(files, graph_token, _opts \\ []) do
+  def extract_files(files, graph_token, opts \\ []) do
+    product_group = Keyword.get(opts, :product_group, :ammonia_domestic)
+
     files
     |> Task.async_stream(
       fn file ->
@@ -94,7 +99,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
         item_id = file["item_id"] || file[:item_id]
         name = file["name"] || file[:name] || "document"
 
-        result = extract_file(drive_id, item_id, graph_token, filename: name)
+        result = extract_file(drive_id, item_id, graph_token, filename: name, product_group: product_group)
         {file, result}
       end,
       max_concurrency: @max_concurrent_extractions,
@@ -113,13 +118,15 @@ defmodule TradingDesk.Contracts.CopilotClient do
   Used when text is already available (e.g. local file test).
   """
   @spec extract_text(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def extract_text(contract_text, _opts \\ []) do
+  def extract_text(contract_text, opts \\ []) do
+    product_group = Keyword.get(opts, :product_group, :ammonia_domestic)
+
     with {:ok, config} <- get_config() do
-      call_llm(contract_text, config)
+      call_llm(contract_text, config, product_group)
     end
   end
 
-  @doc "Check if the LLM API is configured and reachable."
+  @doc "Check if the contract extraction LLM API is configured and reachable."
   @spec available?() :: boolean()
   def available? do
     case get_config() do
@@ -140,11 +147,11 @@ defmodule TradingDesk.Contracts.CopilotClient do
   # LLM CALL
   # ──────────────────────────────────────────────────────────
 
-  defp call_llm(contract_text, config) do
+  defp call_llm(contract_text, config, product_group) do
     body = %{
       model: config.model,
       messages: [
-        %{role: "system", content: system_prompt()},
+        %{role: "system", content: system_prompt(product_group)},
         %{role: "user", content: extraction_prompt(contract_text)}
       ],
       temperature: 0.1,
@@ -184,28 +191,79 @@ defmodule TradingDesk.Contracts.CopilotClient do
   # PROMPTS
   # ──────────────────────────────────────────────────────────
 
-  defp system_prompt do
-    inventory = clause_inventory_text()
-    families = family_signatures_text()
+  defp system_prompt(product_group) do
+    solver_variables = solver_variables_text(product_group)
+    routes = solver_routes_text(product_group)
+    constraints = solver_constraints_text(product_group)
 
     """
-    You are a contract extraction specialist for Trammo's ammonia trading desk.
-    Extract structured clause data from commodity trading contracts.
+    You are a contract extraction specialist for Trammo's commodity trading desk.
+    Extract ALL clauses from commodity trading contracts and return them with
+    the data needed for solver framing.
+
+    Your job is to identify every clause that could affect trading optimization.
+    For each clause, extract the raw data (text, values, rates) AND indicate
+    how it maps to solver variables when applicable.
+
+    All extracted data goes into the "extracted_fields" map on each clause.
+    Include solver mapping fields (parameter, operator, value) alongside the
+    raw extracted data. At solve time, the system reads these fields from
+    stored clauses, combines them with live API data and user instructions,
+    and frames the solver input.
 
     Return a JSON object with the exact structure specified in the user prompt.
     Be precise with numerical values. Preserve original units and currencies.
 
-    ## Known Clause Inventory
-    #{inventory}
+    ## Solver Variables
+    These are the variables in the LP solver. Map extracted clause values to
+    the matching variable key when the clause constrains that variable.
 
-    ## Known Contract Families
-    #{families}
+    #{solver_variables}
+
+    ## Solver Routes
+    #{routes}
+
+    ## Solver Constraints
+    #{constraints}
+
+    ## How Clauses Affect the Solver
+
+    Clauses flow into the solver through TWO paths:
+
+    ### Path 1: Direct Variable Bounds
+    Set parameter + operator + value when a clause constrains a solver variable:
+    - "==" : fixes the variable to an exact value (e.g. contract purchase price → nola_buy)
+    - ">=" : sets a minimum floor (e.g. minimum volume commitment → inv_mer)
+    - "<=" : sets a maximum ceiling (e.g. capacity limit → barge_count)
+    - "between" : sets both floor and ceiling (use value + value_upper)
+
+    ### Path 2: Penalty Margin Adjustment
+    Set penalty_per_unit (and optionally penalty_cap) when a clause imposes
+    a penalty rate. These reduce effective sell prices by the weighted-average
+    penalty exposure per ton, baking contract risk into the LP margin:
+    - Demurrage rates ($/ton/day)
+    - Volume shortfall penalties ($/ton)
+    - Late delivery penalties ($/ton)
+    - Take-or-pay obligations ($/ton shortfall)
+    - ANY other penalty or liquidated damages rate
+
+    A clause CAN have BOTH a direct bound AND a penalty rate (e.g. a minimum
+    volume clause with a shortfall penalty).
+
+    ### Informational Clauses
+    Set parameter and operator to null for clauses that do not constrain
+    solver variables and have no penalty rate (legal, compliance, etc.).
+    These are stored for audit and display.
     """
   end
 
   defp extraction_prompt(contract_text) do
     """
-    Extract all clauses from this contract. Return JSON:
+    Extract ALL clauses from this contract. Do not limit yourself to known clause
+    types — extract every provision, term, or obligation that could affect trading
+    decisions or solver optimization.
+
+    Return JSON:
 
     {
       "contract_number": "string or null",
@@ -217,27 +275,49 @@ defmodule TradingDesk.Contracts.CopilotClient do
       "company": "trammo_inc" or "trammo_sas" or "trammo_dmcc",
       "effective_date": "YYYY-MM-DD or null",
       "expiry_date": "YYYY-MM-DD or null",
-      "family_id": "matched family ID or null",
+      "family_id": "descriptive family like VESSEL_SPOT_PURCHASE or null",
       "clauses": [
         {
-          "clause_id": "PRICE",
-          "category": "commercial",
-          "extracted_fields": {"price_value": 340.00, "price_uom": "$/ton"},
-          "source_text": "exact contract text",
+          "clause_id": "SHORT_UPPERCASE_ID",
+          "category": "commercial|core_terms|logistics|logistics_cost|risk_events|credit_legal|legal|compliance|operational|metadata",
+          "source_text": "exact contract text for this clause",
           "section_ref": "Section 5",
-          "confidence": "high",
-          "anchors_matched": ["Price", "US $"]
+          "confidence": "high|medium|low",
+          "extracted_fields": {
+            "parameter": "solver_variable_key or null",
+            "operator": "== or >= or <= or between or null",
+            "value": 340.00,
+            "value_upper": null,
+            "unit": "$/ton",
+            "penalty_per_unit": null,
+            "penalty_cap": null,
+            "period": "monthly|quarterly|annual|spot|null",
+            "price_value": 340.00,
+            "price_uom": "$/ton",
+            "...any other fields relevant to this clause..."
+          }
         }
-      ],
-      "new_clause_definitions": []
+      ]
     }
 
     Rules:
-    - Extract EVERY identifiable clause, not just known types
+    - Extract EVERY identifiable clause — pricing, quantities, tolerances,
+      penalties, delivery terms, payment terms, force majeure, insurance,
+      vessel requirements, compliance, and any other provisions
     - Include exact source_text from the contract
-    - Precise numerical values (prices, quantities, percentages)
-    - confidence: "low" if uncertain
-    - new_clause_definitions only for clauses NOT in the inventory
+    - Precise numerical values (prices, quantities, percentages, rates)
+    - ALL extracted data goes into extracted_fields — include solver mapping
+      fields (parameter, operator, value) alongside raw clause data
+    - Map each clause to a solver variable (parameter) when it constrains one
+    - Set operator and value for clauses that bound solver variables
+    - Set penalty_per_unit for ANY clause with a penalty/damages rate
+    - Include any additional context in extracted_fields that could help
+      frame the solver input (e.g., pricing formulas, tolerance percentages,
+      delivery windows, nomination deadlines, escalation triggers)
+    - A clause can have BOTH parameter+operator AND penalty_per_unit
+    - Set parameter and operator to null only for purely informational clauses
+    - confidence: "low" if uncertain about extraction or mapping
+    - Use descriptive UPPERCASE_SNAKE_CASE for clause_id
 
     CONTRACT:
     ---
@@ -246,24 +326,43 @@ defmodule TradingDesk.Contracts.CopilotClient do
     """
   end
 
-  defp clause_inventory_text do
-    TemplateRegistry.canonical_clauses()
-    |> Enum.sort_by(fn {id, _} -> id end)
-    |> Enum.map(fn {id, d} ->
-      "- #{id} (#{d.category}): anchors=[#{Enum.join(d.anchors, ", ")}], " <>
-      "fields=[#{Enum.join(Enum.map(d.extract_fields, &to_string/1), ", ")}]"
-    end)
-    |> Enum.join("\n")
+  defp solver_variables_text(product_group) do
+    case ProductGroup.variables(product_group) do
+      [] -> "No solver frame configured for this product group."
+      vars ->
+        vars
+        |> Enum.map(fn v ->
+          "- #{v[:key]} (#{v[:label]}): unit=#{v[:unit]}, range=[#{v[:min]}..#{v[:max]}], " <>
+          "source=#{v[:source]}, group=#{v[:group]}"
+        end)
+        |> Enum.join("\n")
+    end
   end
 
-  defp family_signatures_text do
-    TemplateRegistry.family_signatures()
-    |> Enum.sort_by(fn {id, _} -> id end)
-    |> Enum.map(fn {id, f} ->
-      "- #{id}: #{f.direction}/#{f.term_type}/#{f.transport}, " <>
-      "incoterms=[#{Enum.join(Enum.map(f.default_incoterms, &to_string/1), ", ")}]"
-    end)
-    |> Enum.join("\n")
+  defp solver_routes_text(product_group) do
+    case ProductGroup.routes(product_group) do
+      [] -> "No routes configured."
+      routes ->
+        routes
+        |> Enum.map(fn r ->
+          "- #{r[:key]} (#{r[:name]}): buy=#{r[:buy_variable]}, sell=#{r[:sell_variable]}, " <>
+          "freight=#{r[:freight_variable]}, transit=#{r[:typical_transit_days]}d"
+        end)
+        |> Enum.join("\n")
+    end
+  end
+
+  defp solver_constraints_text(product_group) do
+    case ProductGroup.constraints(product_group) do
+      [] -> "No constraints configured."
+      constraints ->
+        constraints
+        |> Enum.map(fn c ->
+          "- #{c[:key]} (#{c[:name]}): type=#{c[:type]}, bound=#{c[:bound_variable]}, " <>
+          "routes=#{inspect(c[:routes])}"
+        end)
+        |> Enum.join("\n")
+    end
   end
 
   # ──────────────────────────────────────────────────────────
@@ -292,7 +391,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
 
   defp extract_text_from_binary(content, filename) do
     ext = Path.extname(filename)
-    tmp_path = Path.join(System.tmp_dir!(), "copilot_#{:erlang.unique_integer([:positive])}#{ext}")
+    tmp_path = Path.join(System.tmp_dir!(), "contract_llm_#{:erlang.unique_integer([:positive])}#{ext}")
 
     try do
       File.write!(tmp_path, content)
@@ -311,8 +410,9 @@ defmodule TradingDesk.Contracts.CopilotClient do
   # ──────────────────────────────────────────────────────────
 
   defp get_config do
-    endpoint = System.get_env("COPILOT_ENDPOINT")
-    api_key = System.get_env("COPILOT_API_KEY")
+    # Support both new and legacy env var names
+    endpoint = System.get_env("CONTRACT_LLM_ENDPOINT") || System.get_env("COPILOT_ENDPOINT")
+    api_key = System.get_env("CONTRACT_LLM_API_KEY") || System.get_env("COPILOT_API_KEY")
 
     cond do
       is_nil(endpoint) or endpoint == "" -> {:error, :endpoint_not_configured}
@@ -321,7 +421,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
         {:ok, %{
           endpoint: String.trim_trailing(endpoint, "/"),
           api_key: api_key,
-          model: System.get_env("COPILOT_MODEL") || @default_model
+          model: System.get_env("CONTRACT_LLM_MODEL") || System.get_env("COPILOT_MODEL") || @default_model
         }}
     end
   end
@@ -329,7 +429,7 @@ defmodule TradingDesk.Contracts.CopilotClient do
   defp auth_headers(%{api_key: key}), do: [{"authorization", "Bearer #{key}"}]
 
   defp timeout do
-    case System.get_env("COPILOT_TIMEOUT") do
+    case System.get_env("CONTRACT_LLM_TIMEOUT") || System.get_env("COPILOT_TIMEOUT") do
       nil -> @default_timeout
       val ->
         case Integer.parse(val) do

@@ -11,7 +11,7 @@ defmodule TradingDesk.Contracts.NetworkScanner do
     diff_hashes/1   → `diff_hashes` — batch-compare app's stored hashes against Graph API
     hash_local/1    → `hash_local`  — SHA-256 of a local file
     ping/0          → `ping`        — health check
-    graph_token/0   → returns current Graph API bearer token for CopilotClient
+    graph_token/0   → returns current Graph API bearer token for ContractLlmClient
 
   ## Token Management
 
@@ -80,7 +80,7 @@ defmodule TradingDesk.Contracts.NetworkScanner do
 
   @doc """
   Get the current Graph API bearer token.
-  Used by CopilotClient to download file content directly.
+  Used by ContractLlmClient to download file content directly.
 
   Returns:
     {:ok, "Bearer eyJ..."} | {:error, reason}

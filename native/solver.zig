@@ -24,10 +24,10 @@ const highs = @cImport({
 //     status 0 = ok, 1 = infeasible, 2 = error
 // ============================================================
 
-pub const MAX_VARS: usize = 64;
-pub const MAX_ROUTES: usize = 16;
-pub const MAX_CONSTRAINTS: usize = 32;
-pub const MAX_CORRELATIONS: usize = 8;
+pub const MAX_VARS: usize = 256;
+pub const MAX_ROUTES: usize = 128;
+pub const MAX_CONSTRAINTS: usize = 256;
+pub const MAX_CORRELATIONS: usize = 32;
 pub const MAX_SCENARIOS: usize = 10000;
 
 // ── Objective modes ──
@@ -304,6 +304,11 @@ pub fn solve_one(model: *const Model, vars: []const f64) SolveResult {
 // ============================================================
 var prng_state: [4]u64 = .{ 0x853c49e6748fea9b, 0xda3e39cb94b95bdb, 0x5b5ad4a5bb4d05b8, 0x515ad4a5bb4d05b8 };
 
+// BSS-allocated buffers for Monte Carlo — too large for the stack at expanded limits
+// (MAX_VARS × MAX_SCENARIOS × 8 bytes = 256 × 10000 × 8 = 20 MB)
+var g_mc_profits: [MAX_SCENARIOS]f64 = undefined;
+var g_mc_var_buf: [MAX_VARS][MAX_SCENARIOS]f64 = undefined;
+
 fn prng_next() u64 {
     const result = std.math.rotl(u64, prng_state[1] *% 5, 7) *% 9;
     const t = prng_state[1] << 17;
@@ -404,9 +409,9 @@ pub fn run_monte_carlo(model: *const Model, center: []const f64, n: u32) MonteCa
     if (nv > 0) prng_state[0] = @bitCast(center[0]);
     if (nv > 1) prng_state[1] = @bitCast(center[1]);
 
-    var profits: [MAX_SCENARIOS]f64 = undefined;
-    // Store per-variable values for sensitivity (ring buffer of feasible scenarios)
-    var var_buf: [MAX_VARS][MAX_SCENARIOS]f64 = undefined;
+    // Use BSS globals — stack equivalents would be 20 MB+ with expanded limits
+    const profits = &g_mc_profits;
+    const var_buf = &g_mc_var_buf;
     var scenario_vars: [MAX_VARS]f64 = undefined;
 
     const count = if (n > MAX_SCENARIOS) @as(u32, MAX_SCENARIOS) else n;
@@ -685,45 +690,51 @@ fn write_u32(buf: []u8, off: *usize, val: u32) void {
 // ============================================================
 // Port Protocol
 // ============================================================
-fn read_packet(reader: anytype, buf: []u8) !usize {
-    var len_buf: [4]u8 = undefined;
-    var read: usize = 0;
-    while (read < 4) {
-        const n = reader.read(len_buf[read..]) catch return error.EndOfStream;
+fn read_exact(fd: std.posix.fd_t, buf: []u8) !void {
+    var done: usize = 0;
+    while (done < buf.len) {
+        const n = std.posix.read(fd, buf[done..]) catch return error.EndOfStream;
         if (n == 0) return error.EndOfStream;
-        read += n;
+        done += n;
     }
+}
+
+fn write_all(fd: std.posix.fd_t, data: []const u8) !void {
+    var done: usize = 0;
+    while (done < data.len) {
+        const n = std.posix.write(fd, data[done..]) catch return error.BrokenPipe;
+        done += n;
+    }
+}
+
+fn read_packet(fd: std.posix.fd_t, buf: []u8) !usize {
+    var len_buf: [4]u8 = undefined;
+    try read_exact(fd, &len_buf);
     const len = std.mem.readInt(u32, &len_buf, .big);
     if (len > buf.len) return error.PacketTooLarge;
-
-    read = 0;
-    while (read < len) {
-        const n = reader.read(buf[read..len]) catch return error.EndOfStream;
-        if (n == 0) return error.EndOfStream;
-        read += n;
-    }
+    try read_exact(fd, buf[0..len]);
     return len;
 }
 
-fn write_packet(writer: anytype, data: []const u8) !void {
+fn write_packet(fd: std.posix.fd_t, data: []const u8) !void {
     var len_buf: [4]u8 = undefined;
     std.mem.writeInt(u32, &len_buf, @intCast(data.len), .big);
-    try writer.writeAll(&len_buf);
-    try writer.writeAll(data);
+    try write_all(fd, &len_buf);
+    try write_all(fd, data);
 }
 
 // ============================================================
 // Main Loop
 // ============================================================
 pub fn main() !void {
-    const stdin = std.io.getStdIn().reader();
-    const stdout = std.io.getStdOut().writer();
+    const in_fd = std.posix.STDIN_FILENO;
+    const out_fd = std.posix.STDOUT_FILENO;
 
     var buf: [131072]u8 = undefined; // 128KB — enough for large model descriptors
     var resp: [16384]u8 = undefined;
 
     while (true) {
-        const len = read_packet(stdin, &buf) catch break;
+        const len = read_packet(in_fd, &buf) catch break;
         if (len < 1) continue;
 
         const cmd = buf[0];
@@ -738,7 +749,7 @@ pub fn main() !void {
                 const vars = parse_variables(payload, &off, model.n_vars);
                 const result = solve_one(&model, vars[0..model.n_vars]);
                 const resp_len = encode_solve_result(&result, &resp);
-                write_packet(stdout, resp[0..resp_len]) catch break;
+                write_packet(out_fd, resp[0..resp_len]) catch break;
             },
             // cmd 2: monte carlo
             // payload: n_scenarios(u32) + model_descriptor + center_variables
@@ -749,7 +760,7 @@ pub fn main() !void {
                 const center = parse_variables(payload, &off, model.n_vars);
                 const mc = run_monte_carlo(&model, center[0..model.n_vars], n_scenarios);
                 const resp_len = encode_monte_carlo(&mc, &resp);
-                write_packet(stdout, resp[0..resp_len]) catch break;
+                write_packet(out_fd, resp[0..resp_len]) catch break;
             },
             else => {},
         }

@@ -68,8 +68,13 @@ defmodule TradingDesk.DB.ContractRecord do
     # Position
     field :open_position, :float
 
-    # Relationship
+    # Soft-delete (folder scan / SAP closed)
+    field :deleted_at, :utc_datetime
+    field :deletion_reason, :string
+
+    # Relationships
     has_many :solve_links, TradingDesk.DB.SolveAuditContract, foreign_key: :contract_id
+    has_many :scheduled_deliveries, TradingDesk.DB.ScheduledDelivery, foreign_key: :contract_id
 
     timestamps(type: :utc_datetime)
   end
@@ -84,7 +89,8 @@ defmodule TradingDesk.DB.ContractRecord do
       :contract_date, :expiry_date, :sap_contract_id, :sap_validated,
       :reviewed_by, :reviewed_at, :review_notes, :clauses_data,
       :template_validation, :llm_validation, :sap_discrepancies,
-      :verification_status, :last_verified_at, :previous_hash, :open_position
+      :verification_status, :last_verified_at, :previous_hash, :open_position,
+      :deleted_at, :deletion_reason
     ])
     |> validate_required([:id, :counterparty, :counterparty_type, :product_group, :version])
   end
@@ -125,7 +131,9 @@ defmodule TradingDesk.DB.ContractRecord do
       verification_status: if(c.verification_status, do: to_string(c.verification_status)),
       last_verified_at: c.last_verified_at,
       previous_hash: c.previous_hash,
-      open_position: c.open_position
+      open_position: c.open_position,
+      deleted_at: Map.get(c, :deleted_at),
+      deletion_reason: if(Map.get(c, :deletion_reason), do: to_string(c.deletion_reason))
     }
   end
 

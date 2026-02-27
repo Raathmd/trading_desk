@@ -116,13 +116,7 @@ defmodule TradingDesk.Contracts.LlmValidator do
 
     EXTRACTED DATA:
     - Type: #{clause.type}
-    - Parameter: #{clause.parameter}
-    - Operator: #{clause.operator}
-    - Value: #{clause.value}#{if clause.value_upper, do: " to #{clause.value_upper}", else: ""}
-    - Unit: #{clause.unit}
-    - Penalty per unit: #{clause.penalty_per_unit || "none"}
-    - Penalty cap: #{clause.penalty_cap || "none"}
-    - Period: #{clause.period || "not specified"}
+    - Extracted fields: #{inspect(clause.extracted_fields)}
     - Confidence: #{clause.confidence}
 
     Respond with ONLY a JSON array of issues found. Each issue should be:

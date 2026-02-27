@@ -50,6 +50,9 @@ defmodule TradingDesk.Contracts.Contract do
     # --- Graph API identity (for Zig scanner delta checks) ---
     :graph_item_id,      # SharePoint/OneDrive item ID from Graph API
     :graph_drive_id,     # SharePoint document library drive ID
+    # --- Soft-delete (folder scan / SAP closed) ---
+    :deleted_at,         # UTC datetime when logically deleted
+    :deletion_reason,    # :file_removed | :sap_closed | :manual
     :created_at,
     :updated_at
   ]
@@ -100,6 +103,8 @@ defmodule TradingDesk.Contracts.Contract do
     previous_hash: String.t() | nil,
     graph_item_id: String.t() | nil,
     graph_drive_id: String.t() | nil,
+    deleted_at: DateTime.t() | nil,
+    deletion_reason: atom() | nil,
     created_at: DateTime.t() | nil,
     updated_at: DateTime.t() | nil
   }

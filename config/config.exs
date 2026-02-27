@@ -28,3 +28,13 @@ config :trading_desk, ecto_repos: [TradingDesk.Repo, TradingDesk.TradeRepo]
 config :trading_desk, TradingDesk.Mailer, adapter: Swoosh.Adapters.Local
 
 config :swoosh, :api_client, Swoosh.ApiClient.Finch
+
+# Nx / EXLA — default backend for Bumblebee model inference
+config :nx, default_backend: EXLA.Backend
+
+# LLM models to load at startup.
+# Each 7B model needs ~8 GB RAM. Comment out models to reduce memory usage.
+# Available: :mistral_7b, :zephyr_7b, :claude_sonnet
+# Set to nil or remove to load ALL registered models.
+# config :trading_desk, :llm_enabled_models, [:mistral_7b]
+config :trading_desk, :llm_enabled_models, [:claude_opus, :claude_haiku]

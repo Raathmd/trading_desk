@@ -98,6 +98,10 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
         case Store.ingest(contract) do
           {:ok, versioned} ->
             Writer.persist_contract(versioned)
+
+            # Generate scheduled deliveries for this contract
+            TradingDesk.Schedule.DeliveryScheduler.generate_from_contract(versioned)
+
             Logger.info("NH3ContractSeed: seeded #{versioned.counterparty} v#{versioned.version} (#{versioned.family_id})")
             {:ok, versioned}
 
@@ -167,8 +171,8 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
       updated_at:        @now,
       template_validation: %{
         "family" => "LONG_TERM_PURCHASE_FOB",
-        "expected_clauses" => 19,
-        "found_clauses" => 19,
+        "expected_clauses" => 20,
+        "found_clauses" => 20,
         "completeness_pct" => 100.0,
         "missing" => []
       },
@@ -210,6 +214,45 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
           fields:     %{"qty" => 120_000.0, "uom" => "MT", "tolerance_pct" => 5.0,
                         "option_holder" => "seller", "shipment_min" => 10_000.0,
                         "shipment_max" => 12_000.0}
+        ),
+
+        # TAKE_OR_PAY: Annual minimum lift obligation. If Trammo lifts less than
+        # 114,000 MT (95% floor of 120,000 MT), Trammo owes CF a shortfall payment
+        # of $365/MT on unlifted volume within 30 days of year-end.
+        # Solver: committed_lift_mer >= 10,000 MT per shipment (matching QUANTITY_TOLERANCE
+        # lower bound). This sets the minimum throughput on the supply_mer constraint so
+        # the optimizer must route at least 10,000 MT from Meredosia when CF is active.
+        # Annual floor (114,000 MT) is captured in extracted_fields for exposure reporting.
+        # penalty_cap: 24,000 MT × $365 = $8,760,000 (20% max shortfall exposure).
+        clause("TAKE_OR_PAY", :obligation, :commercial,
+          "Take-or-Pay: Trammo commits to lift minimum 114,000 Metric Tons per contract " <>
+          "year (95% of 120,000 MT committed volume, Seller's option applies to upper band). " <>
+          "If annual off-take falls below 114,000 MT, Trammo shall pay CF Industries " <>
+          "USD 365.00 per Metric Ton of shortfall (\"take-or-pay payment\") within " <>
+          "30 days of year-end. Make-whole obligation survives contract expiry for the " <>
+          "relevant contract year. Force Majeure volume shortfalls excluded from calculation.",
+          parameter:        :committed_lift_mer,
+          operator:         :>=,
+          value:            10_000.0,
+          unit:             "MT",
+          period:           :annual,
+          confidence:       :high,
+          penalty_per_unit: 365.0,
+          penalty_cap:      8_760_000.0,
+          anchors:          ["Take or Pay", "minimum off-take", "shortfall payment",
+                             "Annual Commitment", "take-or-pay"],
+          fields:           %{
+            "annual_committed_mt"      => 120_000.0,
+            "annual_floor_pct"         => 95.0,
+            "annual_floor_mt"          => 114_000.0,
+            "per_shipment_floor_mt"    => 10_000.0,
+            "shortfall_rate_per_mt"    => 365.0,
+            "payment_terms_days"       => 30,
+            "measurement_period"       => "calendar_year",
+            "surviving_obligation"     => true,
+            "fm_volume_excluded"       => true,
+            "open_position_mt"         => 42_000.0
+          }
         ),
 
         # DATES_WINDOWS_NOMINATIONS: Quarterly delivery plan + monthly nominations.
@@ -1479,25 +1522,33 @@ defmodule TradingDesk.Seeds.NH3ContractSeed do
   # ──────────────────────────────────────────────────────────
 
   defp clause(clause_id, type, category, description, opts \\ []) do
+    base_fields = Keyword.get(opts, :fields, %{})
+
+    merged_fields =
+      base_fields
+      |> maybe_put("parameter", Keyword.get(opts, :parameter))
+      |> maybe_put("operator", Keyword.get(opts, :operator))
+      |> maybe_put("value", Keyword.get(opts, :value))
+      |> maybe_put("value_upper", Keyword.get(opts, :value_upper))
+      |> maybe_put("unit", Keyword.get(opts, :unit))
+      |> maybe_put("penalty_per_unit", Keyword.get(opts, :penalty_per_unit))
+      |> maybe_put("penalty_cap", Keyword.get(opts, :penalty_cap))
+      |> maybe_put("period", Keyword.get(opts, :period))
+      |> maybe_put("anchors_matched", Keyword.get(opts, :anchors, []))
+
     %Clause{
       id:               Clause.generate_id(),
       clause_id:        clause_id,
       type:             type,
       category:         category,
       description:      description,
-      parameter:        Keyword.get(opts, :parameter),
-      operator:         Keyword.get(opts, :operator),
-      value:            Keyword.get(opts, :value),
-      value_upper:      Keyword.get(opts, :value_upper),
-      unit:             Keyword.get(opts, :unit),
-      penalty_per_unit: Keyword.get(opts, :penalty_per_unit),
-      penalty_cap:      Keyword.get(opts, :penalty_cap),
-      period:           Keyword.get(opts, :period),
       confidence:       Keyword.get(opts, :confidence, :high),
       reference_section: Keyword.get(opts, :section),
-      anchors_matched:  Keyword.get(opts, :anchors, []),
-      extracted_fields: Keyword.get(opts, :fields, %{}),
+      extracted_fields: merged_fields,
       extracted_at:     @now
     }
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put_new(map, key, value)
 end

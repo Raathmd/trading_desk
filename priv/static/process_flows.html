@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trammo Trading Desk — Process Flows</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --trammo-navy: #0b1d3a;
+      --trammo-blue: #1a3a6b;
+      --trammo-accent: #2e86de;
+      --trammo-gold: #e6a817;
+      --trammo-light: #f0f4f8;
+      --trammo-green: #27ae60;
+      --trammo-red: #e74c3c;
+      --trammo-orange: #f39c12;
+      --trammo-purple: #8e44ad;
+      --section-radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--trammo-light);
+      color: #2c3e50;
+      line-height: 1.6;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, var(--trammo-navy) 0%, var(--trammo-blue) 100%);
+      color: white;
+      padding: 48px 40px 36px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .header .subtitle {
+      font-size: 1.15rem;
+      opacity: 0.85;
+      font-weight: 300;
+    }
+    .header .date {
+      margin-top: 12px;
+      font-size: 0.85rem;
+      opacity: 0.6;
+    }
+
+    /* ── Navigation ── */
+    .nav {
+      background: white;
+      border-bottom: 1px solid #dce3eb;
+      padding: 0 40px;
+      display: flex;
+      gap: 0;
+      overflow-x: auto;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .nav a {
+      padding: 14px 20px;
+      text-decoration: none;
+      color: #5a6c7d;
+      font-size: 0.9rem;
+      font-weight: 500;
+      border-bottom: 3px solid transparent;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .nav a:hover, .nav a.active {
+      color: var(--trammo-accent);
+      border-bottom-color: var(--trammo-accent);
+    }
+
+    /* ── Content ── */
+    .content {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* ── Sections ── */
+    .section {
+      background: white;
+      border-radius: var(--section-radius);
+      padding: 36px 40px;
+      margin-bottom: 36px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      border: 1px solid #e8edf2;
+    }
+    .section h2 {
+      font-size: 1.5rem;
+      color: var(--trammo-navy);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section h2 .num {
+      background: var(--trammo-accent);
+      color: white;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+    .section .lead {
+      color: #6b7c8d;
+      font-size: 1.02rem;
+      margin-bottom: 24px;
+    }
+
+    /* ── Diagram container ── */
+    .diagram {
+      background: #fafbfd;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 24px;
+      margin: 20px 0;
+      overflow-x: auto;
+    }
+    .diagram .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+
+    /* ── Data source cards ── */
+    .source-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .source-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 18px 20px;
+      background: #fafbfd;
+      border-left: 4px solid var(--trammo-accent);
+    }
+    .source-card.env   { border-left-color: var(--trammo-green); }
+    .source-card.ops   { border-left-color: var(--trammo-orange); }
+    .source-card.comm  { border-left-color: var(--trammo-purple); }
+    .source-card.supp  { border-left-color: #95a5a6; }
+    .source-card h4 {
+      font-size: 0.95rem;
+      color: var(--trammo-navy);
+      margin-bottom: 4px;
+    }
+    .source-card .api-name {
+      font-size: 0.8rem;
+      color: #7f8c9b;
+      margin-bottom: 8px;
+    }
+    .source-card .vars {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .source-card .vars span {
+      background: #edf2f7;
+      color: #4a5568;
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .source-card .interval {
+      font-size: 0.78rem;
+      color: #a0aec0;
+      margin-top: 8px;
+    }
+
+    /* ── Variable table ── */
+    .var-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 16px 0;
+    }
+    .var-table th {
+      background: var(--trammo-navy);
+      color: white;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+    }
+    .var-table td {
+      padding: 8px 14px;
+      border-bottom: 1px solid #edf2f7;
+    }
+    .var-table tr:hover td {
+      background: #f7fafc;
+    }
+    .var-table .group-header td {
+      background: #edf2f7;
+      font-weight: 600;
+      color: var(--trammo-blue);
+    }
+
+    /* ── Callout boxes ── */
+    .callout {
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 0.92rem;
+    }
+    .callout.info    { background: #ebf5fb; border-left: 4px solid var(--trammo-accent); }
+    .callout.success { background: #eafaf1; border-left: 4px solid var(--trammo-green); }
+    .callout.warning { background: #fef9e7; border-left: 4px solid var(--trammo-gold); }
+    .callout strong  { color: var(--trammo-navy); }
+
+    /* ── Phase steps ── */
+    .phase-steps {
+      display: flex;
+      gap: 12px;
+      margin: 20px 0;
+      flex-wrap: wrap;
+    }
+    .phase-step {
+      flex: 1;
+      min-width: 180px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      position: relative;
+    }
+    .phase-step .phase-num {
+      background: var(--trammo-accent);
+      color: white;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .phase-step h5 {
+      font-size: 0.88rem;
+      color: var(--trammo-navy);
+      margin-bottom: 4px;
+    }
+    .phase-step p {
+      font-size: 0.78rem;
+      color: #7f8c9b;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      padding: 32px;
+      color: #a0aec0;
+      font-size: 0.82rem;
+    }
+
+    /* ── Print styles ── */
+    @media print {
+      .nav { display: none; }
+      .section { break-inside: avoid; page-break-inside: avoid; }
+      body { background: white; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- HEADER                                                      -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="header">
+  <h1>Trammo Trading Desk</h1>
+  <div class="subtitle">Decision Support System &mdash; Process Flows &amp; Architecture</div>
+  <div class="date">February 2026 &middot; Confidential</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- NAV                                                         -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="nav">
+  <a href="#overview">Overview</a>
+  <a href="#data-sources">Data Sources</a>
+  <a href="#variables">Solver Variables</a>
+  <a href="#ingestion">Data Ingestion</a>
+  <a href="#pipeline">Solve Pipeline</a>
+  <a href="#presolve">Pre-Solve (LLM)</a>
+  <a href="#solver">Solver Engine</a>
+  <a href="#postsolve">Post-Solve (LLM)</a>
+  <a href="#auto-runner">Auto-Runner</a>
+  <a href="#contracts">Contract Lifecycle</a>
+  <a href="#decisions">Decision Ledger</a>
+  <a href="#whatif">What-If Analysis</a>
+  <a href="#end-to-end">End-to-End</a>
+</div>
+
+<div class="content">
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 1. SYSTEM OVERVIEW                                          -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="overview">
+  <h2><span class="num">1</span> System Overview</h2>
+  <p class="lead">
+    The Trading Desk is a real-time decision support platform for commodity traders.
+    It continuously ingests live market, weather, river, and operational data from 10+ external sources,
+    applies active contract constraints, and runs a linear-programming solver to recommend
+    optimal trading routes and volumes &mdash; all augmented by AI-powered analysis.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+  subgraph EXT["External Data Sources"]
+    direction LR
+    USGS["USGS<br/>River Gauges"]
+    NOAA["NOAA<br/>Weather"]
+    USACE["USACE<br/>Lock Delays"]
+    EIA["EIA<br/>Natural Gas"]
+    MKT["Argus / ICIS<br/>Market Prices"]
+    BRK["Broker / TMS<br/>Freight Rates"]
+    INT["Insight TMS<br/>Terminal Ops"]
+    SAP["SAP S/4HANA<br/>Working Capital"]
+    AIS["AIS Stream<br/>Vessel Tracking"]
+    TIDE["NOAA CO-OPS<br/>Tides &amp; Currents"]
+  end
+
+  subgraph CORE["Trading Desk Core"]
+    POLL["Data Poller<br/><i>Scheduled fetches with<br/>configurable intervals</i>"]
+    LS["Live State<br/><i>20 real-time variables<br/>+ supplementary data</i>"]
+    CB["Contract<br/>Constraint Bridge"]
+    LLM_PRE["LLM Pre-Solve<br/>Framer"]
+    SOLVER["LP Solver<br/><i>Zig / HiGHS engine</i>"]
+    LLM_POST["LLM Post-Solve<br/>Explainer"]
+    AUDIT["Solve Audit<br/>Trail"]
+  end
+
+  subgraph USERS["User Interfaces"]
+    DESK["Trading Desk<br/><i>Interactive solve<br/>+ Monte Carlo</i>"]
+    WHATIF["What-If<br/>Analysis"]
+    CONTRACTS["Contract<br/>Management"]
+    DECISIONS["Decision<br/>Ledger"]
+    MOBILE["Mobile API"]
+  end
+
+  EXT --> POLL
+  POLL --> LS
+  LS --> LLM_PRE
+  CB --> LLM_PRE
+  LLM_PRE --> SOLVER
+  SOLVER --> LLM_POST
+  SOLVER --> AUDIT
+  LLM_POST --> DESK
+  LLM_POST --> WHATIF
+  LS --> DESK
+  LS --> WHATIF
+  LS --> MOBILE
+  AUDIT --> DESK
+
+  style EXT fill:#ebf5fb,stroke:#2e86de,color:#0b1d3a
+  style CORE fill:#fef9e7,stroke:#e6a817,color:#0b1d3a
+  style USERS fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+    </pre>
+  </div>
+
+  <div class="callout info">
+    <strong>Key value proposition:</strong> Traders no longer manually check dozens of data points.
+    The system continuously monitors conditions, applies contract obligations, runs optimization,
+    and surfaces clear go/no-go recommendations &mdash; reducing decision latency from hours to seconds.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 2. DATA SOURCES                                             -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="data-sources">
+  <h2><span class="num">2</span> External Data Sources</h2>
+  <p class="lead">
+    The system integrates with 10+ external APIs organized into four categories:
+    environmental conditions, operational status, commercial pricing, and supplementary logistics data.
+  </p>
+
+  <h3 style="margin: 20px 0 8px; color: var(--trammo-green);">Environmental (River, Weather, Locks)</h3>
+  <div class="source-grid">
+    <div class="source-card env">
+      <h4>USGS Water Services</h4>
+      <div class="api-name">waterservices.usgs.gov &middot; Free, no auth</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Real-time river stage and flow at 4 Mississippi gauges (Baton Rouge, Vicksburg, Memphis, Cairo). Critical for determining navigability and barge draft limits.</p>
+      <div class="vars"><span>river_stage</span></div>
+      <div class="interval">Polled every 15 minutes</div>
+    </div>
+    <div class="source-card env">
+      <h4>NOAA Weather API</h4>
+      <div class="api-name">api.weather.gov &middot; Free, User-Agent auth</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Current observations and 7-day forecasts from 4 stations along trading routes (Baton Rouge, Memphis, St. Louis, Vicksburg). Drives safety and scheduling.</p>
+      <div class="vars"><span>temp_f</span> <span>wind_mph</span> <span>vis_mi</span> <span>precip_in</span></div>
+      <div class="interval">Polled every 30 minutes</div>
+    </div>
+    <div class="source-card env">
+      <h4>USACE Lock Status</h4>
+      <div class="api-name">ndc.ops.usace.army.mil &middot; Scraped + API</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Lock queue delays at 4 critical locks (Lock 25, Lock 27/Chain of Rocks, Old River, Lock 52). Directly impacts transit time and freight economics.</p>
+      <div class="vars"><span>lock_hrs</span></div>
+      <div class="interval">Polled every 30 minutes</div>
+    </div>
+  </div>
+
+  <h3 style="margin: 28px 0 8px; color: var(--trammo-orange);">Operational (Terminals, Fleet, Capital)</h3>
+  <div class="source-grid">
+    <div class="source-card ops">
+      <h4>Insight TMS (Trammo)</h4>
+      <div class="api-name">Internal terminal management system</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Real-time terminal inventory levels and outage status at Meredosia and Niota storage facilities. Determines available supply for each route.</p>
+      <div class="vars"><span>inv_mer</span> <span>inv_nio</span> <span>mer_outage</span> <span>nio_outage</span></div>
+      <div class="interval">Polled every 5 minutes</div>
+    </div>
+    <div class="source-card ops">
+      <h4>Fleet Management TMS</h4>
+      <div class="api-name">Transportation management system</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Count of available barges with &ldquo;selected&rdquo; status. Constrains maximum tons that can move simultaneously.</p>
+      <div class="vars"><span>barge_count</span></div>
+      <div class="interval">Polled every 5 minutes</div>
+    </div>
+    <div class="source-card ops">
+      <h4>SAP S/4HANA Finance</h4>
+      <div class="api-name">OData API &middot; Bearer token auth</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Available working capital for the trading business unit. Constrains total capital that can be deployed across all routes.</p>
+      <div class="vars"><span>working_cap</span></div>
+      <div class="interval">Polled every 5 minutes</div>
+    </div>
+  </div>
+
+  <h3 style="margin: 28px 0 8px; color: var(--trammo-purple);">Commercial (Prices, Freight, Energy)</h3>
+  <div class="source-grid">
+    <div class="source-card comm">
+      <h4>Argus / ICIS Market Prices</h4>
+      <div class="api-name">argusmedia.com, icis.com &middot; API key auth</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Ammonia purchase prices at NOLA barge and derived delivered prices to St. Louis and Memphis. The primary revenue/cost drivers for the solver.</p>
+      <div class="vars"><span>nola_buy</span> <span>sell_stl</span> <span>sell_mem</span></div>
+      <div class="interval">Polled every 30 minutes</div>
+    </div>
+    <div class="source-card comm">
+      <h4>Broker / TMS Freight Rates</h4>
+      <div class="api-name">Barge freight rate feeds &middot; API key auth</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Current freight rates for all 4 trading routes (Meredosia/Niota to St. Louis/Memphis). Volatile &mdash; weather and river conditions drive rates.</p>
+      <div class="vars"><span>fr_mer_stl</span> <span>fr_mer_mem</span> <span>fr_nio_stl</span> <span>fr_nio_mem</span></div>
+      <div class="interval">Polled every 60 minutes</div>
+    </div>
+    <div class="source-card comm">
+      <h4>EIA Natural Gas (Henry Hub)</h4>
+      <div class="api-name">api.eia.gov &middot; API key auth</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Henry Hub spot price &mdash; the benchmark input cost for ammonia production. Correlated with purchase price trends.</p>
+      <div class="vars"><span>nat_gas</span></div>
+      <div class="interval">Polled every 60 minutes</div>
+    </div>
+  </div>
+
+  <h3 style="margin: 28px 0 8px; color: #95a5a6;">Supplementary (Vessels, Tides)</h3>
+  <div class="source-grid">
+    <div class="source-card supp">
+      <h4>AIS Vessel Tracking</h4>
+      <div class="api-name">aisstream.io (WebSocket) &middot; MarineTraffic fallback</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Real-time positions of vessels carrying Trammo cargo via AIS transponders. Enriched with vessel-proximate weather. Displayed in fleet view.</p>
+      <div class="vars"><span>Fleet positions</span> <span>ETA estimates</span></div>
+      <div class="interval">Real-time WebSocket + 10 min poll fallback</div>
+    </div>
+    <div class="source-card supp">
+      <h4>NOAA Tides &amp; Currents</h4>
+      <div class="api-name">tidesandcurrents.noaa.gov &middot; Free, no auth</div>
+      <p style="font-size:0.85rem; margin-bottom:8px;">Water levels, tidal predictions, and current velocity at 6 stations along the lower Mississippi and Gulf. Context for vessel navigation.</p>
+      <div class="vars"><span>Water levels</span> <span>Current speed</span></div>
+      <div class="interval">Polled every 15 minutes</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 3. SOLVER VARIABLES                                         -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="variables">
+  <h2><span class="num">3</span> The 20 Solver Variables</h2>
+  <p class="lead">
+    Every optimization run uses exactly 20 variables that fully describe the current trading environment.
+    These are encoded as a compact 160-byte binary and sent to the solver engine.
+  </p>
+
+  <table class="var-table">
+    <thead>
+      <tr><th>Variable</th><th>Description</th><th>Unit</th><th>Range</th><th>Source</th></tr>
+    </thead>
+    <tbody>
+      <tr class="group-header"><td colspan="5">Environment (6 variables)</td></tr>
+      <tr><td><code>river_stage</code></td><td>Water height at Baton Rouge gauge</td><td>ft</td><td>2 &ndash; 55</td><td>USGS</td></tr>
+      <tr><td><code>lock_hrs</code></td><td>Total delay through lock system</td><td>hrs</td><td>0 &ndash; 96</td><td>USACE</td></tr>
+      <tr><td><code>temp_f</code></td><td>Air temperature</td><td>&deg;F</td><td>-20 &ndash; 115</td><td>NOAA</td></tr>
+      <tr><td><code>wind_mph</code></td><td>Wind speed</td><td>mph</td><td>0 &ndash; 55</td><td>NOAA</td></tr>
+      <tr><td><code>vis_mi</code></td><td>Visibility</td><td>mi</td><td>0.05 &ndash; 15</td><td>NOAA</td></tr>
+      <tr><td><code>precip_in</code></td><td>3-day precipitation forecast</td><td>in</td><td>0 &ndash; 8</td><td>NOAA</td></tr>
+
+      <tr class="group-header"><td colspan="5">Operations (5 variables)</td></tr>
+      <tr><td><code>inv_mer</code></td><td>Meredosia terminal inventory</td><td>tons</td><td>0 &ndash; 15,000</td><td>Insight TMS</td></tr>
+      <tr><td><code>inv_nio</code></td><td>Niota terminal inventory</td><td>tons</td><td>0 &ndash; 10,000</td><td>Insight TMS</td></tr>
+      <tr><td><code>mer_outage</code></td><td>Meredosia outage flag</td><td>0/1</td><td>0 &ndash; 1</td><td>Insight / Manual</td></tr>
+      <tr><td><code>nio_outage</code></td><td>Niota outage flag</td><td>0/1</td><td>0 &ndash; 1</td><td>Insight / Manual</td></tr>
+      <tr><td><code>barge_count</code></td><td>Available barges</td><td>count</td><td>1 &ndash; 30</td><td>Fleet TMS</td></tr>
+
+      <tr class="group-header"><td colspan="5">Commercial (9 variables)</td></tr>
+      <tr><td><code>nola_buy</code></td><td>NH3 purchase price at NOLA barge</td><td>$/t</td><td>200 &ndash; 600</td><td>Argus / ICIS</td></tr>
+      <tr><td><code>sell_stl</code></td><td>NH3 delivered sell price &mdash; St. Louis</td><td>$/t</td><td>300 &ndash; 600</td><td>Market (derived)</td></tr>
+      <tr><td><code>sell_mem</code></td><td>NH3 delivered sell price &mdash; Memphis</td><td>$/t</td><td>280 &ndash; 550</td><td>Market (derived)</td></tr>
+      <tr><td><code>fr_mer_stl</code></td><td>Freight: Meredosia &rarr; St. Louis</td><td>$/t</td><td>20 &ndash; 130</td><td>Broker</td></tr>
+      <tr><td><code>fr_mer_mem</code></td><td>Freight: Meredosia &rarr; Memphis</td><td>$/t</td><td>10 &ndash; 80</td><td>Broker</td></tr>
+      <tr><td><code>fr_nio_stl</code></td><td>Freight: Niota &rarr; St. Louis</td><td>$/t</td><td>20 &ndash; 135</td><td>Broker</td></tr>
+      <tr><td><code>fr_nio_mem</code></td><td>Freight: Niota &rarr; Memphis</td><td>$/t</td><td>10 &ndash; 85</td><td>Broker</td></tr>
+      <tr><td><code>nat_gas</code></td><td>Henry Hub natural gas spot</td><td>$/MMBtu</td><td>1.0 &ndash; 8.0</td><td>EIA</td></tr>
+      <tr><td><code>working_cap</code></td><td>Available working capital</td><td>$</td><td>500K &ndash; 10M</td><td>SAP FI</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 4. DATA INGESTION FLOW                                      -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="ingestion">
+  <h2><span class="num">4</span> Data Ingestion &amp; Live State</h2>
+  <p class="lead">
+    A centralized poller fetches all external APIs on configurable schedules. Data flows into a
+    Live State server that maintains the authoritative current values. Changes above configured
+    thresholds trigger automatic re-optimization.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph APIs["External APIs"]
+    A1["USGS"]
+    A2["NOAA"]
+    A3["USACE"]
+    A4["EIA"]
+    A5["Market"]
+    A6["Broker"]
+    A7["Insight"]
+    A8["SAP"]
+    A9["AIS"]
+    A10["Tides"]
+  end
+
+  POLL["Data Poller<br/><i>Scheduled intervals<br/>per source</i>"]
+
+  subgraph MERGE["Live State Server"]
+    direction TB
+    ENV["Environment<br/>6 variables"]
+    OPS["Operations<br/>5 variables"]
+    COMM["Commercial<br/>9 variables"]
+    SUPP["Supplementary<br/><i>Vessels, Tides,<br/>Forecasts</i>"]
+  end
+
+  DELTA{"Delta<br/>Threshold<br/>Check"}
+
+  AUTO["Auto-Runner<br/><i>Triggers Monte Carlo<br/>if material change</i>"]
+  UI["Trader<br/>Dashboard"]
+  NOTIFY["Trader<br/>Notifications"]
+
+  A1 & A2 & A3 --> POLL
+  A4 & A5 & A6 --> POLL
+  A7 & A8 --> POLL
+  A9 & A10 --> POLL
+
+  POLL -->|"Merge non-nil<br/>values"| MERGE
+  MERGE --> DELTA
+  DELTA -->|"Above threshold"| AUTO
+  DELTA -->|"Below threshold"| UI
+  AUTO --> NOTIFY
+  MERGE --> UI
+
+  style APIs fill:#ebf5fb,stroke:#2e86de
+  style MERGE fill:#fef9e7,stroke:#e6a817
+  style DELTA fill:#fdedec,stroke:#e74c3c
+    </pre>
+  </div>
+
+  <div class="callout warning">
+    <strong>Graceful degradation:</strong> If any API is unavailable, the system keeps the last known
+    value and continues operating. Each source has cascading fallbacks (backup APIs, historical averages,
+    seed defaults). Status is tracked per source with consecutive failure counts.
+  </div>
+
+  <div class="callout info">
+    <strong>Admin-configurable thresholds:</strong> The delta that triggers an automatic re-solve is
+    tunable per variable (e.g., river stage &gt; 0.5 ft, NOLA buy price &gt; $2/ton, barge count &gt; 1).
+    A cooldown prevents rapid-fire solves (default: 5 minutes minimum between runs).
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 5. SOLVE PIPELINE                                           -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="pipeline">
+  <h2><span class="num">5</span> The Solve Pipeline</h2>
+  <p class="lead">
+    Every optimization &mdash; whether triggered by a trader, the auto-runner, or an API call &mdash;
+    flows through a standardized 4-phase pipeline. Each phase broadcasts real-time status updates
+    to the trader's dashboard.
+  </p>
+
+  <div class="phase-steps">
+    <div class="phase-step">
+      <div class="phase-num">1</div>
+      <h5>Contract Check</h5>
+      <p>Verify all active contracts are current. Re-ingest any that changed since last solve.</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">2</div>
+      <h5>LLM Pre-Solve Frame</h5>
+      <p>AI reads contracts + trader notes and adjusts variables to reflect obligations.</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">3</div>
+      <h5>LP Solver Execution</h5>
+      <p>Optimized Zig/HiGHS engine finds the profit-maximizing route &amp; volume allocation.</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">4</div>
+      <h5>Audit &amp; Explain</h5>
+      <p>Results recorded to immutable audit trail. AI generates plain-English analysis.</p>
+    </div>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  START(["Solve Triggered<br/><i>Dashboard / Auto-Runner / API</i>"])
+
+  subgraph P1["Phase 1: Contract Freshness"]
+    C1["Load active contracts<br/>for product group"]
+    C2["Check file hashes via<br/>Graph API scanner"]
+    C3{"Any contracts<br/>changed?"}
+    C4["Re-ingest changed<br/>contracts via LLM<br/>clause extraction"]
+    C5["Contracts confirmed<br/>current"]
+  end
+
+  subgraph P2["Phase 2: Pre-Solve Framing"]
+    F1["Load contract clauses<br/>+ trader notes"]
+    F2["Build LLM prompt<br/><i>Solver frame + variables<br/>+ clauses + instructions</i>"]
+    F3["LLM generates variable<br/>adjustments as JSON"]
+    F4["Apply adjustments to<br/>solver input variables"]
+  end
+
+  subgraph P3["Phase 3: Solver Execution"]
+    S1["Encode variables<br/>to 160-byte binary"]
+    S2["Send to Zig/HiGHS<br/>solver process"]
+    S3{"Single solve or<br/>Monte Carlo?"}
+    S4["Return optimal allocation<br/><i>Tons, profit, routes,<br/>margins, shadow prices</i>"]
+    S5["Return distribution<br/><i>1000 scenarios: mean,<br/>VaR, signal, sensitivity</i>"]
+  end
+
+  subgraph P4["Phase 4: Audit & Explain"]
+    A1["Write immutable audit<br/><i>Variables, contracts,<br/>result, timestamps</i>"]
+    A2["LLM generates analyst<br/>note explaining result"]
+    A3["Broadcast result<br/>to trader dashboard"]
+  end
+
+  START --> C1
+  C1 --> C2
+  C2 --> C3
+  C3 -->|Yes| C4
+  C4 --> C5
+  C3 -->|No| C5
+  C5 --> F1
+  F1 --> F2
+  F2 --> F3
+  F3 --> F4
+  F4 --> S1
+  S1 --> S2
+  S2 --> S3
+  S3 -->|Single| S4
+  S3 -->|Monte Carlo| S5
+  S4 --> A1
+  S5 --> A1
+  A1 --> A2
+  A2 --> A3
+
+  style P1 fill:#ebf5fb,stroke:#2e86de
+  style P2 fill:#f5eef8,stroke:#8e44ad
+  style P3 fill:#fef9e7,stroke:#e6a817
+  style P4 fill:#eafaf1,stroke:#27ae60
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 6. PRE-SOLVE LLM FRAMING                                    -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="presolve">
+  <h2><span class="num">6</span> Pre-Solve: LLM Contract Framing</h2>
+  <p class="lead">
+    Before the solver runs, an AI model reads all active contract clauses and the trader's
+    free-text instructions, then recommends adjustments to solver variables &mdash; ensuring the
+    optimization respects real-world obligations like price fixes, take-or-pay volumes, and penalty clauses.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph INPUTS["Inputs to LLM"]
+    direction TB
+    FRAME["Solver Frame<br/><i>Variables, routes,<br/>constraints definitions</i>"]
+    VALS["Current Variable<br/>Values<br/><i>All 20 live values</i>"]
+    CLAUSES["Active Contract<br/>Clauses<br/><i>Grouped by<br/>counterparty</i>"]
+    NOTES["Trader Notes<br/><i>Optional free-text<br/>instructions</i>"]
+  end
+
+  LLM["LLM Engine<br/><i>Reads contracts,<br/>reasons about<br/>impact on solver<br/>variables</i>"]
+
+  subgraph OUTPUTS["LLM Output"]
+    direction TB
+    ADJ["Variable<br/>Adjustments<br/><i>e.g. set nola_buy<br/>to $340 per contract</i>"]
+    WARN["Warnings<br/><i>Conflicts between<br/>contracts flagged</i>"]
+    FNOTES["Framing Notes<br/><i>Rationale for<br/>each adjustment</i>"]
+  end
+
+  APPLY["Apply to Solver<br/>Input Variables"]
+
+  INPUTS --> LLM
+  LLM --> OUTPUTS
+  ADJ --> APPLY
+
+  style INPUTS fill:#f5eef8,stroke:#8e44ad
+  style LLM fill:#fef9e7,stroke:#e6a817
+  style OUTPUTS fill:#eafaf1,stroke:#27ae60
+    </pre>
+  </div>
+
+  <h3 style="margin-top:24px; color: var(--trammo-navy);">What the LLM considers:</h3>
+  <table class="var-table" style="margin-top:12px;">
+    <thead>
+      <tr><th>Contract Clause Type</th><th>How It Affects the Solver</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Price Fixing</td><td>Sets buy or sell variable to contract price</td><td>Koch contract fixes <code>nola_buy</code> at $340/t</td></tr>
+      <tr><td>Take-or-Pay Volume</td><td>Sets minimum volume floor on route</td><td>Must lift &ge;2,000 MT from Meredosia</td></tr>
+      <tr><td>Penalty Clauses</td><td>Reduces effective sell price by weighted penalty exposure</td><td>Late delivery penalty of $5/t reduces <code>sell_stl</code></td></tr>
+      <tr><td>Volume Caps</td><td>Lowers maximum ceiling on route</td><td>Max 5,000 MT to Memphis per month</td></tr>
+      <tr><td>Formula Pricing</td><td>Computes price using other live variables</td><td>sell_stl = nola_buy + $90 spread</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout success">
+    <strong>Safety constraint:</strong> The LLM can only <em>tighten</em> variables (raise floors, lower ceilings)
+    &mdash; it cannot relax constraints. This ensures contract obligations are always respected. Penalty
+    adjustments are capped at 10% of the current price.
+  </div>
+
+  <div class="callout info">
+    <strong>Fallback path:</strong> If the LLM is unavailable, a mechanical Constraint Bridge applies
+    contract clauses directly using rule-based logic (operators: &ge;, &le;, =, between). Trading is
+    never blocked by AI availability.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 7. SOLVER ENGINE                                            -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="solver">
+  <h2><span class="num">7</span> The Solver Engine</h2>
+  <p class="lead">
+    A high-performance linear-programming solver built in Zig using the HiGHS optimization library.
+    It runs as an isolated external process for safety and supports two modes: single optimization
+    and Monte Carlo scenario analysis.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph INPUT["Solver Inputs"]
+    direction TB
+    VARS["20 Variables<br/><i>160-byte binary</i>"]
+    MODEL["Model Descriptor<br/><i>Routes, constraints,<br/>objective function</i>"]
+    OBJ["Objective<br/><i>Max Profit / Min Cost<br/>/ Max ROI / CVaR</i>"]
+  end
+
+  subgraph ENGINE["Zig / HiGHS Engine"]
+    direction TB
+    LP["Linear Program<br/><i>Maximize: &Sigma; (sell - buy - freight) &times; tons<br/>Subject to: inventory, barge,<br/>capital constraints</i>"]
+  end
+
+  subgraph SINGLE["Single Solve Result"]
+    direction TB
+    R1["Optimal tons per route"]
+    R2["Gross profit &amp; ROI"]
+    R3["Route margins ($/t)"]
+    R4["Shadow prices<br/><i>Value of relaxing<br/>each constraint</i>"]
+  end
+
+  subgraph MC["Monte Carlo Result"]
+    direction TB
+    M1["1,000 scenario distribution"]
+    M2["Mean, VaR (5%), P95"]
+    M3["Go / No-Go signal"]
+    M4["Variable sensitivity<br/><i>Which inputs matter<br/>most to profit?</i>"]
+  end
+
+  INPUT --> ENGINE
+  ENGINE -->|"Single"| SINGLE
+  ENGINE -->|"Monte Carlo"| MC
+
+  style INPUT fill:#ebf5fb,stroke:#2e86de
+  style ENGINE fill:#fef9e7,stroke:#e6a817
+  style SINGLE fill:#eafaf1,stroke:#27ae60
+  style MC fill:#f5eef8,stroke:#8e44ad
+    </pre>
+  </div>
+
+  <h3 style="margin-top:20px; color: var(--trammo-navy);">Single Solve vs. Monte Carlo</h3>
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:12px;">
+    <div class="callout info">
+      <strong>Single Solve</strong> answers: <em>&ldquo;Given current conditions, what&rsquo;s the best allocation?&rdquo;</em>
+      Returns the exact optimal tons per route, profit, margins, and shadow prices (the dollar value
+      of easing each constraint by one unit).
+    </div>
+    <div class="callout success">
+      <strong>Monte Carlo</strong> answers: <em>&ldquo;How robust is this trade across uncertainty?&rdquo;</em>
+      Runs 1,000 scenarios with randomized inputs, returning a profit distribution, Value-at-Risk,
+      and a clear signal: <strong>Strong Go / Go / Cautious / Weak / No-Go</strong>.
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 8. POST-SOLVE LLM EXPLANATION                               -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="postsolve">
+  <h2><span class="num">8</span> Post-Solve: LLM Analyst Explanation</h2>
+  <p class="lead">
+    After the solver returns a result, an AI model writes a concise analyst note explaining the
+    recommendation in plain English &mdash; why this allocation makes sense, which routes dominate,
+    and what risks to watch.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph IN["Post-Solve Inputs"]
+    direction TB
+    VARS2["Solver Input<br/>Variables"]
+    RESULT["Solver Result<br/><i>Profit, tons,<br/>route allocation</i>"]
+    OBJ2["Optimization<br/>Objective"]
+    PG["Product Group<br/>Context"]
+  end
+
+  LLM2["LLM Analyst<br/><i>Writes concise<br/>trading note</i>"]
+
+  subgraph OUT["Analyst Output"]
+    direction TB
+    NOTE["3&ndash;5 sentence<br/>analyst note"]
+    RISK["Risk flags &amp;<br/>constraints to watch"]
+    REC["Actionable<br/>recommendation"]
+  end
+
+  IN --> LLM2
+  LLM2 --> OUT
+
+  style IN fill:#fef9e7,stroke:#e6a817
+  style LLM2 fill:#f5eef8,stroke:#8e44ad
+  style OUT fill:#eafaf1,stroke:#27ae60
+    </pre>
+  </div>
+
+  <div class="callout info">
+    <strong>Example output:</strong> <em>&ldquo;The solver favors the Meredosia-to-St. Louis route at 2,100 MT,
+    capturing a $40/t margin driven by elevated STL delivered prices. Memphis allocation is limited
+    by barge availability (shadow price: $12.50/barge). With lock delays at 10.5 hours, transit
+    costs remain manageable but warrant monitoring &mdash; a 2-hour increase would shift 300 MT from
+    STL to Memphis.&rdquo;</em>
+  </div>
+
+  <h3 style="margin-top:20px; color: var(--trammo-navy);">For Monte Carlo results, the LLM also explains:</h3>
+  <ul style="margin:12px 0 0 24px; font-size:0.92rem; color:#4a5568;">
+    <li>What the profit distribution shape means for trade confidence</li>
+    <li>The VaR/upside spread and whether the trader should proceed</li>
+    <li>Which variables have the highest sensitivity (biggest impact on profit)</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 9. AUTO-RUNNER                                              -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="auto-runner">
+  <h2><span class="num">9</span> Auto-Runner: Continuous Monitoring</h2>
+  <p class="lead">
+    The system doesn't wait for traders to act. When live data changes materially, the auto-runner
+    automatically triggers a Monte Carlo analysis, notifies traders, and records the result on an
+    immutable audit chain.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  DATA["Live Data Update<br/><i>Any API source</i>"]
+
+  DELTA{"Material<br/>change?<br/><i>|delta| &ge; threshold<br/>for any variable</i>"}
+
+  COOL{"Cooldown<br/>elapsed?<br/><i>Min 5 min between<br/>auto-solves</i>"}
+
+  SOLVE["Run Full Pipeline<br/><i>Monte Carlo<br/>1,000 scenarios</i>"]
+
+  subgraph ACTIONS["On Solve Complete"]
+    direction LR
+    CHAIN["Record to<br/>audit chain"]
+    NOTIFY2["Notify<br/>traders"]
+    EXPLAIN["AI generates<br/>explanation"]
+    DASH["Update<br/>dashboard"]
+  end
+
+  WAIT["Wait for next<br/>data update"]
+
+  DATA --> DELTA
+  DELTA -->|"No"| WAIT
+  DELTA -->|"Yes"| COOL
+  COOL -->|"No"| WAIT
+  COOL -->|"Yes"| SOLVE
+  SOLVE --> ACTIONS
+  ACTIONS --> WAIT
+  WAIT -.->|"Next poll"| DATA
+
+  style DELTA fill:#fdedec,stroke:#e74c3c
+  style COOL fill:#fef9e7,stroke:#e6a817
+  style SOLVE fill:#f5eef8,stroke:#8e44ad
+  style ACTIONS fill:#eafaf1,stroke:#27ae60
+    </pre>
+  </div>
+
+  <div class="callout success">
+    <strong>Always-on intelligence:</strong> Traders receive proactive alerts when conditions shift enough
+    to change the optimal trade. The system identifies <em>which</em> variables triggered the re-solve
+    and <em>how</em> the recommendation changed &mdash; so traders know exactly what happened and why.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 10. CONTRACT LIFECYCLE                                      -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="contracts">
+  <h2><span class="num">10</span> Contract Lifecycle</h2>
+  <p class="lead">
+    Contracts flow from upload through AI-powered clause extraction, legal review, and SAP validation
+    before they gate trading. The system ensures traders never operate against unchecked obligations.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  UPLOAD["Contract<br/>Uploaded<br/><i>PDF / Document</i>"]
+
+  EXTRACT["LLM Clause<br/>Extraction<br/><i>Price, volume,<br/>payment, penalty</i>"]
+
+  REVIEW["Legal<br/>Review<br/><i>Template check<br/>+ clause approval</i>"]
+
+  DECISION{" "}
+
+  APPROVED["Approved<br/><i>Clauses feed<br/>into solver</i>"]
+
+  REJECTED["Rejected<br/><i>Back to<br/>counterparty</i>"]
+
+  SAP["SAP<br/>Validation<br/><i>Position sync<br/>+ FX check</i>"]
+
+  GATE["Trading<br/>Gate<br/><i>All required<br/>clauses present?</i>"]
+
+  SOLVER2["Solver<br/>Constraints<br/><i>Prices, volumes,<br/>penalties applied</i>"]
+
+  UPLOAD --> EXTRACT
+  EXTRACT --> REVIEW
+  REVIEW --> DECISION
+  DECISION -->|"Approve"| APPROVED
+  DECISION -->|"Reject"| REJECTED
+  APPROVED --> SAP
+  SAP --> GATE
+  GATE -->|"Ready"| SOLVER2
+
+  style EXTRACT fill:#f5eef8,stroke:#8e44ad
+  style REVIEW fill:#fef9e7,stroke:#e6a817
+  style APPROVED fill:#eafaf1,stroke:#27ae60
+  style REJECTED fill:#fdedec,stroke:#e74c3c
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 11. DECISION LEDGER                                         -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="decisions">
+  <h2><span class="num">11</span> Trader Decision Ledger</h2>
+  <p class="lead">
+    When traders override live data based on their expertise (e.g., &ldquo;I know barges will drop to 10
+    next week&rdquo;), those decisions are tracked in an append-only ledger with drift detection that
+    automatically flags when reality diverges from assumptions.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  TRADER["Trader proposes<br/>variable override<br/><i>e.g. barge_count = 10</i>"]
+
+  subgraph STATUS["Decision Lifecycle"]
+    direction LR
+    DRAFT["Draft<br/><i>Private what-if</i>"]
+    PROPOSED["Proposed<br/><i>Visible to team</i>"]
+    APPLIED["Applied<br/><i>Active in solver</i>"]
+    REVOKED["Revoked /<br/>Superseded"]
+  end
+
+  DRIFT{"Drift<br/>Detection<br/><i>Live data diverged<br/>from assumption?</i>"}
+  DEACTIVATE["Auto-deactivate<br/>+ notify trader"]
+  EFFECTIVE["Effective State<br/><i>Live Data +<br/>Applied Decisions</i>"]
+  SOLVER3["Solver uses<br/>effective state"]
+
+  TRADER --> DRAFT
+  DRAFT --> PROPOSED
+  PROPOSED -->|"Approve"| APPLIED
+  PROPOSED -->|"Reject"| REVOKED
+  APPLIED --> DRIFT
+  DRIFT -->|"Drift too high"| DEACTIVATE
+  DRIFT -->|"Still valid"| EFFECTIVE
+  DEACTIVATE --> REVOKED
+  EFFECTIVE --> SOLVER3
+
+  style STATUS fill:#ebf5fb,stroke:#2e86de
+  style DRIFT fill:#fef9e7,stroke:#e6a817
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 12. WHAT-IF WORKFLOW                                        -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="whatif">
+  <h2><span class="num">12</span> What-If Analysis Workflow</h2>
+  <p class="lead">
+    A guided 5-step wizard for exploring hypothetical scenarios. Traders can ask natural-language
+    questions like <em>&ldquo;What if lock delays double and we lose 3 barges?&rdquo;</em> and get
+    AI-framed solver results with full explanations.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  S1["Step 1<br/><b>Variables</b><br/><i>Review current<br/>state by group</i>"]
+
+  S2["Step 2<br/><b>Contracts</b><br/><i>Inspect active<br/>contracts &amp;<br/>their clauses</i>"]
+
+  S3["Step 3<br/><b>Prompt</b><br/><i>Trader enters<br/>natural-language<br/>what-if question</i>"]
+
+  S4["Step 4<br/><b>AI Framing</b><br/><i>LLM translates<br/>question into<br/>variable changes</i>"]
+
+  S5["Step 5<br/><b>Results</b><br/><i>Solver output +<br/>AI explanation<br/>for each model</i>"]
+
+  S1 --> S2 --> S3 --> S4 --> S5
+
+  style S1 fill:#ebf5fb,stroke:#2e86de
+  style S2 fill:#ebf5fb,stroke:#2e86de
+  style S3 fill:#fef9e7,stroke:#e6a817
+  style S4 fill:#f5eef8,stroke:#8e44ad
+  style S5 fill:#eafaf1,stroke:#27ae60
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 13. END-TO-END FLOW                                         -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="end-to-end">
+  <h2><span class="num">13</span> End-to-End: From Raw Data to Trading Decision</h2>
+  <p class="lead">
+    Bringing it all together &mdash; here is the complete flow from external data through
+    AI-augmented optimization to a trader's actionable decision.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  subgraph WORLD["Real World"]
+    direction LR
+    RIVER["Mississippi<br/>River"]
+    WEATHER["Weather<br/>Conditions"]
+    LOCKS["Lock<br/>System"]
+    MARKETS["Commodity<br/>Markets"]
+    TERMINALS["Trammo<br/>Terminals"]
+    FLEET["Barge<br/>Fleet"]
+    PARTNERS["Trading<br/>Partners"]
+  end
+
+  subgraph INGEST["Continuous Data Ingestion"]
+    direction LR
+    POLL2["10+ API feeds<br/><i>Configurable polling<br/>intervals per source</i>"]
+    FALLBACK["Cascading fallbacks<br/><i>Backup APIs &rarr;<br/>historical averages &rarr;<br/>last known values</i>"]
+  end
+
+  STATE["Live State: 20 Variables<br/><i>6 environmental + 5 operational + 9 commercial</i>"]
+
+  subgraph CONTRACTS2["Contract Layer"]
+    direction LR
+    SCAN["Auto-scan for<br/>changed contracts"]
+    EXTRACT2["LLM extracts<br/>clauses"]
+    BRIDGE["Constraint Bridge<br/><i>Clauses &rarr; variable<br/>adjustments</i>"]
+  end
+
+  subgraph AI_SOLVE["AI-Augmented Optimization"]
+    direction TB
+    PRE["PRE-SOLVE<br/><i>LLM reads contracts +<br/>trader notes, adjusts<br/>solver inputs</i>"]
+    SOLVE2["SOLVE<br/><i>LP optimizer finds<br/>best route allocation<br/>(single or 1000x Monte Carlo)</i>"]
+    POST["POST-SOLVE<br/><i>LLM writes analyst note<br/>explaining the result<br/>in plain English</i>"]
+  end
+
+  subgraph OUTPUTS2["Trader Outputs"]
+    direction LR
+    ALLOC["Optimal allocation<br/><i>Tons per route<br/>+ expected profit</i>"]
+    SIGNAL["Go / No-Go signal<br/><i>Risk-adjusted<br/>recommendation</i>"]
+    EXPL["AI analyst note<br/><i>Why this trade,<br/>what to watch</i>"]
+    AUDIT2["Immutable audit<br/><i>Full trail for<br/>compliance</i>"]
+  end
+
+  DECIDE(["Trader makes<br/>informed decision<br/><i>Execute, adjust,<br/>or pass</i>"])
+
+  WORLD --> INGEST
+  INGEST --> STATE
+  STATE --> AI_SOLVE
+  CONTRACTS2 --> PRE
+  PARTNERS --> CONTRACTS2
+  PRE --> SOLVE2
+  SOLVE2 --> POST
+  POST --> OUTPUTS2
+  OUTPUTS2 --> DECIDE
+
+  style WORLD fill:#ebf5fb,stroke:#2e86de
+  style INGEST fill:#ebf5fb,stroke:#2e86de
+  style STATE fill:#fef9e7,stroke:#e6a817
+  style CONTRACTS2 fill:#fef9e7,stroke:#e6a817
+  style AI_SOLVE fill:#f5eef8,stroke:#8e44ad
+  style OUTPUTS2 fill:#eafaf1,stroke:#27ae60
+  style DECIDE fill:#eafaf1,stroke:#27ae60
+    </pre>
+  </div>
+
+  <div class="callout success" style="font-size:1rem;">
+    <strong>The result:</strong> A trader sitting at their desk sees a continuously updated,
+    AI-explained optimization that accounts for live river conditions, weather, lock delays,
+    market prices, freight rates, terminal inventory, fleet availability, working capital,
+    and every active contract obligation &mdash; all in real time, with a clear recommendation
+    and full audit trail.
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<div class="footer">
+  Trammo Trading Desk &middot; Decision Support System &middot; Confidential &middot; February 2026
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#ebf5fb',
+      primaryBorderColor: '#2e86de',
+      primaryTextColor: '#0b1d3a',
+      lineColor: '#5a6c7d',
+      secondaryColor: '#fef9e7',
+      tertiaryColor: '#eafaf1',
+      fontSize: '14px'
+    },
+    flowchart: {
+      htmlLabels: true,
+      curve: 'basis',
+      padding: 16
+    }
+  });
+
+  // Sticky nav active state
+  const sections = document.querySelectorAll('.section[id]');
+  const navLinks = document.querySelectorAll('.nav a');
+  window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(s => {
+      if (window.scrollY >= s.offsetTop - 100) current = s.id;
+    });
+    navLinks.forEach(a => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -64,10 +64,14 @@ defmodule TradingDesk.Solver.SolveAudit do
     :result,                   # %Result{} or %Distribution{}
     :result_status,            # :optimal | :infeasible | :error (from Result) or signal from Distribution
 
+    # ── Presolve framing ────────────────────────────────────
+    :framing_report,           # %{adjustments: [...], warnings: [...], framing_notes: "..."}
+
     # ── Timeline ───────────────────────────────────────────
     :started_at,               # pipeline started
     :contracts_checked_at,     # hash check completed
     :ingestion_completed_at,   # re-ingestion completed (nil if no changes)
+    :framing_completed_at,     # presolve framing completed
     :solve_started_at,         # LP solver invoked
     :completed_at,             # result returned
 

@@ -92,6 +92,11 @@ defmodule TradingDesk.Contracts.Store do
     GenServer.call(__MODULE__, {:counterparties, product_group})
   end
 
+  @doc "Soft-delete a contract (set deleted_at + reason, remove from active set)"
+  def soft_delete(contract_id, reason) do
+    GenServer.call(__MODULE__, {:soft_delete, contract_id, reason})
+  end
+
   # --- GenServer ---
 
   @impl true
@@ -327,6 +332,32 @@ defmodule TradingDesk.Contracts.Store do
           updated_at: DateTime.utc_now()
         }
         :ets.insert(state.contracts, {contract_id, updated})
+        {:reply, {:ok, updated}, state}
+      [] ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:soft_delete, contract_id, reason}, _from, state) do
+    case :ets.lookup(state.contracts, contract_id) do
+      [{^contract_id, contract}] ->
+        now = DateTime.utc_now()
+        updated = %{contract |
+          deleted_at: now,
+          deletion_reason: reason,
+          updated_at: now
+        }
+        :ets.insert(state.contracts, {contract_id, updated})
+
+        # Remove from active set if it was active
+        key = Contract.canonical_key(updated)
+        case :ets.lookup(state.active, key) do
+          [{^key, ^contract_id}] -> :ets.delete(state.active, key)
+          _ -> :ok
+        end
+
+        Logger.info("Contract soft-deleted: #{contract.counterparty} v#{contract.version} (#{reason})")
         {:reply, {:ok, updated}, state}
       [] ->
         {:reply, {:error, :not_found}, state}

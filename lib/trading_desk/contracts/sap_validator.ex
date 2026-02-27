@@ -17,7 +17,7 @@ defmodule TradingDesk.Contracts.SapValidator do
   can be validated in a single pass.
   """
 
-  alias TradingDesk.Contracts.{Contract, SapClient, Store}
+  alias TradingDesk.Contracts.{Clause, Contract, SapClient, Store}
 
   require Logger
 
@@ -171,24 +171,26 @@ defmodule TradingDesk.Contracts.SapValidator do
     sap_conditions = sap[:condition_records] || []
 
     Enum.reduce(contract_prices, acc, fn clause, discrepancies ->
-      sap_match = Enum.find(sap_conditions, fn sc -> sc[:parameter] == clause.parameter end)
+      param = Clause.parameter(clause)
+      val = Clause.value(clause)
+      sap_match = Enum.find(sap_conditions, fn sc -> sc[:parameter] == param end)
 
       cond do
         is_nil(sap_match) ->
           [%{
-            field: {:price, clause.parameter},
+            field: {:price, param},
             severity: :medium,
             message: "Price term from contract not found in SAP conditions",
-            contract_value: clause.value,
+            contract_value: val,
             sap_value: nil
           } | discrepancies]
 
-        abs(clause.value - sap_match[:value]) > 0.01 ->
+        is_number(val) and abs(val - sap_match[:value]) > 0.01 ->
           [%{
-            field: {:price, clause.parameter},
+            field: {:price, param},
             severity: :high,
-            message: "Price mismatch: contract=$#{clause.value}, SAP=$#{sap_match[:value]}",
-            contract_value: clause.value,
+            message: "Price mismatch: contract=$#{val}, SAP=$#{sap_match[:value]}",
+            contract_value: val,
             sap_value: sap_match[:value]
           } | discrepancies]
 
@@ -201,7 +203,7 @@ defmodule TradingDesk.Contracts.SapValidator do
   defp compare_volumes(acc, contract, sap) do
     contract_obligations =
       (contract.clauses || [])
-      |> Enum.filter(&(&1.type == :obligation and &1.unit == "tons"))
+      |> Enum.filter(fn c -> c.type == :obligation and Clause.unit(c) == "tons" end)
 
     sap_qty = sap[:target_quantity]
 
@@ -209,12 +211,15 @@ defmodule TradingDesk.Contracts.SapValidator do
       acc
     else
       Enum.reduce(contract_obligations, acc, fn clause, discrepancies ->
-        if clause.value && abs(clause.value - sap_qty) / max(sap_qty, 1) > 0.05 do
+        val = Clause.value(clause)
+        param = Clause.parameter(clause)
+
+        if is_number(val) and abs(val - sap_qty) / max(sap_qty, 1) > 0.05 do
           [%{
-            field: {:volume, clause.parameter},
+            field: {:volume, param},
             severity: :high,
-            message: "Volume differs >5%: contract=#{clause.value}t, SAP=#{sap_qty}t",
-            contract_value: clause.value,
+            message: "Volume differs >5%: contract=#{val}t, SAP=#{sap_qty}t",
+            contract_value: val,
             sap_value: sap_qty
           } | discrepancies]
         else

@@ -33,9 +33,13 @@ defmodule TradingDesk.Router do
   scope "/", TradingDesk do
     pipe_through [:browser, :require_auth]
 
-    live "/",          ScenarioLive
+    live "/",          LandingLive
+    live "/home",      LandingLive
+    live "/desk",      ScenarioLive
+    live "/whatif",    WhatifLive
     live "/contracts", ContractsLive
     live "/variables", VariableManagerLive
+    live "/decisions", DecisionsLive
   end
 
   # ── SAP integration endpoints (no browser auth needed) ───────────────────

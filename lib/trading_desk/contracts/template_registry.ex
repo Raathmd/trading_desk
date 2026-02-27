@@ -446,21 +446,16 @@ defmodule TradingDesk.Contracts.TemplateRegistry do
   # ──────────────────────────────────────────────────────────
   #
   # The 28 canonical clauses and 7 families are compile-time defaults.
-  # Copilot (or any external source) can register additional clause
-  # types and families at runtime via register_clause/2 and
-  # register_family/2. Dynamic additions are stored in :persistent_term
-  # and merged with the compiled defaults on lookup.
-  #
-  # This means the app does NOT need to know all clause types up front.
-  # Copilot can discover new clause types in real contracts and register
-  # them dynamically.
+  # External sources can register additional clause types and families
+  # at runtime via register_clause/2 and register_family/2. Dynamic
+  # additions are stored in :persistent_term and merged with the
+  # compiled defaults on lookup.
 
   @dynamic_clauses_key {__MODULE__, :dynamic_clauses}
   @dynamic_families_key {__MODULE__, :dynamic_families}
 
   @doc """
-  Register a new clause type at runtime. Called by CopilotIngestion
-  when Copilot discovers clause types not in the canonical inventory.
+  Register a new clause type at runtime.
 
   `clause_id` — unique string ID (e.g., "SANCTIONS_COMPLIANCE")
   `definition` — map with :category, :anchors, :extract_fields, :lp_mapping, :level_default

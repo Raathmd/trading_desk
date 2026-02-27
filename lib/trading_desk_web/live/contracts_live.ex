@@ -13,6 +13,7 @@ defmodule TradingDesk.ContractsLive do
   use Phoenix.LiveView
 
   alias TradingDesk.Contracts.{
+    Clause,
     Store,
     Pipeline,
     LegalReview,
@@ -227,6 +228,20 @@ defmodule TradingDesk.ContractsLive do
     {:noreply, assign(socket, :pipeline_status, "Validating all templates...")}
   end
 
+  # --- Events: Folder Scan & Reimport ---
+
+  @impl true
+  def handle_event("scan_folder", _params, socket) do
+    TradingDesk.Contracts.FolderScanner.scan_async(socket.assigns.product_group)
+    {:noreply, assign(socket, :pipeline_status, "Scanning contract folder...")}
+  end
+
+  @impl true
+  def handle_event("reimport_all", _params, socket) do
+    TradingDesk.Contracts.FolderScanner.reimport_all_async(socket.assigns.product_group)
+    {:noreply, assign(socket, :pipeline_status, "Reimporting all contracts — clearing schedules...")}
+  end
+
   # --- Events: Trader ---
 
   @impl true
@@ -267,7 +282,7 @@ defmodule TradingDesk.ContractsLive do
       <%!-- === TOP BAR === --%>
       <div style="background:#0d1117;border-bottom:1px solid #1b2838;padding:10px 20px;display:flex;justify-content:space-between;align-items:center">
         <div style="display:flex;align-items:center;gap:12px">
-          <a href="/" style="color:#94a3b8;text-decoration:none;font-size:12px">&larr; DESK</a>
+          <a href="/home" style="color:#94a3b8;text-decoration:none;font-size:12px">&larr; HOME</a>
           <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">CONTRACT MANAGEMENT</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -657,8 +672,8 @@ defmodule TradingDesk.ContractsLive do
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
               <span style="font-size:11px;font-weight:700;color:#e2e8f0">
                 <%= clause.type |> to_string() |> String.upcase() %>
-                <%= if clause.parameter do %>
-                  <span style="color:#38bdf8;font-weight:400;margin-left:6px"><%= clause.parameter %></span>
+                <%= if Clause.parameter(clause) do %>
+                  <span style="color:#38bdf8;font-weight:400;margin-left:6px"><%= Clause.parameter(clause) %></span>
                 <% end %>
               </span>
               <div style="display:flex;gap:6px;align-items:center">
@@ -668,16 +683,16 @@ defmodule TradingDesk.ContractsLive do
                 <span style="font-size:12px;color:#7b8fa4"><%= clause.reference_section %></span>
               </div>
             </div>
-            <%= if clause.value do %>
+            <%= if Clause.value(clause) do %>
               <div style="display:flex;gap:16px;margin-bottom:6px;font-size:12px">
-                <%= if clause.operator do %>
-                  <span style="color:#94a3b8"><%= clause.operator %> <span style="color:#e2e8f0;font-family:monospace;font-weight:600"><%= format_val(clause.value) %></span> <span style="color:#94a3b8"><%= clause.unit %></span></span>
+                <%= if Clause.operator(clause) do %>
+                  <span style="color:#94a3b8"><%= Clause.operator(clause) %> <span style="color:#e2e8f0;font-family:monospace;font-weight:600"><%= format_val(Clause.value(clause)) %></span> <span style="color:#94a3b8"><%= Clause.unit(clause) %></span></span>
                 <% end %>
-                <%= if clause.penalty_per_unit do %>
-                  <span style="color:#ef4444">Penalty: $<%= clause.penalty_per_unit %>/<%= clause.unit || "unit" %></span>
+                <%= if Clause.penalty_per_unit(clause) do %>
+                  <span style="color:#ef4444">Penalty: $<%= Clause.penalty_per_unit(clause) %>/<%= Clause.unit(clause) || "unit" %></span>
                 <% end %>
-                <%= if clause.period do %>
-                  <span style="color:#94a3b8"><%= clause.period %></span>
+                <%= if Clause.period(clause) do %>
+                  <span style="color:#94a3b8"><%= Clause.period(clause) %></span>
                 <% end %>
               </div>
             <% end %>
@@ -704,7 +719,7 @@ defmodule TradingDesk.ContractsLive do
       <div style="font-size:11px;color:#94a3b8;letter-spacing:1px;margin-bottom:12px">
         OPERATIONS — <%= @product_group |> to_string() |> String.upcase() %>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
         <button phx-click="validate_all_templates"
           style="padding:10px;border:none;border-radius:6px;font-weight:600;font-size:11px;background:#312e81;color:#a78bfa;cursor:pointer">
           VALIDATE TEMPLATES
@@ -716,6 +731,17 @@ defmodule TradingDesk.ContractsLive do
         <button phx-click="refresh_positions"
           style="padding:10px;border:none;border-radius:6px;font-weight:600;font-size:11px;background:#0c4a6e;color:#38bdf8;cursor:pointer">
           REFRESH POSITIONS
+        </button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button phx-click="scan_folder"
+          style="padding:10px;border:none;border-radius:6px;font-weight:600;font-size:11px;background:#065f46;color:#34d399;cursor:pointer">
+          SCAN FOLDER
+        </button>
+        <button phx-click="reimport_all"
+          style="padding:10px;border:none;border-radius:6px;font-weight:600;font-size:11px;background:#7f1d1d;color:#fca5a5;cursor:pointer"
+          data-confirm="This will clear ALL scheduled deliveries and reimport every contract file. Continue?">
+          REIMPORT ALL
         </button>
       </div>
     </div>
@@ -792,10 +818,10 @@ defmodule TradingDesk.ContractsLive do
             <%= for clause <- (c.clauses || []) do %>
               <tr style="border-bottom:1px solid #1e293b11">
                 <td style="padding:4px"><%= clause.type %></td>
-                <td style="padding:4px;color:#e2e8f0"><%= clause.parameter %></td>
-                <td style="padding:4px;text-align:center"><%= clause.operator %></td>
-                <td style="padding:4px;text-align:right;font-family:monospace;font-weight:600"><%= format_val(clause.value) %></td>
-                <td style="padding:4px;color:#94a3b8"><%= clause.unit %></td>
+                <td style="padding:4px;color:#e2e8f0"><%= Clause.parameter(clause) %></td>
+                <td style="padding:4px;text-align:center"><%= Clause.operator(clause) %></td>
+                <td style="padding:4px;text-align:right;font-family:monospace;font-weight:600"><%= format_val(Clause.value(clause)) %></td>
+                <td style="padding:4px;color:#94a3b8"><%= Clause.unit(clause) %></td>
                 <td style={"padding:4px;text-align:center;color:#{confidence_color(clause.confidence)}"}><%= clause.confidence %></td>
               </tr>
             <% end %>
@@ -834,6 +860,7 @@ defmodule TradingDesk.ContractsLive do
 
   # Pipeline event formatting
   defp format_pipeline_event(:extraction_started, p), do: "Extracting #{p.file} for #{p.counterparty}..."
+  defp format_pipeline_event(:extraction_stage, p), do: "Stage #{p.stage}: #{p.detail}"
   defp format_pipeline_event(:extraction_complete, p), do: "Extracted #{p.clause_count} clauses from #{p.counterparty} v#{p.version}"
   defp format_pipeline_event(:extraction_failed, p), do: "Extraction failed: #{p.reason}"
   defp format_pipeline_event(:template_validation_complete, _), do: "Template validation complete"
@@ -851,6 +878,10 @@ defmodule TradingDesk.ContractsLive do
   defp format_pipeline_event(:product_group_extraction_complete, p), do: "Extracted #{p.total} contracts"
   defp format_pipeline_event(:product_group_validation_complete, _), do: "SAP validation complete"
   defp format_pipeline_event(:product_group_template_validation_complete, _), do: "Template validation complete"
+  defp format_pipeline_event(:folder_scan_started, p), do: "Scanning folder: #{p.directory}..."
+  defp format_pipeline_event(:folder_scan_complete, p), do: "Scan complete: #{p.new_ingested} new, #{p.re_ingested} updated, #{p.removed} removed, #{p.unchanged} unchanged"
+  defp format_pipeline_event(:reimport_started, _), do: "Reimporting all contracts..."
+  defp format_pipeline_event(:reimport_complete, p), do: "Reimport complete: #{p.new_ingested} ingested, #{Map.get(p, :schedules_cleared, 0)} schedules cleared"
   defp format_pipeline_event(event, _), do: "#{event}"
 
   # Colors

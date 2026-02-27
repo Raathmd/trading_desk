@@ -29,20 +29,26 @@ defmodule TradingDesk.ScenarioLive do
   alias TradingDesk.Fleet.TrackedVessel
   alias TradingDesk.Schedule.DeliveryScheduler
   alias TradingDesk.Workflow.PendingDeliveryChange
+  alias TradingDesk.Decisions.DecisionLedger
 
   @impl true
   def mount(_params, session, socket) do
     current_user_email = Map.get(session, "authenticated_email")
+    # Load traders from DB; default to first active trader
+    available_traders = Traders.list_active()
+    selected_trader   = List.first(available_traders)
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "live_data")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "auto_runner")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "solve_pipeline")
       Phoenix.PubSub.subscribe(TradingDesk.PubSub, "sap_events")
+      Phoenix.PubSub.subscribe(TradingDesk.PubSub, "decisions")
+      # Subscribe to trader-specific notifications
+      if selected_trader do
+        Phoenix.PubSub.subscribe(TradingDesk.PubSub, "notifications:#{selected_trader.id}")
+      end
     end
-
-    # Load traders from DB; default to first active trader
-    available_traders = Traders.list_active()
-    selected_trader   = List.first(available_traders)
 
     # Product group defaults from trader's primary assignment
     product_group =
@@ -53,7 +59,9 @@ defmodule TradingDesk.ScenarioLive do
     trader_id = if selected_trader, do: to_string(selected_trader.id), else: "trader_1"
 
     # Defensive: GenServer calls may fail if services haven't started yet
-    live_vars = safe_call(fn -> LiveState.get() end, ProductGroup.default_values(product_group))
+    # Use effective state (LiveState + applied decisions) as the base for traders
+    live_vars = safe_call(fn -> DecisionLedger.effective_state(product_group) end,
+      safe_call(fn -> LiveState.get() end, ProductGroup.default_values(product_group)))
     auto_result = safe_call(fn -> TradingDesk.Scenarios.AutoRunner.latest() end, nil)
     vessel_data = safe_call(fn -> LiveState.get_supplementary(:vessel_tracking) end, nil)
     tides_data = safe_call(fn -> LiveState.get_supplementary(:tides) end, nil)
@@ -115,7 +123,7 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:ammonia_prices, TradingDesk.Data.AmmoniaPrices.price_summary())
       |> assign(:contracts_data, load_contracts_data())
       |> assign(:api_status, load_api_status())
-      |> assign(:api_configs, TradingDesk.ApiConfig.get_entries("global"))
+      |> assign(:api_configs, safe_call(fn -> TradingDesk.ApiConfig.get_entries("global") end, %{}))
       |> assign(:api_config_flash, nil)
       |> assign(:solve_history, [])
       |> assign(:history_stats, nil)
@@ -149,19 +157,44 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:model_summary, "")
       |> assign(:scenario_description, "")
       |> assign(:trader_sub_tab, :scenario)
+      # HuggingFace multi-model explanations (postsolve — kept for Response tab)
+      |> assign(:hf_postsolve_explanations, [])
+      |> assign(:hf_postsolve_loading, false)
+      # Presolve framing (kept for pipeline audit)
+      |> assign(:framing_report, nil)
+      # Unified presolve pipeline
+      |> assign(:presolve_pipeline_running, false)
+      |> assign(:presolve_pipeline_results, [])
+      |> assign(:presolve_model_progress, %{})
+      |> assign(:presolve_active_contracts, [])
+      # LLM output persistence
+      |> assign(:last_audit_id, nil)
+      |> assign(:llm_outputs_saved, false)
+      # Scenario picker popup
+      |> assign(:show_scenario_picker, false)
+      |> assign(:scenario_picker_selected, nil)
+      # Notifications
+      |> assign(:notifications_unread, 0)
+      |> assign(:show_notifications, false)
+      |> assign(:notifications, [])
 
     # Build the initial model summary from the fully-assigned socket
     socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
+
+    # Load notification count
+    socket = refresh_notification_count(socket)
 
     {:ok, socket}
   end
 
   @impl true
   def handle_event("solve", _params, socket) do
-    # Show pre-solve review popup instead of solving immediately.
-    # Kick off async Claude model summary (intent_loading -> intent_result).
+    # Show pre-solve review popup with full state — including active contract clauses.
     book = TradingDesk.Contracts.SapPositions.book_summary()
     anon_preview = build_anon_model_preview(socket.assigns.model_summary, book)
+    store_key = if socket.assigns.product_group == :ammonia_domestic, do: :ammonia, else: socket.assigns.product_group
+    active_contracts = safe_call(fn -> TradingDesk.Contracts.Store.get_active_set(store_key) end, [])
+
     socket =
       socket
       |> assign(:show_review, true)
@@ -170,6 +203,10 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:anon_model_preview, anon_preview)
       |> assign(:show_anon_preview, false)
       |> assign(:intent, nil)
+      |> assign(:presolve_active_contracts, active_contracts)
+      |> assign(:presolve_pipeline_running, false)
+      |> assign(:presolve_pipeline_results, [])
+      |> assign(:presolve_model_progress, %{})
       |> maybe_parse_intent()
     {:noreply, socket}
   end
@@ -178,6 +215,9 @@ defmodule TradingDesk.ScenarioLive do
   def handle_event("monte_carlo", _params, socket) do
     book = TradingDesk.Contracts.SapPositions.book_summary()
     anon_preview = build_anon_model_preview(socket.assigns.model_summary, book)
+    store_key = if socket.assigns.product_group == :ammonia_domestic, do: :ammonia, else: socket.assigns.product_group
+    active_contracts = safe_call(fn -> TradingDesk.Contracts.Store.get_active_set(store_key) end, [])
+
     socket =
       socket
       |> assign(:show_review, true)
@@ -186,6 +226,10 @@ defmodule TradingDesk.ScenarioLive do
       |> assign(:anon_model_preview, anon_preview)
       |> assign(:show_anon_preview, false)
       |> assign(:intent, nil)
+      |> assign(:presolve_active_contracts, active_contracts)
+      |> assign(:presolve_pipeline_running, false)
+      |> assign(:presolve_pipeline_results, [])
+      |> assign(:presolve_model_progress, %{})
       |> maybe_parse_intent()
     {:noreply, socket}
   end
@@ -193,6 +237,119 @@ defmodule TradingDesk.ScenarioLive do
   @impl true
   def handle_event("toggle_anon_preview", _params, socket) do
     {:noreply, assign(socket, :show_anon_preview, !socket.assigns.show_anon_preview)}
+  end
+
+  @impl true
+  def handle_event("start_presolve_pipeline", _params, socket) do
+    # Launch the unified presolve pipeline: frame → solve → explain per model
+    lv_pid = self()
+    vars = socket.assigns.current_vars
+    pg = socket.assigns.product_group
+    notes = socket.assigns[:scenario_description]
+    objective = socket.assigns.objective_mode
+
+    # Initialize progress for all registered models
+    model_ids = TradingDesk.LLM.ModelRegistry.ids()
+    initial_progress = Map.new(model_ids, fn id -> {id, :pending} end)
+
+    socket =
+      socket
+      |> assign(:presolve_pipeline_running, true)
+      |> assign(:presolve_pipeline_results, [])
+      |> assign(:presolve_model_progress, initial_progress)
+
+    spawn(fn ->
+      try do
+        TradingDesk.LLM.PresolvePipeline.run_all(vars,
+          caller_pid: lv_pid,
+          product_group: pg,
+          trader_notes: notes,
+          objective: objective,
+          solver_opts: [objective: objective]
+        )
+      rescue
+        e ->
+          Logger.error("PresolvePipeline crashed: #{Exception.message(e)}")
+          send(lv_pid, {:presolve_pipeline_done, []})
+      catch
+        kind, reason ->
+          Logger.error("PresolvePipeline error: #{kind} #{inspect(reason)}")
+          send(lv_pid, {:presolve_pipeline_done, []})
+      end
+    end)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("adopt_presolve_result", %{"model" => model_id_str}, socket) do
+    # Find the result for this model and propose it to the decision ledger
+    model_id = String.to_existing_atom(model_id_str)
+
+    case Enum.find(socket.assigns.presolve_pipeline_results, fn {mid, _, _} -> mid == model_id end) do
+      {_, model_name, %{solver_result: result, framed_variables: framed_vars, framing: framing}} ->
+        # Build variable changes from the framing adjustments
+        variable_changes =
+          (framing.adjustments || [])
+          |> Enum.map(fn adj -> {to_string(adj.variable), adj.adjusted} end)
+          |> Map.new()
+
+        trader = Enum.find(socket.assigns.available_traders, &(&1.id == socket.assigns.trader_id))
+        pg = socket.assigns.product_group
+        reason = "Presolve decision via #{model_name}: profit $#{format_number(Map.get(result, :profit, 0))}, " <>
+                 "#{length(framing.adjustments)} adjustment(s)"
+
+        attrs = %{
+          trader_id: trader && trader.id,
+          trader_name: (trader && trader.name) || "Unknown",
+          product_group: to_string(pg),
+          variable_changes: variable_changes,
+          change_modes: variable_changes |> Map.keys() |> Enum.map(&{&1, "absolute"}) |> Map.new(),
+          reason: reason,
+          audit_id: nil,
+          intent: socket.assigns.intent,
+          baseline_snapshot: socket.assigns.current_vars
+        }
+
+        case DecisionLedger.propose(attrs) do
+          {:ok, decision} ->
+            # Also store the solver result + framed vars as the active result
+            socket =
+              socket
+              |> assign(:result, result)
+              |> assign(:current_vars, framed_vars)
+              |> assign(:show_review, false)
+              |> assign(:presolve_pipeline_running, false)
+              |> assign(:scenario_saved_flash, "Decision ##{decision.id} proposed from #{model_name}")
+
+            {:noreply, socket}
+
+          {:error, _changeset} ->
+            {:noreply, assign(socket, :scenario_saved_flash, "Failed to propose decision")}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("save_llm_outputs", _params, socket) do
+    audit_id = socket.assigns.last_audit_id
+
+    if is_nil(audit_id) do
+      {:noreply, socket}
+    else
+      outputs = build_llm_output_records(socket.assigns)
+      TradingDesk.DB.Writer.persist_llm_outputs(audit_id, outputs)
+
+      # Refresh solve history so the LLM badge appears
+      socket = assign(socket,
+        llm_outputs_saved: true,
+        solve_history: load_solve_history(socket.assigns.product_group, socket.assigns.trader_id)
+      )
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -260,9 +417,10 @@ defmodule TradingDesk.ScenarioLive do
       ts = DateTime.utc_now() |> Calendar.strftime("%Y-%m-%d %H:%M")
       name = "Analysis #{ts}"
       result_with_note = Map.put(result, :analyst_note, explanation)
+      audit_id = socket.assigns[:last_audit_id]
       try do
         Store.save(socket.assigns.trader_id, name,
-          socket.assigns.current_vars, result_with_note, nil)
+          socket.assigns.current_vars, result_with_note, audit_id)
       rescue
         _ -> :ok
       end
@@ -345,7 +503,8 @@ defmodule TradingDesk.ScenarioLive do
       result ->
         pg = to_string(socket.assigns.product_group)
         trader_id = socket.assigns.trader_id
-        {:ok, saved} = Store.save(trader_id, name, socket.assigns.current_vars, result, nil, pg)
+        audit_id = socket.assigns[:last_audit_id]
+        {:ok, saved} = Store.save(trader_id, name, socket.assigns.current_vars, result, audit_id, pg)
         scenarios = Store.list(trader_id)
 
         # Create pending delivery changes for the workflow tab
@@ -367,6 +526,60 @@ defmodule TradingDesk.ScenarioLive do
   end
 
   @impl true
+  def handle_event("commit_decision", %{"reason" => reason}, socket) do
+    # Build variable_changes from overrides — only the variables the trader changed
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+    live = socket.assigns.live_vars
+
+    variable_changes =
+      overrides
+      |> MapSet.to_list()
+      |> Enum.reduce(%{}, fn key, acc ->
+        val = Map.get(current, key)
+        if val != nil, do: Map.put(acc, to_string(key), val), else: acc
+      end)
+
+    if map_size(variable_changes) == 0 do
+      {:noreply, assign(socket, :scenario_saved_flash, "No overrides to commit")}
+    else
+      trader = socket.assigns.selected_trader
+      pg = socket.assigns.product_group
+      audit_id = socket.assigns[:last_audit_id]
+
+      # Capture baseline snapshot — what LiveState values were when the trader
+      # made this decision. Used for drift detection later.
+      baseline_snapshot =
+        variable_changes
+        |> Map.keys()
+        |> Enum.reduce(%{}, fn key_str, acc ->
+          key_atom = String.to_existing_atom(key_str)
+          live_val = Map.get(live, key_atom)
+          if live_val != nil, do: Map.put(acc, key_str, live_val), else: acc
+        end)
+
+      attrs = %{
+        trader_id: trader && trader.id,
+        trader_name: (trader && trader.name) || "Unknown",
+        product_group: to_string(pg),
+        variable_changes: variable_changes,
+        change_modes: variable_changes |> Map.keys() |> Enum.map(&{&1, "absolute"}) |> Map.new(),
+        reason: if(reason == "", do: socket.assigns.trader_action, else: reason),
+        audit_id: if(audit_id, do: to_string(audit_id), else: nil),
+        intent: socket.assigns.intent,
+        baseline_snapshot: baseline_snapshot
+      }
+
+      case DecisionLedger.propose(attrs) do
+        {:ok, decision} ->
+          {:noreply, assign(socket, :scenario_saved_flash, "Decision ##{decision.id} proposed — go to DECISIONS to apply")}
+
+        {:error, _changeset} ->
+          {:noreply, assign(socket, :scenario_saved_flash, "Failed to commit decision")}
+      end
+    end
+  end
+
   @impl true
   def handle_event("save_and_send_ops", _params, socket) do
     case socket.assigns.result do
@@ -384,7 +597,8 @@ defmodule TradingDesk.ScenarioLive do
         preview = if action != "", do: " — #{String.slice(action, 0, 42)}", else: ""
         name = "#{timestamp_str}#{preview}"
 
-        {:ok, _} = Store.save(trader_id, name, socket.assigns.current_vars, result, nil)
+        audit_id = socket.assigns[:last_audit_id]
+        {:ok, _} = Store.save(trader_id, name, socket.assigns.current_vars, result, audit_id)
         scenarios = Store.list(trader_id)
 
         ops_ctx = %{
@@ -420,8 +634,68 @@ defmodule TradingDesk.ScenarioLive do
           |> assign(:active_tab, :trader)
           |> assign(:explanation, analyst_note)
           |> assign(:explaining, false)
+          # Close the picker popup if it was open
+          |> assign(:show_scenario_picker, false)
+          |> assign(:scenario_picker_selected, nil)
 
         # Rebuild model summary from restored variables
+        socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
+
+        {:noreply, socket}
+    end
+  end
+
+  # ── Scenario Picker (apply overrides onto current effective state) ──
+
+  @impl true
+  def handle_event("open_scenario_picker", _params, socket) do
+    {:noreply, assign(socket, show_scenario_picker: true, scenario_picker_selected: nil)}
+  end
+
+  @impl true
+  def handle_event("close_scenario_picker", _params, socket) do
+    {:noreply, assign(socket, show_scenario_picker: false, scenario_picker_selected: nil)}
+  end
+
+  @impl true
+  def handle_event("preview_scenario", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    scenario = Enum.find(socket.assigns.saved_scenarios, &(&1.id == id))
+    {:noreply, assign(socket, :scenario_picker_selected, scenario)}
+  end
+
+  @impl true
+  def handle_event("apply_scenario_overrides", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    case Enum.find(socket.assigns.saved_scenarios, &(&1.id == id)) do
+      nil -> {:noreply, socket}
+      scenario ->
+        # Compute which variables the trader actually changed vs. the live base
+        # at the time they saved. We diff the scenario variables against current
+        # effective state — only keys where the scenario value differs are applied.
+        effective = socket.assigns.live_vars
+        saved_vars = scenario.variables
+
+        {merged, override_keys} =
+          Enum.reduce(saved_vars, {effective, MapSet.new()}, fn {key, saved_val}, {acc_vars, acc_keys} ->
+            live_val = Map.get(effective, key)
+            if saved_val != nil and saved_val != live_val do
+              {Map.put(acc_vars, key, saved_val), MapSet.put(acc_keys, key)}
+            else
+              {acc_vars, acc_keys}
+            end
+          end)
+
+        socket =
+          socket
+          |> assign(:current_vars, merged)
+          |> assign(:overrides, override_keys)
+          |> assign(:result, nil)
+          |> assign(:active_tab, :trader)
+          |> assign(:show_scenario_picker, false)
+          |> assign(:scenario_picker_selected, nil)
+          |> assign(:scenario_saved_flash, "Applied #{MapSet.size(override_keys)} override(s) from \"#{scenario.name}\"")
+
         socket = assign(socket, :model_summary, build_model_summary_text(socket.assigns))
 
         {:noreply, socket}
@@ -438,6 +712,13 @@ defmodule TradingDesk.ScenarioLive do
       frame = ProductGroup.frame(product_group)
 
       if frame do
+        # Resubscribe to new trader's notifications
+        old_tid = socket.assigns.trader_id
+        if connected?(socket) do
+          if old_tid, do: Phoenix.PubSub.unsubscribe(TradingDesk.PubSub, "notifications:#{old_tid}")
+          Phoenix.PubSub.subscribe(TradingDesk.PubSub, "notifications:#{trader.id}")
+        end
+
         socket =
           socket
           |> assign(:selected_trader, trader)
@@ -454,6 +735,7 @@ defmodule TradingDesk.ScenarioLive do
           |> assign(:result, nil)
           |> assign(:distribution, nil)
           |> assign(:saved_scenarios, safe_call(fn -> Store.list(to_string(trader.id)) end, []))
+          |> refresh_notification_count()
 
         {:noreply, socket}
       else
@@ -525,11 +807,13 @@ defmodule TradingDesk.ScenarioLive do
         :fleet ->
           assign_fleet(socket, socket.assigns.fleet_pg_filter)
         :schedule ->
-          assign(socket, schedule_lines: DeliveryScheduler.build_schedule())
+          pg = socket.assigns.product_group
+          assign(socket, schedule_lines: DeliveryScheduler.build_schedule_from_db(pg))
         :workflow ->
           # Load schedule lines if not yet loaded (shared source of truth with schedule tab)
+          pg = socket.assigns.product_group
           socket = if socket.assigns.schedule_lines == [],
-            do: assign(socket, schedule_lines: DeliveryScheduler.build_schedule()),
+            do: assign(socket, schedule_lines: DeliveryScheduler.build_schedule_from_db(pg)),
             else: socket
           pg = to_string(socket.assigns.product_group)
           changes = safe_call(fn -> PendingDeliveryChange.list_for_product_group(pg, socket.assigns.workflow_status_filter) end, [])
@@ -547,8 +831,8 @@ defmodule TradingDesk.ScenarioLive do
   def handle_event("refresh_schedule_summary", _params, socket) do
     lines = case socket.assigns.schedule_lines do
       [] ->
-        loaded = DeliveryScheduler.build_schedule()
-        loaded
+        pg = socket.assigns.product_group
+        DeliveryScheduler.build_schedule_from_db(pg)
       existing -> existing
     end
 
@@ -567,7 +851,8 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_event("reload_schedule", _params, socket) do
-    lines = DeliveryScheduler.build_schedule()
+    pg = socket.assigns.product_group
+    lines = DeliveryScheduler.build_schedule_from_db(pg)
     {:noreply, assign(socket, schedule_lines: lines, schedule_summary: nil)}
   end
 
@@ -699,7 +984,7 @@ defmodule TradingDesk.ScenarioLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(:api_configs, TradingDesk.ApiConfig.get_entries("global"))
+         |> assign(:api_configs, safe_call(fn -> TradingDesk.ApiConfig.get_entries("global") end, %{}))
          |> assign(:api_config_flash, "#{source} saved")
          |> assign(:api_status, load_api_status())}
 
@@ -893,8 +1178,11 @@ defmodule TradingDesk.ScenarioLive do
     vars = socket.assigns.current_vars
     pg = socket.assigns.product_group
     obj = socket.assigns.objective_mode
+    notes = socket.assigns[:scenario_description]
     solver_opts = [objective: obj]
-    Pipeline.solve_async(vars, product_group: pg, caller_ref: :trader_solve, solver_opts: solver_opts)
+    Pipeline.solve_async(vars,
+      product_group: pg, caller_ref: :trader_solve,
+      solver_opts: solver_opts, trader_notes: notes)
     {:noreply, socket}
   end
 
@@ -903,8 +1191,11 @@ defmodule TradingDesk.ScenarioLive do
     vars = socket.assigns.current_vars
     pg = socket.assigns.product_group
     obj = socket.assigns.objective_mode
+    notes = socket.assigns[:scenario_description]
     solver_opts = [objective: obj]
-    Pipeline.monte_carlo_async(vars, product_group: pg, caller_ref: :trader_mc, solver_opts: solver_opts)
+    Pipeline.monte_carlo_async(vars,
+      product_group: pg, caller_ref: :trader_mc,
+      solver_opts: solver_opts, trader_notes: notes)
     {:noreply, socket}
   end
 
@@ -920,7 +1211,7 @@ defmodule TradingDesk.ScenarioLive do
   end
 
   def handle_info({:pipeline_event, :pipeline_ingesting, %{changed: n, caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
-    {:noreply, assign(socket, pipeline_phase: :ingesting, pipeline_detail: "#{n} contract#{if n != 1, do: "s", else: ""} changed — Copilot ingesting")}
+    {:noreply, assign(socket, pipeline_phase: :ingesting, pipeline_detail: "#{n} contract#{if n != 1, do: "s", else: ""} changed — contract LLM ingesting")}
   end
 
   def handle_info({:pipeline_event, :pipeline_ingest_done, %{caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
@@ -931,12 +1222,23 @@ defmodule TradingDesk.ScenarioLive do
     {:noreply, assign(socket, pipeline_phase: :solving, contracts_stale: true)}
   end
 
+  def handle_info({:pipeline_event, :pipeline_framing, %{caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
+    {:noreply, assign(socket, pipeline_phase: :framing, pipeline_detail: "LLM framing solver input from contracts")}
+  end
+
+  def handle_info({:pipeline_event, :pipeline_framed, %{adjustments: n, caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
+    detail = if n > 0, do: "#{n} contract adjustment#{if n != 1, do: "s", else: ""} applied", else: nil
+    {:noreply, assign(socket, pipeline_phase: :solving, pipeline_detail: detail)}
+  end
+
   def handle_info({:pipeline_event, :pipeline_solving, %{caller_ref: ref}}, socket) when ref in [:trader_solve, :trader_mc] do
     {:noreply, assign(socket, pipeline_phase: :solving)}
   end
 
   def handle_info({:pipeline_event, :pipeline_solve_done, %{mode: :solve, result: result, caller_ref: :trader_solve} = payload}, socket) do
     contracts_stale = Map.get(payload, :contracts_stale, false) or socket.assigns.contracts_stale
+    framing_report = Map.get(payload, :framing_report)
+    last_audit_id = Map.get(payload, :audit_id)
     delivery_impact = compute_delivery_impact(socket.assigns.intent, socket.assigns.product_group)
     socket = assign(socket,
       result: result,
@@ -944,12 +1246,17 @@ defmodule TradingDesk.ScenarioLive do
       pipeline_phase: nil,
       pipeline_detail: nil,
       contracts_stale: contracts_stale,
+      framing_report: framing_report,
+      last_audit_id: last_audit_id,
+      llm_outputs_saved: false,
       explanation: nil,
       explaining: true,
       delivery_impact: delivery_impact,
       ops_sent: false,
       active_tab: :trader,
-      trader_sub_tab: :response
+      trader_sub_tab: :response,
+      hf_postsolve_explanations: [],
+      hf_postsolve_loading: true
     )
     vars = socket.assigns.current_vars
     intent = socket.assigns.intent
@@ -958,6 +1265,7 @@ defmodule TradingDesk.ScenarioLive do
     trader_action  = socket.assigns.trader_action || ""
     trader_scenario = if scenario_desc != "", do: scenario_desc, else: trader_action
     objective = socket.assigns.objective_mode
+    pg = socket.assigns.product_group
     lv_pid = self()
 
     # Update delivery schedule estimated dates based on this solve result
@@ -971,7 +1279,7 @@ defmodule TradingDesk.ScenarioLive do
         socket
       end
 
-    # Spawn explanation + post-solve impact analysis
+    # Spawn explanation + post-solve impact analysis (Claude)
     spawn(fn ->
       try do
         case TradingDesk.Analyst.explain_solve_with_impact(vars, result, intent, trader_scenario, objective) do
@@ -994,21 +1302,45 @@ defmodule TradingDesk.ScenarioLive do
           send(lv_pid, {:explanation_result, {:error, "#{kind}: #{inspect(reason)}"}})
       end
     end)
+
+    # Spawn HuggingFace model explanations in parallel
+    spawn(fn ->
+      try do
+        results = TradingDesk.LLM.PostsolveExplainer.explain_all(vars, result, pg, objective)
+        send(lv_pid, {:hf_postsolve_results, results})
+      rescue
+        e ->
+          Logger.error("HF PostsolveExplainer crashed: #{Exception.message(e)}")
+          send(lv_pid, {:hf_postsolve_results, []})
+      catch
+        kind, reason ->
+          Logger.error("HF PostsolveExplainer error: #{kind} #{inspect(reason)}")
+          send(lv_pid, {:hf_postsolve_results, []})
+      end
+    end)
     {:noreply, socket}
   end
 
   def handle_info({:pipeline_event, :pipeline_solve_done, %{mode: :monte_carlo, result: dist, caller_ref: :trader_mc} = payload}, socket) do
     contracts_stale = Map.get(payload, :contracts_stale, false) or socket.assigns.contracts_stale
+    framing_report = Map.get(payload, :framing_report)
+    last_audit_id = Map.get(payload, :audit_id)
+    pg = socket.assigns.product_group
     socket = assign(socket,
       distribution: dist,
       solving: false,
       pipeline_phase: nil,
       pipeline_detail: nil,
       contracts_stale: contracts_stale,
+      framing_report: framing_report,
+      last_audit_id: last_audit_id,
+      llm_outputs_saved: false,
       explanation: nil,
       explaining: true,
       active_tab: :trader,
-      trader_sub_tab: :response
+      trader_sub_tab: :response,
+      hf_postsolve_explanations: [],
+      hf_postsolve_loading: true
     )
     vars = socket.assigns.current_vars
     lv_pid = self()
@@ -1044,6 +1376,22 @@ defmodule TradingDesk.ScenarioLive do
           send(lv_pid, {:explanation_result, {:error, "#{kind}: #{inspect(reason)}"}})
       end
     end)
+
+    # Spawn HuggingFace model explanations for MC distribution
+    spawn(fn ->
+      try do
+        results = TradingDesk.LLM.PostsolveExplainer.explain_distribution_all(vars, dist, pg)
+        send(lv_pid, {:hf_postsolve_results, results})
+      rescue
+        e ->
+          Logger.error("HF PostsolveExplainer MC crashed: #{Exception.message(e)}")
+          send(lv_pid, {:hf_postsolve_results, []})
+      catch
+        kind, reason ->
+          Logger.error("HF PostsolveExplainer MC error: #{kind} #{inspect(reason)}")
+          send(lv_pid, {:hf_postsolve_results, []})
+      end
+    end)
     {:noreply, socket}
   end
 
@@ -1058,14 +1406,22 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_info({:sap_position_changed, _payload}, socket) do
-    # SAP pushed a position update — refresh API status and contracts data
-    {:noreply, assign(socket, api_status: load_api_status(), contracts_data: load_contracts_data())}
+    # SAP pushed a position update — refresh API status, contracts, and schedule
+    pg = socket.assigns.product_group
+    {:noreply, assign(socket,
+      api_status: load_api_status(),
+      contracts_data: load_contracts_data(),
+      schedule_lines: DeliveryScheduler.build_schedule_from_db(pg)
+    )}
   end
 
   @impl true
   def handle_info({:data_updated, _source}, socket) do
     pg = socket.assigns.product_group
-    live = LiveState.get()
+
+    # Use effective state (LiveState + applied decisions) instead of raw LiveState
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, nil)
+    live = if effective, do: effective, else: LiveState.get()
 
     # Refresh API status on the APIs tab if it's active
     socket = if socket.assigns.active_tab == :apis do
@@ -1081,8 +1437,10 @@ defmodule TradingDesk.ScenarioLive do
       current = socket.assigns.current_vars
       valid_keys = MapSet.new(ProductGroup.variable_keys(pg))
 
+      live_map = if is_struct(live), do: Map.from_struct(live), else: live
+
       updated_current =
-        Enum.reduce(Map.from_struct(live), current, fn {key, val}, acc ->
+        Enum.reduce(live_map, current, fn {key, val}, acc ->
           if MapSet.member?(overrides, key) or not MapSet.member?(valid_keys, key) do
             acc
           else
@@ -1112,6 +1470,125 @@ defmodule TradingDesk.ScenarioLive do
 
   @impl true
   def handle_info({:supplementary_updated, _}, socket) do
+    {:noreply, socket}
+  end
+
+  # Decision ledger events — refresh effective state when decisions change
+  @impl true
+  def handle_info({:decision_applied, _decision}, socket) do
+    pg = socket.assigns.product_group
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, socket.assigns.live_vars)
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+
+    # Merge effective state into current_vars, preserving local overrides
+    updated_current =
+      Enum.reduce(effective, current, fn {key, val}, acc ->
+        if MapSet.member?(overrides, key), do: acc, else: Map.put(acc, key, val)
+      end)
+
+    socket =
+      socket
+      |> assign(:live_vars, effective)
+      |> assign(:current_vars, updated_current)
+      |> assign(:model_summary, build_model_summary_text(Map.put(socket.assigns, :current_vars, updated_current)))
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:decision_revoked, _decision}, socket) do
+    pg = socket.assigns.product_group
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, socket.assigns.live_vars)
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+
+    updated_current =
+      Enum.reduce(effective, current, fn {key, val}, acc ->
+        if MapSet.member?(overrides, key), do: acc, else: Map.put(acc, key, val)
+      end)
+
+    socket =
+      socket
+      |> assign(:live_vars, effective)
+      |> assign(:current_vars, updated_current)
+      |> assign(:model_summary, build_model_summary_text(Map.put(socket.assigns, :current_vars, updated_current)))
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:decision_superseded, _payload}, socket) do
+    pg = socket.assigns.product_group
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, socket.assigns.live_vars)
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+
+    updated_current =
+      Enum.reduce(effective, current, fn {key, val}, acc ->
+        if MapSet.member?(overrides, key), do: acc, else: Map.put(acc, key, val)
+      end)
+
+    socket =
+      socket
+      |> assign(:live_vars, effective)
+      |> assign(:current_vars, updated_current)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:decision_proposed, _decision}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:decision_rejected, _decision}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:decision_deactivated, _decision}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:decision_reactivated, _decision}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:drift_warning, _payload}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:drift_critical, _payload}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:new_notification, _notif}, socket) do
+    {:noreply, refresh_notification_count(socket)}
+  end
+
+  @impl true
+  def handle_info({:effective_state_changed, _}, socket) do
+    pg = socket.assigns.product_group
+    effective = safe_call(fn -> DecisionLedger.effective_state(pg) end, socket.assigns.live_vars)
+    overrides = socket.assigns.overrides
+    current = socket.assigns.current_vars
+
+    updated_current =
+      Enum.reduce(effective, current, fn {key, val}, acc ->
+        if MapSet.member?(overrides, key), do: acc, else: Map.put(acc, key, val)
+      end)
+
+    socket =
+      socket
+      |> assign(:live_vars, effective)
+      |> assign(:current_vars, updated_current)
+
     {:noreply, socket}
   end
 
@@ -1151,6 +1628,39 @@ defmodule TradingDesk.ScenarioLive do
 
   def handle_info({:explanation_result, text}, socket) do
     {:noreply, assign(socket, explanation: text, explaining: false)}
+  end
+
+  # --- Unified presolve pipeline progress ---
+
+  @impl true
+  def handle_info({:presolve_model_progress, model_id, phase}, socket) do
+    progress = Map.put(socket.assigns.presolve_model_progress, model_id, phase)
+    {:noreply, assign(socket, :presolve_model_progress, progress)}
+  end
+
+  @impl true
+  def handle_info({:presolve_model_done, model_id, _result_map}, socket) do
+    progress = Map.put(socket.assigns.presolve_model_progress, model_id, :done)
+    {:noreply, assign(socket, :presolve_model_progress, progress)}
+  end
+
+  @impl true
+  def handle_info({:presolve_model_error, model_id, _phase, _reason}, socket) do
+    progress = Map.put(socket.assigns.presolve_model_progress, model_id, :error)
+    {:noreply, assign(socket, :presolve_model_progress, progress)}
+  end
+
+  @impl true
+  def handle_info({:presolve_pipeline_done, results}, socket) do
+    {:noreply, assign(socket,
+      presolve_pipeline_running: false,
+      presolve_pipeline_results: results
+    )}
+  end
+
+  @impl true
+  def handle_info({:hf_postsolve_results, results}, socket) do
+    {:noreply, assign(socket, hf_postsolve_explanations: results, hf_postsolve_loading: false)}
   end
 
   @impl true
@@ -1220,7 +1730,14 @@ defmodule TradingDesk.ScenarioLive do
               <option value={pg.id} selected={pg.id == @product_group}><%= pg.name %></option>
             <% end %>
           </select>
+          <a href="/home" style="color:#94a3b8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">HOME</a>
           <a href="/contracts" style="color:#a78bfa;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px">CONTRACTS</a>
+          <a href="/decisions" style={"position:relative;color:#f59e0b;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #{if @notifications_unread > 0, do: "#f59e0b44", else: "#1e293b"};border-radius:4px;background:#{if @notifications_unread > 0, do: "#1c1a0f", else: "transparent"}"}>
+            DECISIONS
+            <%= if @notifications_unread > 0 do %>
+              <span style="position:absolute;top:-5px;right:-5px;background:#ef4444;color:#fff;padding:0 4px;border-radius:8px;font-size:8px;font-weight:700;min-width:14px;text-align:center"><%= @notifications_unread %></span>
+            <% end %>
+          </a>
           <a href="/architecture_overview.html" target="_blank" style="color:#38bdf8;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Architecture &amp; Executive Overview">OVERVIEW</a>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
@@ -1315,10 +1832,16 @@ defmodule TradingDesk.ScenarioLive do
                 <% end %>
               </select>
             </div>
-            <button phx-click="reset"
-              style="width:100%;padding:7px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#94a3b8;cursor:pointer;margin-top:8px">
-              📡 RESET TO LIVE
-            </button>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+              <button phx-click="reset"
+                style="padding:7px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#94a3b8;cursor:pointer">
+                📡 RESET TO LIVE
+              </button>
+              <button phx-click="open_scenario_picker" disabled={length(@saved_scenarios) == 0}
+                style={"padding:7px;border:1px solid #{if length(@saved_scenarios) > 0, do: "#eab30844", else: "#1e293b"};border-radius:6px;font-weight:600;font-size:11px;background:#{if length(@saved_scenarios) > 0, do: "#1c1a0f", else: "transparent"};color:#{if length(@saved_scenarios) > 0, do: "#eab308", else: "#475569"};cursor:#{if length(@saved_scenarios) > 0, do: "pointer", else: "default"}"}>
+                LOAD SCENARIO
+              </button>
+            </div>
             <div style="text-align:center;margin-top:6px;font-size:12px;color:#94a3b8">
               <%= MapSet.size(@overrides) %> override<%= if MapSet.size(@overrides) != 1, do: "s", else: "" %> active
             </div>
@@ -1569,10 +2092,10 @@ defmodule TradingDesk.ScenarioLive do
                 </div>
               <% end %>
 
-              <%!-- Collapsible: full model context sent to Claude --%>
+              <%!-- Collapsible: full model context sent to LLM --%>
               <details style="margin-top:8px">
                 <summary style="font-size:11px;color:#94a3b8;cursor:pointer;letter-spacing:1px;font-weight:600;user-select:none">
-                  MODEL CONTEXT (sent to Claude) ▸
+                  MODEL CONTEXT (sent to LLM) ▸
                 </summary>
                 <pre style="font-size:11px;color:#7b8fa4;line-height:1.5;white-space:pre-wrap;margin:6px 0 0;background:#060a11;border:1px solid #1e293b;border-radius:4px;padding:8px;max-height:240px;overflow-y:auto"><%= @model_summary %></pre>
               </details>
@@ -1605,6 +2128,57 @@ defmodule TradingDesk.ScenarioLive do
                   <div style="font-size:13px;color:#7b8fa4;font-style:italic">Analysis will appear here after SOLVE or MONTE CARLO</div>
               <% end %>
             </div>
+
+            <%!-- HuggingFace Model Explanations --%>
+            <%= if @hf_postsolve_loading or @hf_postsolve_explanations != [] do %>
+              <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:10px;padding:20px;margin-bottom:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                  <span style="font-size:12px;color:#a78bfa;font-weight:700;letter-spacing:1px">LOCAL MODEL EXPLANATIONS</span>
+                  <%= if @hf_postsolve_loading do %>
+                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">generating from local models...</span>
+                  <% end %>
+                </div>
+
+                <%= for {_model_id, model_name, result} <- @hf_postsolve_explanations do %>
+                  <div style="background:#060a11;border:1px solid #1e293b;border-radius:8px;padding:14px;margin-bottom:10px">
+                    <div style="font-size:11px;color:#c4b5fd;letter-spacing:1px;font-weight:700;margin-bottom:6px"><%= model_name %></div>
+                    <%= case result do %>
+                      <% {:ok, text} -> %>
+                        <div style="font-size:13px;color:#e2e8f0;line-height:1.7;white-space:pre-wrap"><%= text %></div>
+                      <% {:error, {:model_loading, wait}} -> %>
+                        <div style="font-size:12px;color:#fbbf24">Model is loading (estimated ~<%= round(wait) %>s). Re-run after it warms up.</div>
+                      <% {:error, _reason} -> %>
+                        <div style="font-size:12px;color:#f87171">Model unavailable — check HUGGINGFACE_API_KEY</div>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <%= if @hf_postsolve_loading and @hf_postsolve_explanations == [] do %>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <div style="width:6px;height:6px;border-radius:50%;background:#a78bfa;animation:pulse 1s infinite"></div>
+                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">Waiting for local model responses...</span>
+                  </div>
+                <% end %>
+
+                <%!-- Save all LLM outputs to database --%>
+                <%= if @hf_postsolve_explanations != [] and @last_audit_id do %>
+                  <div style="margin-top:10px;padding-top:10px;border-top:1px solid #1e293b">
+                    <button phx-click="save_llm_outputs"
+                      disabled={@llm_outputs_saved}
+                      style={"width:100%;padding:8px;border:1px solid #{if @llm_outputs_saved, do: "#166534", else: "#6d28d9"};border-radius:6px;font-weight:700;font-size:11px;cursor:#{if @llm_outputs_saved, do: "default", else: "pointer"};letter-spacing:1px;color:#{if @llm_outputs_saved, do: "#4ade80", else: "#c4b5fd"};background:#{if @llm_outputs_saved, do: "#0d1a0d", else: "linear-gradient(135deg,#1e1045,#2d1b69)"}"}>
+                      <%= if @llm_outputs_saved do %>
+                        SAVED TO SOLVE <%= @last_audit_id %>
+                      <% else %>
+                        SAVE ALL LLM OUTPUTS
+                      <% end %>
+                    </button>
+                    <div style="font-size:10px;color:#7b8fa4;margin-top:4px;text-align:center">
+                      Persists framing + presolve + postsolve outputs keyed by LLM model + solve run ID
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
 
             <%!-- Solve result: optimal --%>
             <%= if @result && @result.status == :optimal do %>
@@ -1665,9 +2239,23 @@ defmodule TradingDesk.ScenarioLive do
                 <div style="display:flex;gap:8px;margin-top:12px">
                   <form phx-submit="save_scenario" style="display:flex;gap:8px;flex:1">
                     <input type="text" name="name" placeholder="Scenario name..." style="flex:1;background:#0a0f18;border:1px solid #1e293b;color:#c8d6e5;padding:8px;border-radius:6px;font-size:12px" />
-                    <button type="submit" style="background:#1e293b;border:none;color:#94a3b8;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
+                    <button type="submit" style="background:#1e293b;border:none;color:#94a3b8;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Save</button>
                   </form>
                 </div>
+                <%!-- Commit Decision — proposes overrides to the shared decision ledger --%>
+                <%= if MapSet.size(@overrides) > 0 do %>
+                  <div style="margin-top:8px;padding-top:8px;border-top:1px solid #1e293b">
+                    <form phx-submit="commit_decision" style="display:flex;gap:8px;align-items:center">
+                      <input type="text" name="reason" placeholder="Decision reason (e.g. barge #7 in for repair)..." style="flex:1;background:#0a0f18;border:1px solid #f59e0b44;color:#c8d6e5;padding:8px;border-radius:6px;font-size:12px" />
+                      <button type="submit" style="background:#1c1a0f;border:1px solid #f59e0b55;color:#f59e0b;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:0.5px;white-space:nowrap">
+                        COMMIT DECISION (<%= MapSet.size(@overrides) %>)
+                      </button>
+                    </form>
+                    <div style="font-size:9px;color:#7b8fa4;margin-top:4px">
+                      Proposes your <%= MapSet.size(@overrides) %> override(s) to the decision ledger. Other traders can review and apply.
+                    </div>
+                  </div>
+                <% end %>
               </div>
             <% end %>
 
@@ -2219,10 +2807,10 @@ defmodule TradingDesk.ScenarioLive do
                 <%!-- Empty state --%>
                 <div style="padding:40px;text-align:center;color:#7b8fa4">
                   <div style="font-size:32px;margin-bottom:12px">📋</div>
-                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No delivery lines loaded</div>
+                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No scheduled deliveries</div>
                   <div style="font-size:12px;margin-bottom:16px">
-                    Click <strong style="color:#f472b6">Reload</strong> to generate the schedule from SAP contract positions,
-                    or run a solve from the Trader tab to populate automatically.
+                    Ingest contracts via <strong style="color:#10b981">Scan Folder</strong> on the Contracts page,
+                    or run the seed to populate initial delivery lines.
                   </div>
                   <button phx-click="reload_schedule"
                     style="padding:10px 24px;border:none;border-radius:8px;background:#831843;color:#fce7f3;font-size:13px;font-weight:700;cursor:pointer">
@@ -2499,10 +3087,10 @@ defmodule TradingDesk.ScenarioLive do
                 <%!-- Empty state --%>
                 <div style="padding:40px;text-align:center;color:#7b8fa4">
                   <div style="font-size:32px;margin-bottom:12px">⚙️</div>
-                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No delivery lines loaded</div>
+                  <div style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:6px">No scheduled deliveries</div>
                   <div style="font-size:12px;margin-bottom:16px">
-                    Switch to the <strong style="color:#f472b6">Schedule</strong> tab and click Reload,
-                    or run and save a solve from the Trader tab.
+                    Ingest contracts via <strong style="color:#10b981">Scan Folder</strong> on the Contracts page,
+                    or run the seed to populate initial delivery lines.
                   </div>
                 </div>
               <% end %>
@@ -3117,8 +3705,9 @@ defmodule TradingDesk.ScenarioLive do
                   %{id: "marinetraffic", free: false, label: "MarineTraffic (fallback)", url_placeholder: "",                                     key_placeholder: "MARINETRAFFIC_API_KEY", variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #1"},
                   %{id: "aishub",        free: false, label: "AISHub (fallback)",        url_placeholder: "",                                     key_placeholder: "AISHUB_API_KEY",        variables: ~w(vessel_lat vessel_lon vessel_speed vessel_eta),  note: "Vessel positions fallback #2"},
                   # ── AI / LLM ───────────────────────────────────────────────────────────
-                  %{id: "anthropic",     free: false, label: "Anthropic Claude",         url_placeholder: "https://api.anthropic.com",            key_placeholder: "ANTHROPIC_API_KEY",     variables: ~w(analyst_explanation intent_map),                note: "Analyst explanations & intent mapper"},
-                  %{id: "copilot",       free: false, label: "Copilot / LLM",            url_placeholder: "https://api.openai.com/v1",            key_placeholder: "COPILOT_API_KEY",       variables: ~w(contract_extraction),                           note: "Contract extraction (OpenAI-compatible endpoint)"},
+                  %{id: "anthropic",     free: false, label: "Anthropic Claude (fallback)", url_placeholder: "https://api.anthropic.com",            key_placeholder: "ANTHROPIC_API_KEY",     variables: ~w(analyst_explanation intent_map),                note: "Fallback if local Mistral 7B is unavailable — set key to enable"},
+                  %{id: "huggingface",   free: true,  label: "HuggingFace (Local Bumblebee)", url_placeholder: "Local — Mistral 7B via Bumblebee/EXLA",  key_placeholder: "",                      variables: ~w(presolve_explanation postsolve_explanation intent_map analyst_explanation), note: "LOCAL model — downloaded at startup, no API key needed. Add models in ModelRegistry."},
+                  %{id: "contract_llm",  free: false, label: "Contract LLM",              url_placeholder: "https://api.openai.com/v1",            key_placeholder: "CONTRACT_LLM_API_KEY",  variables: ~w(contract_extraction),                           note: "Contract clause extraction (OpenAI-compatible endpoint)"},
                   # ── Free / Public APIs (no key — URL hardcoded) ────────────────────────
                   %{id: "usgs",          free: true,  label: "USGS Water Services",      url_placeholder: "https://waterservices.usgs.gov/nwis/iv/", key_placeholder: "",                   variables: ~w(river_stage),                                   note: "Public API — 4 Mississippi gauges · no key required"},
                   %{id: "noaa",          free: true,  label: "NOAA Weather",             url_placeholder: "https://api.weather.gov/",             key_placeholder: "",                      variables: ~w(temp_f wind_mph vis_mi precip_in),               note: "Public API — stations KBTR KMEM KSTL KVKS · no key required"},
@@ -4023,14 +4612,17 @@ defmodule TradingDesk.ScenarioLive do
 
                         <%!-- Source --%>
                         <td style="padding:8px">
-                          <%= if solve.source == :trader do %>
-                            <span style="display:inline-flex;align-items:center;gap:4px">
+                          <span style="display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap">
+                            <%= if solve.source == :trader do %>
                               <span style="background:#1e3a5f;color:#38bdf8;font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">MANUAL</span>
                               <span style="color:#94a3b8;font-size:12px"><%= solve.trader_id || "trader" %></span>
-                            </span>
-                          <% else %>
-                            <span style="background:#14532d;color:#4ade80;font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">AUTO</span>
-                          <% end %>
+                            <% else %>
+                              <span style="background:#14532d;color:#4ade80;font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.5px">AUTO</span>
+                            <% end %>
+                            <%= if solve.has_llm_outputs do %>
+                              <span style="background:#1e1045;color:#c4b5fd;font-size:10px;font-weight:700;padding:2px 5px;border-radius:3px;letter-spacing:0.5px">LLM</span>
+                            <% end %>
+                          </span>
                         </td>
 
                         <%!-- Mode --%>
@@ -4146,15 +4738,138 @@ defmodule TradingDesk.ScenarioLive do
         </div>
       </div>
 
-      <%!-- === PRE-SOLVE REVIEW POPUP === --%>
+      <%!-- === SCENARIO PICKER POPUP === --%>
+      <%= if @show_scenario_picker do %>
+        <div style="position:fixed;inset:0;z-index:1000">
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.7)"
+               phx-click="close_scenario_picker"></div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+            <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:720px;max-height:85vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5);pointer-events:auto">
+
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <span style="font-size:14px;font-weight:700;color:#eab308;letter-spacing:1px">LOAD SCENARIO</span>
+                <button phx-click="close_scenario_picker" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
+              </div>
+
+              <div style="font-size:12px;color:#7b8fa4;margin-bottom:14px">
+                Apply a scenario's overrides onto current live data. Only variables that differ from current state will be set.
+              </div>
+
+              <div style="display:flex;gap:16px">
+                <%!-- Left: scenario list --%>
+                <div style={"flex:#{if @scenario_picker_selected, do: "0 0 300px", else: "1"};overflow-y:auto;max-height:60vh"}>
+                  <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead><tr style="border-bottom:1px solid #1e293b">
+                      <th style="text-align:left;padding:6px;color:#94a3b8;font-size:11px">Name</th>
+                      <th style="text-align:right;padding:6px;color:#94a3b8;font-size:11px">Profit</th>
+                      <th style="text-align:right;padding:6px;color:#94a3b8;font-size:11px">Saved</th>
+                    </tr></thead>
+                    <tbody>
+                      <%= for sc <- @saved_scenarios do %>
+                        <% is_selected = @scenario_picker_selected && @scenario_picker_selected.id == sc.id %>
+                        <tr phx-click="preview_scenario" phx-value-id={sc.id}
+                          style={"cursor:pointer;border-bottom:1px solid #1e293b22;transition:background 0.15s;background:#{if is_selected, do: "#1c1a0f", else: "transparent"};border-left:2px solid #{if is_selected, do: "#eab308", else: "transparent"}"}>
+                          <td style="padding:8px 6px;font-weight:600;color:#c8d6e5;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= sc.name %></td>
+                          <td style="text-align:right;padding:8px 6px;font-family:monospace;color:#10b981;font-size:11px">
+                            <%= if sc.result, do: "$#{format_number(sc.result.profit)}", else: "—" %>
+                          </td>
+                          <td style="text-align:right;padding:8px 6px;color:#7b8fa4;font-size:11px;white-space:nowrap">
+                            <%= if sc.saved_at, do: Calendar.strftime(sc.saved_at, "%m/%d %H:%M"), else: "" %>
+                          </td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+
+                <%!-- Right: selected scenario detail --%>
+                <%= if @scenario_picker_selected do %>
+                  <div style="flex:1;border-left:1px solid #1e293b;padding-left:16px;overflow-y:auto;max-height:60vh">
+                    <div style="font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:4px"><%= @scenario_picker_selected.name %></div>
+                    <div style="font-size:11px;color:#7b8fa4;margin-bottom:12px">
+                      Saved <%= if @scenario_picker_selected.saved_at, do: Calendar.strftime(@scenario_picker_selected.saved_at, "%Y-%m-%d %H:%M UTC"), else: "—" %>
+                    </div>
+
+                    <%!-- Result summary --%>
+                    <%= if @scenario_picker_selected.result do %>
+                      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
+                        <div style="background:#0a0f18;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">Profit</div>
+                          <div style="font-size:13px;font-weight:700;color:#10b981;font-family:monospace">$<%= format_number(@scenario_picker_selected.result.profit) %></div>
+                        </div>
+                        <div style="background:#0a0f18;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">ROI</div>
+                          <div style="font-size:13px;font-weight:700;color:#38bdf8;font-family:monospace"><%= Float.round((@scenario_picker_selected.result.roi || 0) * 1.0, 1) %>%</div>
+                        </div>
+                        <div style="background:#0a0f18;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">Tons</div>
+                          <div style="font-size:13px;font-weight:700;color:#c8d6e5;font-family:monospace"><%= format_number(@scenario_picker_selected.result.tons) %></div>
+                        </div>
+                      </div>
+                    <% end %>
+
+                    <%!-- Overrides diff — what would change --%>
+                    <% diffs = scenario_overrides(@scenario_picker_selected, @live_vars) %>
+                    <%= if length(diffs) > 0 do %>
+                      <div style="font-size:11px;color:#eab308;letter-spacing:1px;font-weight:700;margin-bottom:6px">
+                        OVERRIDES TO APPLY (<%= length(diffs) %>)
+                      </div>
+                      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:14px">
+                        <thead><tr style="border-bottom:1px solid #1e293b">
+                          <th style="text-align:left;padding:4px;color:#94a3b8">Variable</th>
+                          <th style="text-align:right;padding:4px;color:#94a3b8">Current</th>
+                          <th style="text-align:center;padding:4px;color:#475569">→</th>
+                          <th style="text-align:right;padding:4px;color:#94a3b8">Scenario</th>
+                        </tr></thead>
+                        <tbody>
+                          <%= for {key, saved_val, live_val} <- diffs do %>
+                            <tr style="border-bottom:1px solid #1e293b11">
+                              <td style="padding:4px;color:#c8d6e5;font-weight:600"><%= humanize_key(key) %></td>
+                              <td style="text-align:right;padding:4px;font-family:monospace;color:#7b8fa4"><%= format_var_value(live_val) %></td>
+                              <td style="text-align:center;padding:4px;color:#475569">→</td>
+                              <td style="text-align:right;padding:4px;font-family:monospace;color:#eab308;font-weight:600"><%= format_var_value(saved_val) %></td>
+                            </tr>
+                          <% end %>
+                        </tbody>
+                      </table>
+                    <% else %>
+                      <div style="font-size:12px;color:#7b8fa4;padding:12px;text-align:center;background:#0a0f18;border-radius:6px">
+                        All variables match current live state — nothing to apply.
+                      </div>
+                    <% end %>
+
+                    <%!-- Apply button --%>
+                    <div style="display:flex;gap:8px">
+                      <button phx-click="apply_scenario_overrides" phx-value-id={@scenario_picker_selected.id}
+                        disabled={length(diffs) == 0}
+                        style={"flex:1;padding:10px;border:none;border-radius:6px;font-weight:700;font-size:12px;letter-spacing:0.5px;cursor:#{if length(diffs) > 0, do: "pointer", else: "default"};background:#{if length(diffs) > 0, do: "linear-gradient(135deg,#ca8a04,#eab308)", else: "#1e293b"};color:#{if length(diffs) > 0, do: "#111", else: "#475569"}"}>
+                        APPLY <%= length(diffs) %> OVERRIDE<%= if length(diffs) != 1, do: "S", else: "" %>
+                      </button>
+                      <button phx-click="load_scenario" phx-value-id={@scenario_picker_selected.id}
+                        style="padding:10px 14px;border:1px solid #1e293b;border-radius:6px;font-weight:600;font-size:11px;background:transparent;color:#94a3b8;cursor:pointer"
+                        title="Restore full scenario (replaces all variables with saved values)">
+                        FULL RESTORE
+                      </button>
+                    </div>
+                    <div style="font-size:9px;color:#7b8fa4;margin-top:6px">
+                      <strong>Apply</strong> merges overrides onto current live data. <strong>Full Restore</strong> replaces all variables with saved values (may be stale).
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      <% end %>
+
+      <%!-- === UNIFIED PRE-SOLVE REVIEW POPUP === --%>
       <%= if @show_review do %>
         <div style="position:fixed;inset:0;z-index:1000">
-          <%!-- Backdrop: sibling to modal, not parent — keeps LiveView event walk from reaching it --%>
           <div style="position:absolute;inset:0;background:rgba(0,0,0,0.7)"
                phx-click="cancel_review"></div>
-          <%!-- Modal: centered, pointer-events threaded through wrapper --%>
           <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
-            <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:640px;max-height:80vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5);pointer-events:auto">
+            <div style="background:#111827;border:1px solid #1e293b;border-radius:12px;padding:24px;width:720px;max-height:85vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.5);pointer-events:auto">
 
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
               <span style="font-size:14px;font-weight:700;color:#e2e8f0;letter-spacing:1px">
@@ -4163,80 +4878,72 @@ defmodule TradingDesk.ScenarioLive do
               <button phx-click="cancel_review" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px">X</button>
             </div>
 
-            <%!-- Trader Scenario — with toggle to show what Claude receives (anonymized) --%>
+            <%!-- Scenario What-If Input --%>
             <div style="background:#0a0318;border-radius:8px;padding:14px;margin-bottom:14px;border-left:3px solid #a78bfa">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                <div style="font-size:12px;color:#a78bfa;letter-spacing:1.2px;font-weight:700">SCENARIO INPUT</div>
-                <%= if @anon_model_preview && @anon_model_preview != "" do %>
-                  <button phx-click="toggle_anon_preview"
-                    style={"font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;font-weight:600;letter-spacing:0.5px;border:1px solid #{if @show_anon_preview, do: "#a78bfa", else: "#374151"};background:#{if @show_anon_preview, do: "#2d1057", else: "transparent"};color:#{if @show_anon_preview, do: "#c4b5fd", else: "#94a3b8"}"}>
-                    <%= if @show_anon_preview, do: "← Show Narrative", else: "🔒 Anonymized (sent to Claude)" %>
-                  </button>
-                <% end %>
-              </div>
-              <%= if @show_anon_preview do %>
-                <%
-                  anon_text = (@anon_model_preview || "")
-                    |> String.split("\n")
-                    |> Enum.reject(&(String.starts_with?(String.trim(&1), "#") or String.trim(&1) == ""))
-                    |> Enum.join("\n")
-                %>
-                <pre style="font-size:12px;color:#c8d6e5;line-height:1.5;white-space:pre-wrap;margin:0;font-family:'Courier New',monospace;max-height:400px;overflow-y:auto"><%= anon_text %></pre>
-                <div style="font-size:11px;color:#7c3aed;margin-top:4px">🔒 Counterparty & vessel names replaced with codes before leaving this server</div>
+              <div style="font-size:12px;color:#a78bfa;letter-spacing:1.2px;font-weight:700;margin-bottom:8px">WHAT-IF SCENARIO</div>
+              <%= if (@scenario_description || "") != "" do %>
+                <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;padding:8px 10px;background:#0d0a20;border-radius:5px;border:1px solid #2d1b69"><%= @scenario_description %></div>
               <% else %>
-                <%!-- Show the trader narrative description prominently --%>
-                <%= if (@scenario_description || "") != "" do %>
-                  <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;padding:8px 10px;background:#0d0a20;border-radius:5px;border:1px solid #2d1b69"><%= @scenario_description %></div>
-                <% else %>
-                  <div style="font-size:12px;color:#7b8fa4;font-style:italic">No description entered — variable adjustments only</div>
-                <% end %>
-                <div style="font-size:11px;color:#7b8fa4;margin-top:6px">Full model context (variables, routes, positions) submitted to solver · click <em>Anonymized</em> to preview what Claude sees</div>
+                <div style="font-size:12px;color:#7b8fa4;font-style:italic">No what-if entered — LLMs will frame from current state only. Add context in the scenario text box before clicking SOLVE.</div>
               <% end %>
             </div>
 
-            <%!-- AI MODEL SUMMARY (generated by Claude from model state) --%>
-            <div style="background:#060c16;border:1px solid #1e3a5f;border-radius:8px;padding:12px;margin-bottom:12px">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                <span style="font-size:12px;color:#38bdf6;letter-spacing:1.2px;font-weight:700">🧠 CLAUDE MODEL SUMMARY</span>
-                <%= if @intent_loading do %>
-                  <span style="font-size:11px;color:#7b8fa4;font-style:italic">analysing model state...</span>
+            <%!-- All Current Variables --%>
+            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px;font-weight:700">CURRENT VARIABLES</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px">
+                <%= for meta <- Enum.filter(@metadata, & Map.get(&1, :type) != :boolean) do %>
+                  <div style="display:flex;justify-content:space-between;padding:2px 4px">
+                    <span style="color:#94a3b8;font-size:11px"><%= meta.label %></span>
+                    <span style={"color:#{if MapSet.member?(@overrides, meta.key), do: "#f59e0b", else: "#94a3b8"};font-family:monospace;font-size:11px"}><%= format_var(meta, Map.get(@current_vars, meta.key)) %></span>
+                  </div>
                 <% end %>
               </div>
-              <%= cond do %>
-                <% @intent_loading -> %>
-                  <div style="display:flex;gap:6px;align-items:center">
-                    <div style="width:6px;height:6px;border-radius:50%;background:#38bdf6;animation:pulse 1s infinite"></div>
-                    <span style="font-size:12px;color:#7b8fa4;font-style:italic">Generating plain-English description of what will be submitted…</span>
-                  </div>
-                <% @intent && @intent.summary && @intent.summary != "" -> %>
-                  <div style="font-size:13px;color:#e2e8f0;line-height:1.65;white-space:pre-wrap"><%= @intent.summary %></div>
-                <% true -> %>
-                  <div style="font-size:12px;color:#7b8fa4;font-style:italic">No scenario description entered — submit to let Claude summarise the model state</div>
+              <%!-- Boolean flags --%>
+              <% bool_vars = Enum.filter(@metadata, & Map.get(&1, :type) == :boolean) %>
+              <%= if bool_vars != [] do %>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid #1e293b">
+                  <%= for meta <- bool_vars do %>
+                    <% val = Map.get(@current_vars, meta.key) %>
+                    <span style={"font-size:10px;padding:2px 6px;border-radius:3px;font-weight:600;background:#{if val, do: "#052e16", else: "#1c0f0f"};color:#{if val, do: "#4ade80", else: "#f87171"};border:1px solid #{if val, do: "#166534", else: "#7f1d1d"}"}>
+                      <%= meta.label %>: <%= if val, do: "ON", else: "OFF" %>
+                    </span>
+                  <% end %>
+                </div>
               <% end %>
             </div>
 
-            <%!-- OBJECTIVE FOR THIS SOLVE --%>
-            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-              <div style="font-size:12px;color:#94a3b8;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE FOR THIS SOLVE</div>
-              <select phx-change="switch_objective" name="objective"
-                style="width:100%;background:#111827;border:1px solid #1e293b;color:#e2e8f0;padding:8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">
-                <%= for {val, label} <- [max_profit: "Maximize Profit", min_cost: "Minimize Cost", max_roi: "Maximize ROI", cvar_adjusted: "CVaR-Adjusted", min_risk: "Minimize Risk"] do %>
-                  <option value={val} selected={val == @objective_mode}><%= label %></option>
-                <% end %>
-              </select>
-              <%!-- Show AI recommendation as a clickable suggestion when it differs from current --%>
-              <%= if @intent && Map.get(@intent, :objective) && Map.get(@intent, :objective) != @objective_mode do %>
-                <button phx-click="switch_objective" phx-value-objective={to_string(Map.get(@intent, :objective))}
-                  style="margin-top:6px;width:100%;padding:6px 10px;border:1px solid #3b82f6;border-radius:4px;background:#0a1628;color:#93c5fd;font-size:11px;font-weight:600;cursor:pointer;text-align:left">
-                  💡 AI suggests: <%= objective_label(Map.get(@intent, :objective)) %> — click to apply
-                </button>
-              <% end %>
-            </div>
+            <%!-- Active Contract Clauses --%>
+            <%= if @presolve_active_contracts != [] do %>
+              <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
+                <div style="font-size:12px;color:#34d399;letter-spacing:1px;margin-bottom:6px;font-weight:700">
+                  ACTIVE CONTRACT CLAUSES (<%= Enum.sum(Enum.map(@presolve_active_contracts, fn c -> length(c.clauses || []) end)) %>)
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                  <thead><tr style="border-bottom:1px solid #1e293b">
+                    <th style="text-align:left;padding:3px 4px;color:#7b8fa4">Counterparty</th>
+                    <th style="text-align:left;padding:3px 4px;color:#7b8fa4">Type</th>
+                    <th style="text-align:left;padding:3px 4px;color:#7b8fa4">Description</th>
+                  </tr></thead>
+                  <tbody>
+                    <%= for contract <- @presolve_active_contracts do %>
+                      <%= for clause <- (contract.clauses || []) do %>
+                        <tr style="border-bottom:1px solid #1e293b11">
+                          <td style="padding:3px 4px;color:#c8d6e5;font-weight:600"><%= contract.counterparty %></td>
+                          <td style="padding:3px 4px;color:#34d399;font-size:10px;font-weight:600;text-transform:uppercase"><%= clause.type || clause.clause_id || "—" %></td>
+                          <td style="padding:3px 4px;color:#94a3b8;font-size:10px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= String.slice(clause.description || "", 0, 100) %></td>
+                        </tr>
+                      <% end %>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+            <% end %>
 
             <%!-- Open Book Positions --%>
             <%= if @sap_positions do %>
               <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:12px">
-                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px">OPEN BOOK (SAP)</div>
+                <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px;font-weight:700">OPEN BOOK (SAP)</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
                   <div style="text-align:center">
                     <div style="font-size:11px;color:#94a3b8">Purchase Open</div>
@@ -4276,30 +4983,147 @@ defmodule TradingDesk.ScenarioLive do
               </div>
             <% end %>
 
-            <%!-- Key Variables Summary --%>
-            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:16px">
-              <div style="font-size:12px;color:#94a3b8;letter-spacing:1px;margin-bottom:6px">CURRENT VARIABLES</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px">
-                <%= for meta <- Enum.take(Enum.filter(@metadata, & Map.get(&1, :type) != :boolean), 12) do %>
-                  <div style="display:flex;justify-content:space-between;padding:2px 4px">
-                    <span style="color:#94a3b8;font-size:12px"><%= meta.label %></span>
-                    <span style={"color:#{if MapSet.member?(@overrides, meta.key), do: "#f59e0b", else: "#94a3b8"};font-family:monospace;font-size:12px"}><%= format_var(meta, Map.get(@current_vars, meta.key)) %></span>
+            <%!-- Objective --%>
+            <div style="background:#0a0f18;border-radius:8px;padding:12px;margin-bottom:14px">
+              <div style="font-size:12px;color:#94a3b8;letter-spacing:1.2px;margin-bottom:6px;font-weight:700">OBJECTIVE</div>
+              <select phx-change="switch_objective" name="objective"
+                style="width:100%;background:#111827;border:1px solid #1e293b;color:#e2e8f0;padding:8px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">
+                <%= for {val, label} <- [max_profit: "Maximize Profit", min_cost: "Minimize Cost", max_roi: "Maximize ROI", cvar_adjusted: "CVaR-Adjusted", min_risk: "Minimize Risk"] do %>
+                  <option value={val} selected={val == @objective_mode}><%= label %></option>
+                <% end %>
+              </select>
+            </div>
+
+            <%!-- Action buttons (before pipeline runs) --%>
+            <%= if not @presolve_pipeline_running and @presolve_pipeline_results == [] do %>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+                <button phx-click="cancel_review"
+                  style="padding:12px;border:1px solid #1e293b;border-radius:8px;background:transparent;color:#94a3b8;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px">
+                  CANCEL
+                </button>
+                <button phx-click="start_presolve_pipeline"
+                  style="padding:12px;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px;color:#c4b5fd;background:linear-gradient(135deg,#1e1045,#2d1b69)">
+                  PRESOLVE (LLMs)
+                </button>
+                <button phx-click="confirm_solve"
+                  style={"padding:12px;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:1px;color:#fff;background:linear-gradient(135deg,#{if @review_mode == :monte_carlo, do: "#7c3aed,#8b5cf6", else: "#0891b2,#06b6d4"})"}>
+                  SOLVE DIRECT
+                </button>
+              </div>
+            <% end %>
+
+            <%!-- Pipeline progress + results --%>
+            <%= if @presolve_pipeline_running or @presolve_pipeline_results != [] do %>
+              <div style="margin-top:4px;padding-top:14px;border-top:1px solid #2d1b69">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                  <span style="font-size:12px;color:#c4b5fd;letter-spacing:1px;font-weight:700">
+                    <%= if @presolve_pipeline_running, do: "PRESOLVE PIPELINE RUNNING...", else: "PRESOLVE RESULTS" %>
+                  </span>
+                  <%= if not @presolve_pipeline_running do %>
+                    <button phx-click="cancel_review"
+                      style="font-size:11px;padding:4px 10px;border:1px solid #1e293b;border-radius:4px;background:transparent;color:#94a3b8;cursor:pointer;font-weight:600">
+                      CLOSE
+                    </button>
+                  <% end %>
+                </div>
+
+                <%!-- Per-model progress indicators (during pipeline) --%>
+                <%= if @presolve_pipeline_running do %>
+                  <div style="display:flex;gap:12px;margin-bottom:14px">
+                    <%= for {model_id, phase} <- @presolve_model_progress do %>
+                      <% model = TradingDesk.LLM.ModelRegistry.get(model_id) %>
+                      <div style="flex:1;background:#0a0318;border:1px solid #2d1b69;border-radius:6px;padding:10px;text-align:center">
+                        <div style="font-size:10px;color:#a78bfa;font-weight:700;letter-spacing:1px;margin-bottom:4px"><%= if model, do: model.name, else: to_string(model_id) %></div>
+                        <div style={"display:flex;gap:4px;align-items:center;justify-content:center;font-size:10px;color:#{presolve_phase_color(phase)}"}>
+                          <%= if phase not in [:done, :error] do %>
+                            <div style={"width:6px;height:6px;border-radius:50%;background:#{presolve_phase_color(phase)};animation:pulse 1s infinite"}></div>
+                          <% end %>
+                          <span style="font-weight:600;text-transform:uppercase"><%= presolve_phase_label(phase) %></span>
+                        </div>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+
+                <%!-- Per-model result cards (after pipeline completes) --%>
+                <%= for {model_id, model_name, result_map} <- @presolve_pipeline_results do %>
+                  <div style="background:#0a0318;border:1px solid #2d1b69;border-radius:8px;padding:14px;margin-bottom:12px">
+                    <%!-- Model header --%>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                      <span style="font-size:12px;color:#a78bfa;letter-spacing:1px;font-weight:700"><%= model_name %></span>
+                      <%= if Map.get(result_map, :status) == :error do %>
+                        <span style="font-size:10px;color:#f87171;font-weight:600;padding:2px 6px;background:#1c0f0f;border-radius:3px;border:1px solid #7f1d1d">
+                          FAILED (<%= result_map.phase %>)
+                        </span>
+                      <% else %>
+                        <span style="font-size:10px;color:#4ade80;font-weight:600;padding:2px 6px;background:#052e16;border-radius:3px;border:1px solid #166534">DONE</span>
+                      <% end %>
+                    </div>
+
+                    <%= if Map.get(result_map, :status) != :error do %>
+                      <%!-- Framing summary --%>
+                      <% framing = result_map.framing %>
+                      <%= if length(framing.adjustments) > 0 do %>
+                        <div style="margin-bottom:8px">
+                          <div style="font-size:10px;color:#22d3ee;letter-spacing:0.5px;font-weight:700;margin-bottom:4px">
+                            FRAMING: <%= length(framing.adjustments) %> adjustment(s)
+                          </div>
+                          <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <%= for adj <- framing.adjustments do %>
+                              <span style="font-size:10px;padding:2px 6px;background:#0a1628;border:1px solid #1e3a5f;border-radius:3px;color:#94a3b8;font-family:monospace">
+                                <%= adj.variable %>: <%= format_framing_value(adj.original) %> → <span style={"color:#{framing_delta_color(adj.original, adj.adjusted)}"}><%= format_framing_value(adj.adjusted) %></span>
+                              </span>
+                            <% end %>
+                          </div>
+                        </div>
+                      <% end %>
+
+                      <%!-- Solver result --%>
+                      <% solver = result_map.solver_result %>
+                      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
+                        <div style="background:#060c16;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">Profit</div>
+                          <div style={"font-size:14px;font-weight:700;font-family:monospace;color:#{if Map.get(solver, :status) == :optimal, do: "#10b981", else: "#f87171"}"}>
+                            $<%= format_number(Map.get(solver, :profit, 0)) %>
+                          </div>
+                        </div>
+                        <div style="background:#060c16;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">Tons</div>
+                          <div style="font-size:14px;font-weight:700;font-family:monospace;color:#60a5fa">
+                            <%= format_number(Map.get(solver, :tons, 0)) %>
+                          </div>
+                        </div>
+                        <div style="background:#060c16;padding:6px 8px;border-radius:4px;text-align:center">
+                          <div style="font-size:10px;color:#94a3b8">ROI</div>
+                          <div style="font-size:14px;font-weight:700;font-family:monospace;color:#f59e0b">
+                            <%= Float.round((Map.get(solver, :roi) || 0.0) / 1, 1) %>%
+                          </div>
+                        </div>
+                      </div>
+
+                      <%!-- LLM Explanation --%>
+                      <%= case result_map.explanation do %>
+                        <% {:ok, text} -> %>
+                          <div style="font-size:12px;color:#e2e8f0;line-height:1.65;white-space:pre-wrap;padding:10px;background:#060c16;border-radius:6px;border:1px solid #1e293b;margin-bottom:10px"><%= text %></div>
+                        <% {:error, reason} -> %>
+                          <div style="font-size:12px;color:#f87171;padding:8px;background:#1c0f0f;border-radius:4px;margin-bottom:10px"><%= hf_error_text(model_id, reason) %></div>
+                      <% end %>
+
+                      <%!-- USE THIS DECISION button --%>
+                      <button phx-click="adopt_presolve_result" phx-value-model={to_string(model_id)}
+                        style="width:100%;padding:8px;border:1px solid #f59e0b;border-radius:6px;font-weight:700;font-size:11px;cursor:pointer;letter-spacing:1px;color:#f59e0b;background:linear-gradient(135deg,#1c1a0f,#261f0a)">
+                        USE THIS DECISION
+                      </button>
+                    <% else %>
+                      <div style="font-size:12px;color:#f87171;padding:8px;background:#1c0f0f;border-radius:4px">
+                        Pipeline failed at <%= result_map.phase %> phase: <%= inspect(result_map.reason) %>
+                      </div>
+                    <% end %>
                   </div>
                 <% end %>
               </div>
-            </div>
+            <% end %>
 
-            <%!-- Action buttons --%>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              <button phx-click="cancel_review"
-                style="padding:12px;border:1px solid #1e293b;border-radius:8px;background:transparent;color:#94a3b8;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:1px">
-                CANCEL
-              </button>
-              <button phx-click="confirm_solve"
-                style={"padding:12px;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;letter-spacing:1px;color:#fff;background:linear-gradient(135deg,#{if @review_mode == :monte_carlo, do: "#7c3aed,#8b5cf6", else: "#0891b2,#06b6d4"})"}>
-                CONFIRM <%= if @review_mode == :monte_carlo, do: "MONTE CARLO", else: "SOLVE" %>
-              </button>
-            </div>
             </div>
           </div>
         </div>
@@ -4419,6 +5243,42 @@ defmodule TradingDesk.ScenarioLive do
     |> String.trim_leading(",")
   end
   defp format_number(val), do: to_string(val)
+
+  @doc false
+  defp scenario_overrides(scenario, effective_vars) do
+    # Compute which variables in a saved scenario differ from current effective state.
+    # Returns a list of {key, saved_value, current_value} tuples.
+    scenario.variables
+    |> Enum.reduce([], fn {key, saved_val}, acc ->
+      live_val = Map.get(effective_vars, key)
+      if saved_val != nil and saved_val != live_val do
+        [{key, saved_val, live_val} | acc]
+      else
+        acc
+      end
+    end)
+    |> Enum.sort_by(fn {key, _, _} -> to_string(key) end)
+  end
+
+  defp humanize_key(key) when is_atom(key), do: humanize_key(to_string(key))
+  defp humanize_key(key) when is_binary(key) do
+    key
+    |> String.replace("_", " ")
+    |> String.split(" ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
+  end
+
+  defp format_var_value(nil), do: "—"
+  defp format_var_value(true), do: "Yes"
+  defp format_var_value(false), do: "No"
+  defp format_var_value(val) when is_float(val) do
+    if val == Float.round(val, 0) and abs(val) >= 1,
+      do: format_number(val),
+      else: Float.round(val, 2) |> to_string()
+  end
+  defp format_var_value(val) when is_integer(val), do: format_number(val * 1.0)
+  defp format_var_value(val), do: to_string(val)
 
   defp load_contracts_data do
     book = TradingDesk.Contracts.SapPositions.book_summary()
@@ -4747,10 +5607,19 @@ defmodule TradingDesk.ScenarioLive do
       end)
 
     # Merge, deduplicate by audit_id, sort newest first
-    (auto_entries ++ trader_entries)
-    |> Enum.uniq_by(& &1.audit_id)
-    |> Enum.sort_by(& &1.completed_at, {:desc, DateTime})
-    |> Enum.take(50)
+    entries =
+      (auto_entries ++ trader_entries)
+      |> Enum.uniq_by(& &1.audit_id)
+      |> Enum.sort_by(& &1.completed_at, {:desc, DateTime})
+      |> Enum.take(50)
+
+    # Check which entries have saved LLM outputs
+    audit_ids = entries |> Enum.map(& &1.audit_id) |> Enum.reject(&is_nil/1)
+    ids_with_llm = TradingDesk.DB.SolveLlmOutput.audit_ids_with_outputs(audit_ids)
+
+    Enum.map(entries, fn e ->
+      Map.put(e, :has_llm_outputs, MapSet.member?(ids_with_llm, e.audit_id))
+    end)
   end
 
   defp extract_auto_result(%{distribution: dist}) when is_map(dist) do
@@ -4906,11 +5775,23 @@ defmodule TradingDesk.ScenarioLive do
   defp objective_label(:min_risk), do: "Minimize Risk"
   defp objective_label(_), do: "Custom Objective"
 
-  defp analyst_error_text(:no_api_key), do: "ANTHROPIC_API_KEY not set. Export it in your shell to enable analyst explanations."
-  defp analyst_error_text(:api_error), do: "Claude API returned an error. Check logs for details."
-  defp analyst_error_text(:request_failed), do: "Could not reach Claude API. Check network connectivity."
+  defp analyst_error_text(:no_llm_available), do: "No LLM available — local model not running and ANTHROPIC_API_KEY not set."
+  defp analyst_error_text(:no_api_key), do: "No LLM available — local model failed and ANTHROPIC_API_KEY not set."
+  defp analyst_error_text(:serving_unavailable), do: "Local model serving not started. Check application startup logs."
+  defp analyst_error_text(:api_error), do: "LLM API returned an error. Check logs for details."
+  defp analyst_error_text(:request_failed), do: "Could not reach LLM. Check logs and network connectivity."
   defp analyst_error_text(msg) when is_binary(msg), do: "Analyst crashed: #{msg}"
   defp analyst_error_text(reason), do: "Analyst error: #{inspect(reason)}"
+
+  defp hf_error_text(_model_id, :serving_unavailable), do: "Local model serving not started. Check application logs."
+  defp hf_error_text(_model_id, {:inference_error, msg}), do: "Local inference error: #{msg}"
+  defp hf_error_text(_model_id, :no_api_key), do: "API key not set for remote model."
+  defp hf_error_text(_model_id, {:model_loading, wait}), do: "Model is loading (estimated ~#{round(wait)}s). Try again shortly."
+  defp hf_error_text(_model_id, :rate_limited), do: "Rate limited. Wait a moment and retry."
+  defp hf_error_text(_model_id, {:api_error, status}), do: "API error (HTTP #{status}). Check logs."
+  defp hf_error_text(_model_id, :request_failed), do: "Request failed. Check network."
+  defp hf_error_text(_model_id, :timeout), do: "Model timed out. It may still be loading — try again."
+  defp hf_error_text(_model_id, reason), do: "Model error: #{inspect(reason)}"
 
   defp pipeline_button_text(false, _, label), do: "⚡ #{label}"
   defp pipeline_button_text(true, :checking_contracts, _), do: "📋 CHECKING CONTRACTS..."
@@ -4919,24 +5800,96 @@ defmodule TradingDesk.ScenarioLive do
   defp pipeline_button_text(true, _, _), do: "⏳ WORKING..."
 
   defp pipeline_phase_text(:checking_contracts), do: "Checking contract hashes"
-  defp pipeline_phase_text(:ingesting), do: "Waiting for Copilot to ingest changes"
+  defp pipeline_phase_text(:ingesting), do: "Waiting for contract LLM to ingest changes"
+  defp pipeline_phase_text(:framing), do: "LLM framing solver input from contracts"
   defp pipeline_phase_text(:solving), do: "Running solver"
   defp pipeline_phase_text(_), do: "Working"
 
   defp pipeline_bg(:checking_contracts), do: "#0c1629"
   defp pipeline_bg(:ingesting), do: "#1a1400"
+  defp pipeline_bg(:framing), do: "#0a2540"
   defp pipeline_bg(:solving), do: "#0c1629"
   defp pipeline_bg(_), do: "#0c1629"
 
   defp pipeline_border(:checking_contracts), do: "#1e3a5f"
   defp pipeline_border(:ingesting), do: "#78350f"
+  defp pipeline_border(:framing), do: "#0891b2"
   defp pipeline_border(:solving), do: "#1e3a5f"
   defp pipeline_border(_), do: "#1e293b"
+
+  defp format_framing_value(nil), do: "—"
+  defp format_framing_value(v) when is_float(v), do: :erlang.float_to_binary(v, decimals: 2)
+  defp format_framing_value(v) when is_integer(v), do: Integer.to_string(v)
+  defp format_framing_value(v), do: inspect(v)
+
+  defp build_llm_output_records(assigns) do
+    postsolve = (assigns[:hf_postsolve_explanations] || [])
+    |> Enum.map(fn {model_id, model_name, result} ->
+      {text, status, error} = case result do
+        {:ok, t} -> {t, "ok", nil}
+        {:error, r} -> {nil, "error", inspect(r)}
+      end
+      %{model_id: model_id, model_name: model_name, phase: :postsolve_explanation,
+        output_text: text, status: status, error_reason: error}
+    end)
+
+    # Build presolve records from the unified pipeline results
+    presolve = (assigns[:presolve_pipeline_results] || [])
+    |> Enum.flat_map(fn {model_id, model_name, result_map} ->
+      if Map.get(result_map, :status) == :error do
+        [%{model_id: model_id, model_name: model_name, phase: :presolve_pipeline,
+           output_text: nil, status: "error", error_reason: inspect(result_map.reason)}]
+      else
+        framing_record = %{
+          model_id: model_id, model_name: model_name, phase: :presolve_framing,
+          output_json: %{
+            adjustments: result_map.framing.adjustments,
+            warnings: result_map.framing.warnings,
+            framing_notes: result_map.framing.framing_notes
+          },
+          status: "ok"
+        }
+        {text, status, error} = case result_map.explanation do
+          {:ok, t} -> {t, "ok", nil}
+          {:error, r} -> {nil, "error", inspect(r)}
+        end
+        explain_record = %{
+          model_id: model_id, model_name: model_name, phase: :presolve_explanation,
+          output_text: text, status: status, error_reason: error
+        }
+        [framing_record, explain_record]
+      end
+    end)
+
+    postsolve ++ presolve
+  end
+
+  defp framing_delta_color(original, adjusted) when is_number(original) and is_number(adjusted) do
+    if adjusted > original, do: "#4ade80", else: "#f87171"
+  end
+  defp framing_delta_color(_, _), do: "#e2e8f0"
 
   defp pipeline_dot(:checking_contracts), do: "#38bdf8"
   defp pipeline_dot(:ingesting), do: "#f59e0b"
   defp pipeline_dot(:solving), do: "#10b981"
   defp pipeline_dot(_), do: "#94a3b8"
+
+  # --- Presolve pipeline phase helpers ---
+  defp presolve_phase_color(:pending), do: "#94a3b8"
+  defp presolve_phase_color(:framing), do: "#a78bfa"
+  defp presolve_phase_color(:solving), do: "#22d3ee"
+  defp presolve_phase_color(:explaining), do: "#f59e0b"
+  defp presolve_phase_color(:done), do: "#4ade80"
+  defp presolve_phase_color(:error), do: "#f87171"
+  defp presolve_phase_color(_), do: "#94a3b8"
+
+  defp presolve_phase_label(:pending), do: "Pending"
+  defp presolve_phase_label(:framing), do: "Framing"
+  defp presolve_phase_label(:solving), do: "Solving"
+  defp presolve_phase_label(:explaining), do: "Explaining"
+  defp presolve_phase_label(:done), do: "Done"
+  defp presolve_phase_label(:error), do: "Error"
+  defp presolve_phase_label(_), do: "—"
 
   # --- Vessel tracking helpers ---
 
@@ -5576,6 +6529,16 @@ defmodule TradingDesk.ScenarioLive do
     catch
       :exit, _ -> fallback
       _, _ -> fallback
+    end
+  end
+
+  defp refresh_notification_count(socket) do
+    tid = socket.assigns[:trader_id]
+    if tid do
+      count = safe_call(fn -> TradingDesk.Decisions.TraderNotification.unread_count(String.to_integer(to_string(tid))) end, 0)
+      assign(socket, :notifications_unread, count)
+    else
+      socket
     end
   end
 end
