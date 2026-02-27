@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trammo Trading Desk — Contract Management Process Flows</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --trammo-navy: #0b1d3a;
+      --trammo-blue: #1a3a6b;
+      --trammo-accent: #2e86de;
+      --trammo-gold: #e6a817;
+      --trammo-light: #f0f4f8;
+      --trammo-green: #27ae60;
+      --trammo-red: #e74c3c;
+      --trammo-orange: #f39c12;
+      --trammo-purple: #8e44ad;
+      --section-radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--trammo-light);
+      color: #2c3e50;
+      line-height: 1.6;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, var(--trammo-navy) 0%, var(--trammo-blue) 100%);
+      color: white;
+      padding: 48px 40px 36px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .header .subtitle {
+      font-size: 1.15rem;
+      opacity: 0.85;
+      font-weight: 300;
+    }
+    .header .date {
+      margin-top: 12px;
+      font-size: 0.85rem;
+      opacity: 0.6;
+    }
+
+    /* ── Navigation ── */
+    .nav {
+      background: white;
+      border-bottom: 1px solid #dce3eb;
+      padding: 0 40px;
+      display: flex;
+      gap: 0;
+      overflow-x: auto;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .nav a {
+      padding: 14px 20px;
+      text-decoration: none;
+      color: #5a6c7d;
+      font-size: 0.9rem;
+      font-weight: 500;
+      border-bottom: 3px solid transparent;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .nav a:hover, .nav a.active {
+      color: var(--trammo-accent);
+      border-bottom-color: var(--trammo-accent);
+    }
+
+    /* ── Content ── */
+    .content {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* ── Sections ── */
+    .section {
+      background: white;
+      border-radius: var(--section-radius);
+      padding: 36px 40px;
+      margin-bottom: 36px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      border: 1px solid #e8edf2;
+    }
+    .section h2 {
+      font-size: 1.5rem;
+      color: var(--trammo-navy);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section h2 .num {
+      background: var(--trammo-accent);
+      color: white;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+    .section .lead {
+      color: #6b7c8d;
+      font-size: 1.02rem;
+      margin-bottom: 24px;
+    }
+
+    /* ── Diagram container ── */
+    .diagram {
+      background: #fafbfd;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 24px;
+      margin: 20px 0;
+      overflow-x: auto;
+    }
+    .diagram .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+
+    /* ── Phase steps ── */
+    .phase-steps {
+      display: flex;
+      gap: 12px;
+      margin: 20px 0;
+      flex-wrap: wrap;
+    }
+    .phase-step {
+      flex: 1;
+      min-width: 140px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      position: relative;
+    }
+    .phase-step .phase-num {
+      background: var(--trammo-accent);
+      color: white;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .phase-step h5 {
+      font-size: 0.88rem;
+      color: var(--trammo-navy);
+      margin-bottom: 4px;
+    }
+    .phase-step p {
+      font-size: 0.78rem;
+      color: #7f8c9b;
+    }
+
+    /* ── Callout boxes ── */
+    .callout {
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 0.92rem;
+    }
+    .callout.info    { background: #ebf5fb; border-left: 4px solid var(--trammo-accent); }
+    .callout.success { background: #eafaf1; border-left: 4px solid var(--trammo-green); }
+    .callout.warning { background: #fef9e7; border-left: 4px solid var(--trammo-gold); }
+    .callout.danger  { background: #fdedec; border-left: 4px solid var(--trammo-red); }
+    .callout strong  { color: var(--trammo-navy); }
+
+    /* ── Variable table ── */
+    .var-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 16px 0;
+    }
+    .var-table th {
+      background: var(--trammo-navy);
+      color: white;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+    }
+    .var-table td {
+      padding: 8px 14px;
+      border-bottom: 1px solid #edf2f7;
+    }
+    .var-table tr:hover td {
+      background: #f7fafc;
+    }
+    .var-table .group-header td {
+      background: #edf2f7;
+      font-weight: 600;
+      color: var(--trammo-blue);
+    }
+
+    /* ── Comparison table ── */
+    .compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 16px 0;
+    }
+    .compare-table th {
+      background: var(--trammo-navy);
+      color: white;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+    }
+    .compare-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #edf2f7;
+      vertical-align: top;
+    }
+    .compare-table tr:hover td { background: #f7fafc; }
+    .compare-table .check { color: var(--trammo-green); font-weight: bold; }
+    .compare-table .cross { color: var(--trammo-red); }
+    .compare-table .partial { color: var(--trammo-orange); }
+
+    /* ── Detail cards ── */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .detail-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 18px 20px;
+      background: #fafbfd;
+      border-left: 4px solid var(--trammo-accent);
+    }
+    .detail-card h4 {
+      font-size: 0.95rem;
+      color: var(--trammo-navy);
+      margin-bottom: 4px;
+    }
+    .detail-card .sub {
+      font-size: 0.8rem;
+      color: #7f8c9b;
+      margin-bottom: 8px;
+    }
+    .detail-card p {
+      font-size: 0.85rem;
+      margin-bottom: 6px;
+    }
+    .detail-card .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .detail-card .tags span {
+      background: #edf2f7;
+      color: #4a5568;
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      padding: 32px;
+      color: #a0aec0;
+      font-size: 0.82rem;
+    }
+
+    /* ── Print styles ── */
+    @media print {
+      .nav { display: none; }
+      .section { break-inside: avoid; page-break-inside: avoid; }
+      body { background: white; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- HEADER                                                      -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="header">
+  <h1>Contract Management Process Flows</h1>
+  <div class="subtitle">Trammo Trading Desk &mdash; 7-Step Contract Wizard &amp; Solver Integration</div>
+  <div class="date">February 2026 &middot; Confidential</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- NAV                                                         -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="nav">
+  <a href="#overview">Overview</a>
+  <a href="#end-to-end">End-to-End Flow</a>
+  <a href="#wizard-steps">7-Step Wizard</a>
+  <a href="#step1">Step 1: Product</a>
+  <a href="#step2">Step 2: Counterparty</a>
+  <a href="#step3">Step 3: Terms</a>
+  <a href="#step4">Step 4: Clauses</a>
+  <a href="#step5">Step 5: Optimizer</a>
+  <a href="#step6">Step 6: Review</a>
+  <a href="#step7">Step 7: Approval</a>
+  <a href="#database">Data Model</a>
+  <a href="#events">Event Pipeline</a>
+  <a href="#comparison">vs. sea.live</a>
+</div>
+
+<div class="content">
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 1. OVERVIEW                                                  -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="overview">
+  <h2><span class="num">1</span> Contract Management Overview</h2>
+  <p class="lead">
+    The Contract Management module is a guided 7-step wizard that takes traders from product group selection
+    through counterparty identification, commercial negotiation, clause selection, LP solver validation,
+    review, and final approval &mdash; all within a single real-time LiveView interface.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph WIZARD["Contract Management Wizard"]
+    direction LR
+    S1["1. Product<br/>Group"]
+    S2["2. Counter-<br/>party"]
+    S3["3. Commercial<br/>Terms"]
+    S4["4. Clause<br/>Selection"]
+    S5["5. Optimizer<br/>Validation"]
+    S6["6. Review<br/>Summary"]
+    S7["7. Approval<br/>Submission"]
+  end
+
+  S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
+
+  subgraph SYSTEMS["Integrated Systems"]
+    direction TB
+    SOLVER["HiGHS LP Solver"]
+    LLM["Claude AI<br/>Post-Solve Explainer"]
+    EVENTS["Event Pipeline<br/>+ Vector Store"]
+    DB["PostgreSQL<br/>Contract Records"]
+  end
+
+  S5 -.->|"solve request"| SOLVER
+  SOLVER -.->|"results"| LLM
+  LLM -.->|"explanation"| S5
+  S7 -->|"create records"| DB
+  S1 -.->|"step events"| EVENTS
+  S3 -.->|"step events"| EVENTS
+  S5 -.->|"validation event"| EVENTS
+  S7 -.->|"approval event"| EVENTS
+
+  style WIZARD fill:#ebf5fb,stroke:#2e86de,color:#0b1d3a
+  style SYSTEMS fill:#fef9e7,stroke:#e6a817,color:#0b1d3a
+    </pre>
+  </div>
+
+  <div class="callout info">
+    <strong>Key differentiator:</strong> Unlike traditional contract management systems that treat contracting
+    as a standalone legal workflow, Trammo&rsquo;s solution integrates a linear-programming solver directly into
+    step 5 of the wizard &mdash; giving traders quantitative validation of contract economics <em>before</em>
+    approval, not after.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 2. END-TO-END FLOW                                          -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="end-to-end">
+  <h2><span class="num">2</span> End-to-End Contract Flow</h2>
+  <p class="lead">
+    From the moment a trader starts a new contract to the point it becomes an active constraint
+    in the solver &mdash; every stage is tracked, audited, and integrated.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+  START(["Trader opens /contracts/manage"]) --> S1["Step 1: Select Product Group<br/><i>NH3 Domestic, Sulphur Intl,<br/>Petcoke, NH3 International</i>"]
+  S1 -->|"event: product_group_selected"| S2["Step 2: Counterparty &amp; Commodity<br/><i>Name, commodity type,<br/>delivery window</i>"]
+  S2 -->|"event: counterparty_set"| S3["Step 3: Commercial Terms<br/><i>Quantity, price, freight,<br/>payment, incoterm</i>"]
+  S3 -->|"event: commercial_terms_set"| S4["Step 4: Clause Selection<br/><i>Force majeure, demurrage,<br/>quality specs, etc.</i>"]
+  S4 -->|"event: clauses_selected"| S5["Step 5: Optimizer Validation<br/><i>HiGHS LP + Claude AI</i>"]
+
+  S5 -->|"Solver runs"| SOLVE{"Solver<br/>Status?"}
+  SOLVE -->|"Optimal"| S5_OK["Results: Profit, ROI,<br/>Route Allocations"]
+  SOLVE -->|"Infeasible"| S5_WARN["Warning: Terms may<br/>not be economically viable"]
+  SOLVE -->|"Unavailable"| S5_SKIP["Manual validation<br/>permitted"]
+
+  S5_OK --> S6
+  S5_WARN --> S6
+  S5_SKIP --> S6
+
+  S6["Step 6: Review Summary<br/><i>All data on one screen</i>"] -->|"event: review_complete"| S7["Step 7: Approval Submission"]
+
+  S7 --> TX{"DB Transaction"}
+  TX --> NEG["Create Negotiation Record"]
+  TX --> CTR["Create Contract Record"]
+  TX --> VER["Create Version v1"]
+  TX --> APR["Create Approval Request"]
+  TX --> EVT["Emit: contract_submitted_for_approval"]
+
+  APR --> PENDING["Pending Approval<br/><i>Trading Manager reviews</i>"]
+  PENDING -->|"Approved"| ACTIVE["Active Contract"]
+  PENDING -->|"Rejected"| REJECTED["Rejected"]
+  ACTIVE -->|"Constraint Bridge"| SOLVER_LIVE["Becomes Solver<br/>Constraint"]
+
+  style START fill:#2e86de,stroke:#1a3a6b,color:white
+  style SOLVE fill:#fef9e7,stroke:#e6a817,color:#0b1d3a
+  style TX fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+  style ACTIVE fill:#27ae60,stroke:#1a6b3a,color:white
+  style REJECTED fill:#e74c3c,stroke:#a93226,color:white
+  style SOLVER_LIVE fill:#8e44ad,stroke:#6c3483,color:white
+    </pre>
+  </div>
+
+  <div class="callout success">
+    <strong>Audit trail:</strong> Every step transition emits an event to the EventEmitter pipeline.
+    Events are vectorized and stored for semantic search, enabling future queries like
+    &ldquo;show me all contracts where the optimizer flagged infeasibility.&rdquo;
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 3. WIZARD STEPS OVERVIEW                                     -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="wizard-steps">
+  <h2><span class="num">3</span> The 7-Step Wizard</h2>
+  <p class="lead">
+    Each step collects specific data, validates before advancing, and emits events at key transitions.
+    The progress bar shows completion status across all steps.
+  </p>
+
+  <div class="phase-steps">
+    <div class="phase-step">
+      <div class="phase-num">1</div>
+      <h5>Product Group</h5>
+      <p>Select the product group for this contract</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">2</div>
+      <h5>Counterparty</h5>
+      <p>Name, commodity, delivery window</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">3</div>
+      <h5>Commercial</h5>
+      <p>Quantity, price, freight, payment, incoterm</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">4</div>
+      <h5>Clauses</h5>
+      <p>Select applicable contract clauses</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">5</div>
+      <h5>Optimizer</h5>
+      <p>HiGHS solver + AI analysis</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">6</div>
+      <h5>Review</h5>
+      <p>Full summary of all data</p>
+    </div>
+    <div class="phase-step">
+      <div class="phase-num">7</div>
+      <h5>Approval</h5>
+      <p>Submit &amp; create records</p>
+    </div>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Step1_Product
+  Step1_Product --> Step2_Counterparty: Validate: product group selected
+  Step2_Counterparty --> Step3_Commercial: Validate: name, commodity, dates
+  Step3_Commercial --> Step4_Clauses: Validate: quantity, price required
+  Step4_Clauses --> Step5_Optimizer: Validate: >= 1 clause selected
+  Step5_Optimizer --> Step6_Review: Always valid (solver optional)
+  Step6_Review --> Step7_Approval: Always valid
+  Step7_Approval --> [*]: Submit for Approval
+
+  Step2_Counterparty --> Step1_Product: Back
+  Step3_Commercial --> Step2_Counterparty: Back
+  Step4_Clauses --> Step3_Commercial: Back
+  Step5_Optimizer --> Step4_Clauses: Back
+  Step6_Review --> Step5_Optimizer: Back
+  Step7_Approval --> Step6_Review: Back
+    </pre>
+  </div>
+
+  <div class="callout warning">
+    <strong>Validation gates:</strong> Steps 1&ndash;4 enforce required fields before allowing forward navigation.
+    Steps 5&ndash;6 are always passable &mdash; the optimizer is recommended but not required, and
+    review is informational. Back navigation is always available.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 4. STEP 1: PRODUCT GROUP                                    -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="step1">
+  <h2><span class="num">4</span> Step 1 &mdash; Product Group Selection</h2>
+  <p class="lead">
+    The trader selects one of four product groups. This determines the available commodities,
+    solver model, and contract reference prefix.
+  </p>
+
+  <div class="detail-grid">
+    <div class="detail-card" style="border-left-color: var(--trammo-accent);">
+      <h4>NH3 Domestic Barge</h4>
+      <div class="sub">ammonia_domestic &middot; Prefix: AD</div>
+      <p>Anhydrous Ammonia, Aqua Ammonia</p>
+      <div class="tags"><span>nola_buy</span> <span>sell_stl</span> <span>sell_mem</span> <span>river_stage</span></div>
+    </div>
+    <div class="detail-card" style="border-left-color: var(--trammo-green);">
+      <h4>Sulphur International</h4>
+      <div class="sub">sulphur_international &middot; Prefix: SI</div>
+      <p>Sulphur (Granular), Sulphur (Liquid), Sulphur (Formed)</p>
+      <div class="tags"><span>intl_freight</span> <span>sulphur_fob</span> <span>vessel_avail</span></div>
+    </div>
+    <div class="detail-card" style="border-left-color: var(--trammo-orange);">
+      <h4>Petcoke</h4>
+      <div class="sub">petcoke &middot; Prefix: PC</div>
+      <p>Fuel-Grade Petcoke, Anode-Grade Petcoke, Calcined Petcoke</p>
+      <div class="tags"><span>petcoke_fob</span> <span>refinery_rates</span> <span>vessel_avail</span></div>
+    </div>
+    <div class="detail-card" style="border-left-color: var(--trammo-purple);">
+      <h4>NH3 International</h4>
+      <div class="sub">ammonia_international &middot; Prefix: AI</div>
+      <p>Anhydrous Ammonia, Ammonia Solution</p>
+      <div class="tags"><span>nh3_cfr</span> <span>freight_intl</span> <span>vessel_avail</span></div>
+    </div>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  SELECT["Trader clicks<br/>product group card"] --> VALIDATE{"Group<br/>selected?"}
+  VALIDATE -->|"Yes"| EMIT["Emit event:<br/>contract_product_group_selected"]
+  VALIDATE -->|"No"| BLOCK["Flash: Please select<br/>a product group"]
+  EMIT --> NEXT["Proceed to Step 2"]
+  BLOCK --> SELECT
+
+  style SELECT fill:#ebf5fb,stroke:#2e86de,color:#0b1d3a
+  style EMIT fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+  style BLOCK fill:#fdedec,stroke:#e74c3c,color:#0b1d3a
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 5. STEP 2: COUNTERPARTY                                     -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="step2">
+  <h2><span class="num">5</span> Step 2 &mdash; Counterparty &amp; Commodity</h2>
+  <p class="lead">
+    Identify the trading counterparty, select the specific commodity (filtered by product group),
+    and define the delivery window.
+  </p>
+
+  <table class="var-table">
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Validation</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Counterparty Name</strong></td><td>Text input</td><td>Required, non-empty</td><td>ACME Trading Corp</td></tr>
+      <tr><td><strong>Commodity</strong></td><td>Select (filtered)</td><td>Required, must match product group</td><td>Anhydrous Ammonia</td></tr>
+      <tr><td><strong>Delivery Window Start</strong></td><td>Date picker</td><td>Required</td><td>2026-03-15</td></tr>
+      <tr><td><strong>Delivery Window End</strong></td><td>Date picker</td><td>Required</td><td>2026-04-30</td></tr>
+    </tbody>
+  </table>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+  PG["Product Group<br/>from Step 1"] -->|"filter commodities"| FORM["Counterparty Form"]
+  FORM --> V{"All fields<br/>filled?"}
+  V -->|"Yes"| EVENT["Emit: contract_counterparty_set"]
+  V -->|"No"| ERR["Flash error:<br/>missing field name"]
+  EVENT --> S3["Step 3: Commercial Terms"]
+
+  style PG fill:#ebf5fb,stroke:#2e86de,color:#0b1d3a
+  style EVENT fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+  style ERR fill:#fdedec,stroke:#e74c3c,color:#0b1d3a
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 6. STEP 3: COMMERCIAL TERMS                                 -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="step3">
+  <h2><span class="num">6</span> Step 3 &mdash; Commercial Terms</h2>
+  <p class="lead">
+    Define the financial structure of the contract: quantity, pricing, freight, payment terms,
+    and incoterm. These values feed directly into the solver in Step 5.
+  </p>
+
+  <table class="var-table">
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Validation</th><th>Solver Mapping</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Quantity</strong></td><td>Number + Unit (MT/KT/BBL)</td><td>Required</td><td>&mdash;</td></tr>
+      <tr><td><strong>Proposed Price (USD)</strong></td><td>Number (2 decimals)</td><td>Required</td><td><code>nh3_price</code></td></tr>
+      <tr><td><strong>Proposed Freight (USD/MT)</strong></td><td>Number (2 decimals)</td><td>Optional</td><td><code>barge_freight</code></td></tr>
+      <tr><td><strong>Payment Terms</strong></td><td>Select</td><td>Default: Net 30</td><td>&mdash;</td></tr>
+      <tr><td><strong>Incoterm</strong></td><td>Select</td><td>Default: FOB</td><td>&mdash;</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout info">
+    <strong>Solver integration:</strong> The proposed price maps to <code>nh3_price</code> and proposed freight
+    maps to <code>barge_freight</code> in the solver variable space. When the optimizer runs in Step 5,
+    these overrides are applied on top of the product group&rsquo;s default variable values.
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  TERMS["Commercial Terms<br/>Form Input"] --> STORE["Assign to<br/>LiveView state"]
+  STORE --> VALIDATE{"Quantity &amp;<br/>Price set?"}
+  VALIDATE -->|"Yes"| EMIT["Emit: commercial_terms_set"]
+  VALIDATE -->|"No"| FLASH["Flash: Quantity/Price required"]
+  EMIT --> S4["Step 4"]
+
+  STORE -.->|"proposed_price"| SOLVER_VAR["nh3_price override"]
+  STORE -.->|"proposed_freight"| SOLVER_VAR2["barge_freight override"]
+
+  style TERMS fill:#ebf5fb,stroke:#2e86de,color:#0b1d3a
+  style SOLVER_VAR fill:#fef9e7,stroke:#e6a817,color:#0b1d3a
+  style SOLVER_VAR2 fill:#fef9e7,stroke:#e6a817,color:#0b1d3a
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 7. STEP 4: CLAUSE SELECTION                                 -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="step4">
+  <h2><span class="num">7</span> Step 4 &mdash; Clause Selection</h2>
+  <p class="lead">
+    Select the legal clauses to include in the contract. Force Majeure and Payment Terms
+    are pre-selected by default. At least one clause must be selected to proceed.
+  </p>
+
+  <table class="var-table">
+    <thead>
+      <tr><th>Clause</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Force Majeure</strong></td><td style="color:var(--trammo-green);">&#10003; Pre-selected</td><td>Acts of God, war, and government actions</td></tr>
+      <tr><td><strong>Demurrage &amp; Dispatch</strong></td><td>&mdash;</td><td>Vessel/barge demurrage rates and dispatch rebate terms</td></tr>
+      <tr><td><strong>Quality Specification</strong></td><td>&mdash;</td><td>Product quality requirements, testing methods, rejection criteria</td></tr>
+      <tr><td><strong>Quantity Tolerance</strong></td><td>&mdash;</td><td>&plusmn;5% at seller&rsquo;s option</td></tr>
+      <tr><td><strong>Price Escalation</strong></td><td>&mdash;</td><td>Index-linked price adjustment mechanism</td></tr>
+      <tr><td><strong>Payment Terms</strong></td><td style="color:var(--trammo-green);">&#10003; Pre-selected</td><td>Net 30 days from bill of lading date</td></tr>
+      <tr><td><strong>Insurance &amp; Liability</strong></td><td>&mdash;</td><td>Marine cargo insurance requirements and liability limits</td></tr>
+      <tr><td><strong>Dispute Resolution</strong></td><td>&mdash;</td><td>Arbitration &mdash; LCIA London or ICC Paris</td></tr>
+      <tr><td><strong>Termination Rights</strong></td><td>&mdash;</td><td>Early termination triggers and notice requirements</td></tr>
+      <tr><td><strong>Confidentiality</strong></td><td>&mdash;</td><td>Non-disclosure of contract terms and pricing</td></tr>
+    </tbody>
+  </table>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+  DEFAULT["Default selection:<br/>Force Majeure + Payment Terms"] --> TOGGLE["Trader toggles<br/>clause checkboxes"]
+  TOGGLE --> CHECK{"&ge; 1 clause<br/>selected?"}
+  CHECK -->|"Yes"| EMIT["Emit: contract_clauses_selected"]
+  CHECK -->|"No"| ERR["Flash: Select at<br/>least one clause"]
+  EMIT --> S5["Step 5: Optimizer"]
+
+  style DEFAULT fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+  style ERR fill:#fdedec,stroke:#e74c3c,color:#0b1d3a
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 8. STEP 5: OPTIMIZER                                        -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="step5">
+  <h2><span class="num">8</span> Step 5 &mdash; Optimizer Validation</h2>
+  <p class="lead">
+    The heart of the system: the trader can run the HiGHS linear-programming solver using the proposed
+    contract terms as variable overrides. After the solve, Claude AI generates a natural-language
+    explanation of the results.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+  BTN["Trader clicks<br/>Run Optimizer Validation"] --> ASYNC["send(self(), :run_optimizer_async)"]
+  ASYNC --> LOAD["Load product group<br/>default variables"]
+  LOAD --> OVERRIDE["Apply contract overrides:<br/>proposed_price → nh3_price<br/>proposed_freight → barge_freight"]
+  OVERRIDE --> SOLVE["Solver.solve(product_group, vars)"]
+
+  SOLVE --> RESULT{"Solve<br/>result?"}
+
+  RESULT -->|"Success"| DISPLAY["Display 4-card grid:<br/>Status | Profit | Tons | ROI"]
+  RESULT -->|"Error/Timeout"| FALLBACK["Fallback result:<br/>status: unavailable<br/>Manual validation OK"]
+
+  DISPLAY --> ROUTES["Show route allocations<br/>(Route 1, Route 2, ...)"]
+  ROUTES --> EXPLAIN["PostsolveExplainer.explain_all()"]
+  EXPLAIN --> AI_NOTE["Display AI Analysis<br/><i>3-5 sentence explanation</i>"]
+
+  FALLBACK --> AI_NOTE2["Display: Optimizer unavailable.<br/>Proceeding with manual validation."]
+
+  AI_NOTE --> EMIT["Emit: contract_optimizer_validated"]
+  AI_NOTE2 --> EMIT
+  EMIT --> NEXT["Step 6: Review"]
+
+  style BTN fill:#2e86de,stroke:#1a3a6b,color:white
+  style SOLVE fill:#fef9e7,stroke:#e6a817,color:#0b1d3a
+  style DISPLAY fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+  style FALLBACK fill:#fdedec,stroke:#e74c3c,color:#0b1d3a
+  style EXPLAIN fill:#f5eef8,stroke:#8e44ad,color:#0b1d3a
+    </pre>
+  </div>
+
+  <div class="callout warning">
+    <strong>Async execution:</strong> The solver runs asynchronously via <code>handle_info(:run_optimizer_async)</code>.
+    A pulsing progress indicator is shown while the solver is running. The UI remains responsive.
+  </div>
+
+  <h3 style="margin: 24px 0 12px; color: var(--trammo-navy);">Solver Output Cards</h3>
+  <div class="phase-steps">
+    <div class="phase-step" style="border-top: 3px solid var(--trammo-green);">
+      <h5>Status</h5>
+      <p>OPTIMAL / INFEASIBLE / UNAVAILABLE</p>
+    </div>
+    <div class="phase-step" style="border-top: 3px solid var(--trammo-green);">
+      <h5>Profit</h5>
+      <p>Projected profit in USD</p>
+    </div>
+    <div class="phase-step" style="border-top: 3px solid var(--trammo-accent);">
+      <h5>Tons</h5>
+      <p>Total optimized volume (MT)</p>
+    </div>
+    <div class="phase-step" style="border-top: 3px solid var(--trammo-accent);">
+      <h5>ROI</h5>
+      <p>Return on capital (%)</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 9. STEP 6: REVIEW                                           -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="step6">
+  <h2><span class="num">9</span> Step 6 &mdash; Review Summary</h2>
+  <p class="lead">
+    A consolidated view of all contract data across all previous steps. No edits are made here &mdash;
+    the trader reviews and can navigate back to any step to make changes.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph REVIEW["Review Summary Page"]
+    direction TB
+    R1["Product Group"]
+    R2["Counterparty &amp; Commodity"]
+    R3["Commercial Terms"]
+    R4["Selected Clauses"]
+    R5["Optimizer Results"]
+  end
+
+  R1 --- R2 --- R3 --- R4 --- R5
+
+  BACK["← Back to any step"] -.-> REVIEW
+  REVIEW --> NEXT["Step 7: Approval →"]
+
+  style REVIEW fill:#ebf5fb,stroke:#2e86de,color:#0b1d3a
+    </pre>
+  </div>
+
+  <div class="callout info">
+    <strong>Data displayed:</strong> Product group label, counterparty name, commodity, delivery dates,
+    quantity + unit, proposed price, freight, payment terms, incoterm, all selected clauses as tags,
+    and optimizer status/profit/ROI (if run).
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 10. STEP 7: APPROVAL                                        -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="step7">
+  <h2><span class="num">10</span> Step 7 &mdash; Approval Submission</h2>
+  <p class="lead">
+    The final step creates all database records in a single transaction and routes the contract
+    for management approval.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+  SUBMIT["Trader clicks<br/>Submit for Approval"] --> TX["Repo.transaction/1"]
+
+  subgraph TX_BODY["Database Transaction"]
+    direction TB
+    N["1. Create CmContractNegotiation<br/><i>product_group, counterparty,<br/>terms, solver snapshot</i>"]
+    E["2. Create CmContractNegotiationEvent<br/><i>type: submitted_for_approval<br/>actor: trader email</i>"]
+    C["3. Create CmContract<br/><i>reference: CTR-XX-YYMMDDHHM-rand<br/>status: pending_approval</i>"]
+    V["4. Create CmContractVersion<br/><i>version_number: 1<br/>terms_snapshot: full terms</i>"]
+    A["5. Create CmContractApproval<br/><i>approver: trading_manager<br/>status: pending</i>"]
+  end
+
+  TX --> N --> E --> C --> V --> A
+
+  A --> SUCCESS{"Transaction<br/>result?"}
+  SUCCESS -->|"OK"| DONE["✓ Contract Submitted<br/>Show negotiation ID<br/>Show contract ID"]
+  SUCCESS -->|"Error"| FAIL["✗ Submission Failed<br/>Show error + Retry button"]
+
+  DONE --> EVENT["Emit: contract_submitted_for_approval"]
+  EVENT --> VECTOR["EventEmitter → VectorizationWorker<br/><i>Contract terms embedded<br/>in vector store</i>"]
+
+  style SUBMIT fill:#27ae60,stroke:#1a6b3a,color:white
+  style TX_BODY fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+  style DONE fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+  style FAIL fill:#fdedec,stroke:#e74c3c,color:#0b1d3a
+  style VECTOR fill:#f5eef8,stroke:#8e44ad,color:#0b1d3a
+    </pre>
+  </div>
+
+  <h3 style="margin: 24px 0 12px; color: var(--trammo-navy);">Contract Reference Format</h3>
+  <div class="callout info">
+    <strong>Format:</strong> <code>CTR-{PREFIX}-{YYMMDDHHMM}-{random_hex}</code><br>
+    Prefixes: <code>AD</code> (Ammonia Domestic), <code>SI</code> (Sulphur International),
+    <code>PC</code> (Petcoke), <code>AI</code> (Ammonia International)<br>
+    Example: <code>CTR-AD-2602271430-a3f1</code>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 11. DATA MODEL                                              -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="database">
+  <h2><span class="num">11</span> Data Model</h2>
+  <p class="lead">
+    The contract management module creates records across five interconnected tables, all within
+    a single database transaction at approval time.
+  </p>
+
+  <div class="diagram">
+    <pre class="mermaid">
+erDiagram
+  CM_CONTRACT_NEGOTIATIONS ||--o{ CM_CONTRACT_NEGOTIATION_EVENTS : "has many"
+  CM_CONTRACT_NEGOTIATIONS ||--|| CM_CONTRACTS : "produces"
+  CM_CONTRACTS ||--o{ CM_CONTRACT_VERSIONS : "has versions"
+  CM_CONTRACTS ||--o{ CM_CONTRACT_APPROVALS : "requires approvals"
+
+  CM_CONTRACT_NEGOTIATIONS {
+    uuid id PK
+    string product_group
+    string reference_number
+    string counterparty
+    string commodity
+    string status
+    int current_step
+    jsonb step_data
+    decimal quantity
+    date delivery_window_start
+    date delivery_window_end
+    decimal proposed_price
+    decimal proposed_freight
+    jsonb solver_recommendation_snapshot
+    decimal solver_margin_forecast
+    decimal solver_confidence
+    string trader_id
+  }
+
+  CM_CONTRACTS {
+    uuid id PK
+    uuid contract_negotiation_id FK
+    string product_group
+    string contract_reference
+    string counterparty
+    string commodity
+    string status
+    int current_version
+    jsonb terms
+    array selected_clause_ids
+    array requires_approval_from
+    array approved_by
+  }
+
+  CM_CONTRACT_VERSIONS {
+    uuid id PK
+    uuid contract_id FK
+    int version_number
+    jsonb terms_snapshot
+    string change_summary
+    string created_by
+  }
+
+  CM_CONTRACT_APPROVALS {
+    uuid id PK
+    uuid contract_id FK
+    string approver_id
+    string approval_status
+    text notes
+    timestamp decided_at
+  }
+
+  CM_CONTRACT_NEGOTIATION_EVENTS {
+    uuid id PK
+    uuid contract_negotiation_id FK
+    string event_type
+    int step_number
+    string actor
+    string summary
+    jsonb details
+  }
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 12. EVENT PIPELINE                                          -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="events">
+  <h2><span class="num">12</span> Event Pipeline &amp; Vectorization</h2>
+  <p class="lead">
+    At each significant step transition, the wizard emits events through the EventEmitter pipeline.
+    Events are stored, vectorized, and available for semantic search.
+  </p>
+
+  <table class="var-table">
+    <thead>
+      <tr><th>Trigger</th><th>Event Type</th><th>Source</th><th>Key Payload</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Step 1 → 2</td><td><code>contract_product_group_selected</code></td><td>contract_management</td><td>product_group, user</td></tr>
+      <tr><td>Step 2 → 3</td><td><code>contract_counterparty_set</code></td><td>contract_management</td><td>counterparty, commodity</td></tr>
+      <tr><td>Step 3 → 4</td><td><code>contract_commercial_terms_set</code></td><td>contract_management</td><td>quantity, price, freight</td></tr>
+      <tr><td>Step 4 → 5</td><td><code>contract_clauses_selected</code></td><td>contract_management</td><td>selected clause count</td></tr>
+      <tr><td>Step 5 → 6</td><td><code>contract_optimizer_complete</code></td><td>contract_management</td><td>solver status, profit, ROI</td></tr>
+      <tr><td>Step 6 → 7</td><td><code>contract_review_complete</code></td><td>contract_management</td><td>review confirmation</td></tr>
+      <tr><td>Optimizer run</td><td><code>contract_optimizer_validated</code></td><td>contract_management</td><td>full solver results</td></tr>
+      <tr><td>Submit</td><td><code>contract_submitted_for_approval</code></td><td>contract_management</td><td>negotiation_id, contract_id, all terms</td></tr>
+    </tbody>
+  </table>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  WIZARD["Contract Wizard<br/>Step Transitions"] -->|"emit_event/3"| EMITTER["EventEmitter"]
+  EMITTER --> STORE["event_log table"]
+  EMITTER --> OBAN["Oban: VectorizationWorker"]
+  OBAN --> EMBED["Embeddings.generate()"]
+  EMBED --> PG["pgvector<br/>vector_embeddings table"]
+  PG --> SEARCH["Semantic Search<br/>via VectorQuery"]
+
+  style WIZARD fill:#ebf5fb,stroke:#2e86de,color:#0b1d3a
+  style EMITTER fill:#fef9e7,stroke:#e6a817,color:#0b1d3a
+  style PG fill:#f5eef8,stroke:#8e44ad,color:#0b1d3a
+  style SEARCH fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+    </pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- 13. COMPARISON: TRAMMO vs sea.live                         -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="section" id="comparison">
+  <h2><span class="num">13</span> Competitive Positioning vs. sea.live</h2>
+  <p class="lead">
+    sea.live provides a capable contract management platform for commodity trading. Trammo&rsquo;s Trading Desk
+    builds on similar workflow concepts but adds quantitative solver validation and AI-powered decision support
+    that transforms contract management from a legal/administrative function into a decision support tool.
+  </p>
+
+  <table class="compare-table">
+    <thead>
+      <tr><th>Capability</th><th>sea.live</th><th>Trammo Trading Desk</th><th>Advantage</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Contract Workflow</strong></td>
+        <td class="check">&#10003; Multi-step wizard, template-based</td>
+        <td class="check">&#10003; 7-step guided wizard with validation gates</td>
+        <td>Comparable</td>
+      </tr>
+      <tr>
+        <td><strong>Counterparty Management</strong></td>
+        <td class="check">&#10003; Full counterparty database + KYC</td>
+        <td class="partial">&#9679; Inline entry (extensible to directory)</td>
+        <td>sea.live</td>
+      </tr>
+      <tr>
+        <td><strong>Clause Library</strong></td>
+        <td class="check">&#10003; Extensive clause templates</td>
+        <td class="check">&#10003; 10 standard clauses, toggle selection</td>
+        <td>Comparable</td>
+      </tr>
+      <tr>
+        <td><strong>LP Solver Integration</strong></td>
+        <td class="cross">&#10007; Not available</td>
+        <td class="check">&#10003; HiGHS solver validates economics <em>during</em> contracting</td>
+        <td style="color:var(--trammo-green); font-weight:600;">Trammo</td>
+      </tr>
+      <tr>
+        <td><strong>AI-Powered Analysis</strong></td>
+        <td class="cross">&#10007; Not available</td>
+        <td class="check">&#10003; Claude generates natural-language explanations of solver output</td>
+        <td style="color:var(--trammo-green); font-weight:600;">Trammo</td>
+      </tr>
+      <tr>
+        <td><strong>Real-Time Data Integration</strong></td>
+        <td class="partial">&#9679; Market data feeds</td>
+        <td class="check">&#10003; 20 live variables from 10+ APIs feed into solver</td>
+        <td style="color:var(--trammo-green); font-weight:600;">Trammo</td>
+      </tr>
+      <tr>
+        <td><strong>Pre-Contract Optimization</strong></td>
+        <td class="cross">&#10007; Contract first, optimize later</td>
+        <td class="check">&#10003; Optimize <em>before</em> approval — terms validated against current market</td>
+        <td style="color:var(--trammo-green); font-weight:600;">Trammo</td>
+      </tr>
+      <tr>
+        <td><strong>Event Vectorization</strong></td>
+        <td class="cross">&#10007; Not available</td>
+        <td class="check">&#10003; Every step emits events → pgvector for semantic search</td>
+        <td style="color:var(--trammo-green); font-weight:600;">Trammo</td>
+      </tr>
+      <tr>
+        <td><strong>Approval Workflow</strong></td>
+        <td class="check">&#10003; Multi-level approvals</td>
+        <td class="check">&#10003; Role-based approval with full audit trail</td>
+        <td>Comparable</td>
+      </tr>
+      <tr>
+        <td><strong>Solver Constraint Bridge</strong></td>
+        <td class="cross">&#10007; Contracts are standalone</td>
+        <td class="check">&#10003; Approved contracts become live solver constraints</td>
+        <td style="color:var(--trammo-green); font-weight:600;">Trammo</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+  subgraph SEALIVE["sea.live Approach"]
+    direction TB
+    SL1["Create Contract"] --> SL2["Negotiate Terms"]
+    SL2 --> SL3["Legal Review"]
+    SL3 --> SL4["Approve"]
+    SL4 --> SL5["Execute"]
+    SL5 -.->|"manual analysis"| SL6["Trader evaluates<br/>profitability post-hoc"]
+  end
+
+  subgraph TRAMMO["Trammo Trading Desk Approach"]
+    direction TB
+    T1["Create Contract<br/><i>Select product group</i>"] --> T2["Define Terms<br/><i>Counterparty, commercial</i>"]
+    T2 --> T3["Select Clauses"]
+    T3 --> T4["Solver Validation<br/><i>HiGHS LP + 20 live variables</i>"]
+    T4 --> T5["AI Analysis<br/><i>Claude explains results</i>"]
+    T5 --> T6["Review &amp; Approve"]
+    T6 --> T7["Active Solver<br/>Constraint"]
+  end
+
+  SL6 -.->|"Gap: profitability<br/>unknown at signing"| GAP["?"]
+  T4 -.->|"Quantitative validation<br/>BEFORE approval"| CONFIDENCE["Trader has<br/>profit/ROI data"]
+
+  style SEALIVE fill:#ebf5fb,stroke:#2e86de,color:#0b1d3a
+  style TRAMMO fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+  style GAP fill:#fdedec,stroke:#e74c3c,color:#0b1d3a
+  style CONFIDENCE fill:#eafaf1,stroke:#27ae60,color:#0b1d3a
+    </pre>
+  </div>
+
+  <div class="callout success">
+    <strong>The key insight:</strong> sea.live treats contract management as a legal and administrative workflow &mdash;
+    contracts are created, reviewed, and approved without quantitative validation of economics. Trammo&rsquo;s Trading Desk
+    inserts an LP solver step <em>before approval</em>, giving traders projected profit, ROI, and route allocations
+    computed against 20 live market variables. Combined with Claude AI&rsquo;s natural-language explanation,
+    this transforms contract approval from a compliance checkpoint into a <strong>decision support moment</strong>.
+  </div>
+
+  <div class="callout warning">
+    <strong>Where sea.live leads:</strong> sea.live has deeper counterparty management (KYC, credit checks, directory),
+    more mature document management, and broader clause library with template inheritance. These are features
+    that can be added to Trammo over time &mdash; but sea.live cannot easily retrofit a real-time solver integration
+    into their architecture.
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- FOOTER                                                      -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="footer">
+  Trammo Trading Desk &middot; Contract Management Process Flows &middot; February 2026 &middot; Confidential
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#ebf5fb',
+      primaryTextColor: '#0b1d3a',
+      primaryBorderColor: '#2e86de',
+      lineColor: '#5a6c7d',
+      secondaryColor: '#fef9e7',
+      tertiaryColor: '#eafaf1',
+      fontSize: '14px'
+    },
+    flowchart: { curve: 'basis', htmlLabels: true },
+    er: { useMaxWidth: true }
+  });
+
+  // Active nav highlighting
+  const navLinks = document.querySelectorAll('.nav a');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(l => l.classList.remove('active'));
+        const id = entry.target.id;
+        const link = document.querySelector(`.nav a[href="#${id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { threshold: 0.2, rootMargin: '-80px 0px -60% 0px' });
+  document.querySelectorAll('.section').forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
