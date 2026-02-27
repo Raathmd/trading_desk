@@ -38,3 +38,12 @@ config :nx, default_backend: EXLA.Backend
 # Set to nil or remove to load ALL registered models.
 # config :trading_desk, :llm_enabled_models, [:mistral_7b]
 config :trading_desk, :llm_enabled_models, [:claude_opus, :claude_haiku]
+
+# Oban — background job processing for vectorization pipeline
+config :trading_desk, Oban,
+  repo: TradingDesk.Repo,
+  queues: [
+    default: 10,
+    vectorization: 5,
+    backfill: 3
+  ]

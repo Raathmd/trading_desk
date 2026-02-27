@@ -379,6 +379,17 @@ defmodule TradingDesk.ScenarioLive do
       _ -> send(self(), :do_solve)
     end
 
+    # Emit pre-solve event for vectorization pipeline
+    Task.start(fn ->
+      TradingDesk.EventEmitter.emit_event("trading_desk_pre_solve", %{
+        "product_group" => to_string(socket.assigns.product_group),
+        "commodity" => to_string(socket.assigns.product_group),
+        "trader_id" => socket.assigns.trader_id,
+        "market_snapshot" => vars,
+        "trader_rationale" => socket.assigns[:scenario_description] || socket.assigns.trader_action || ""
+      }, "trading_desk")
+    end)
+
     {:noreply, socket}
   end
 

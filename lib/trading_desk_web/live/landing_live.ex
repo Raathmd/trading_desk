@@ -63,6 +63,46 @@ defmodule TradingDesk.LandingLive do
             </div>
           </div>
         </a>
+
+        <%!-- Contract Management --%>
+        <a href="/contracts/manage" style="text-decoration:none">
+          <div style="background:#0d1117;border:1px solid #1e293b;border-radius:12px;padding:32px 24px;cursor:pointer;transition:border-color 0.2s;min-height:240px;display:flex;flex-direction:column;justify-content:space-between"
+               onmouseover="this.style.borderColor='#f59e0b'" onmouseout="this.style.borderColor='#1e293b'">
+            <div>
+              <div style="font-size:10px;letter-spacing:2px;color:#f59e0b;font-weight:700;margin-bottom:12px">CONTRACT MGMT</div>
+              <div style="font-size:18px;font-weight:700;color:#e2e8f0;margin-bottom:8px">Contract Management</div>
+              <div style="font-size:12px;color:#7b8fa4;line-height:1.6">
+                Multi-step contract formulation wizard: product selection, terms, clause selection, optimizer validation, approval workflow.
+              </div>
+            </div>
+            <div style="margin-top:20px;display:flex;gap:6px;flex-wrap:wrap">
+              <span style="background:#111827;border:1px solid #1e293b;border-radius:4px;padding:3px 8px;font-size:9px;color:#f59e0b;font-weight:600">WIZARD</span>
+              <span style="background:#111827;border:1px solid #1e293b;border-radius:4px;padding:3px 8px;font-size:9px;color:#f59e0b;font-weight:600">CLAUSES</span>
+              <span style="background:#111827;border:1px solid #1e293b;border-radius:4px;padding:3px 8px;font-size:9px;color:#60a5fa;font-weight:600">OPTIMIZER</span>
+              <span style="background:#111827;border:1px solid #1e293b;border-radius:4px;padding:3px 8px;font-size:9px;color:#c4b5fd;font-weight:600">APPROVAL</span>
+            </div>
+          </div>
+        </a>
+
+        <%!-- Initialize Vector DB --%>
+        <a href="/backfill" style="text-decoration:none">
+          <div style="background:#0d1117;border:1px solid #1e293b;border-radius:12px;padding:32px 24px;cursor:pointer;transition:border-color 0.2s;min-height:240px;display:flex;flex-direction:column;justify-content:space-between"
+               onmouseover="this.style.borderColor='#8b5cf6'" onmouseout="this.style.borderColor='#1e293b'">
+            <div>
+              <div style="font-size:10px;letter-spacing:2px;color:#8b5cf6;font-weight:700;margin-bottom:12px">INTELLIGENCE</div>
+              <div style="font-size:18px;font-weight:700;color:#e2e8f0;margin-bottom:8px">Initialize Vector DB</div>
+              <div style="font-size:12px;color:#7b8fa4;line-height:1.6">
+                Upload SAP contract history files, process through AI for semantic framing, and vectorize for historical deal intelligence.
+              </div>
+            </div>
+            <div style="margin-top:20px;display:flex;gap:6px;flex-wrap:wrap">
+              <span style="background:#111827;border:1px solid #1e293b;border-radius:4px;padding:3px 8px;font-size:9px;color:#8b5cf6;font-weight:600">UPLOAD</span>
+              <span style="background:#111827;border:1px solid #1e293b;border-radius:4px;padding:3px 8px;font-size:9px;color:#8b5cf6;font-weight:600">AI FRAMING</span>
+              <span style="background:#111827;border:1px solid #1e293b;border-radius:4px;padding:3px 8px;font-size:9px;color:#34d399;font-weight:600">VECTORS</span>
+              <span style="background:#111827;border:1px solid #1e293b;border-radius:4px;padding:3px 8px;font-size:9px;color:#60a5fa;font-weight:600">HISTORY</span>
+            </div>
+          </div>
+        </a>
       </div>
 
       <%!-- Links --%>

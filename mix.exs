@@ -39,7 +39,11 @@ defmodule TradingDesk.MixProject do
       # Local HuggingFace model inference — Mistral 7B + future models
       {:bumblebee, "~> 0.6"},
       {:nx, "~> 0.9"},
-      {:exla, "~> 0.9"}
+      {:exla, "~> 0.9"},
+      # Background job processing for vectorization pipeline
+      {:oban, "~> 2.18"},
+      # pgvector support for Ecto (vector similarity search)
+      {:pgvector, "~> 0.3"}
     ]
   end
 

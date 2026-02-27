@@ -9,6 +9,7 @@ defmodule TradingDesk.Application do
     children = [
       {Finch, name: Swoosh.Finch},
       TradingDesk.Repo,
+      {Oban, Application.fetch_env!(:trading_desk, Oban)},
       TradingDesk.DB.SnapshotLog,
       {Phoenix.PubSub, name: TradingDesk.PubSub},
       TradingDesk.Config.DeltaConfig,
