@@ -362,7 +362,6 @@ defmodule TradingDesk.WhatifLive do
           </select>
         </div>
         <div style="display:flex;align-items:center;gap:12px;font-size:11px">
-          <a href="/process_flows.html" target="_blank" style="color:#2dd4bf;text-decoration:none;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid #1e293b;border-radius:4px" title="Process Flows &amp; Data Sources">PROCESS FLOWS</a>
           <%= if @current_user_email do %>
             <span style="color:#475569;font-size:10px"><%= @current_user_email %></span>
             <a href="/logout" style="background:none;border:1px solid #2d3748;color:#7b8fa4;padding:3px 9px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;text-decoration:none">LOGOUT</a>
