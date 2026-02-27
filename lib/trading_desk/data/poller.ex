@@ -39,7 +39,9 @@ defmodule TradingDesk.Data.Poller do
     internal:         :timer.minutes(5),
     vessel_tracking:  :timer.minutes(10),
     tides:            :timer.minutes(15),
-    forecast:         :timer.hours(2)
+    forecast:         :timer.hours(2),
+    # Dynamic source: polls any json_get variables added via the Variable Manager
+    custom:           :timer.minutes(15)
   }
 
   # USGS gauge IDs for Mississippi River (kept for fallback)
@@ -433,8 +435,10 @@ defmodule TradingDesk.Data.Poller do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp http_get(url) do
-    case Req.get(url, receive_timeout: 15_000) do
+  defp http_get(url), do: http_get(url, [])
+
+  defp http_get(url, headers) do
+    case Req.get(url, receive_timeout: 15_000, headers: headers) do
       {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
       {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, Jason.encode!(body)}
       {:ok, %{status: status}} -> {:error, {:http_status, status}}
@@ -443,6 +447,103 @@ defmodule TradingDesk.Data.Poller do
   rescue
     _ -> {:error, :http_exception}
   end
+
+  # ──────────────────────────────────────────────────────────
+  # CUSTOM / DYNAMIC SOURCE — json_get variables from the DB
+  # ──────────────────────────────────────────────────────────
+  #
+  # The :custom source handles any variable_definitions rows where
+  # fetch_mode = "json_get" and source_id is not one of the legacy
+  # hardcoded source atoms above.
+  #
+  # When a trader adds a new variable via the Variable Manager page
+  # (/variables) and configures its API source, it is automatically
+  # polled here on the next :custom tick — no Elixir code changes required.
+
+  defp poll_source(:custom) do
+    alias TradingDesk.Variables.VariableStore
+
+    groups = VariableStore.custom_json_sources()
+
+    if map_size(groups) == 0 do
+      {:ok, %{}}
+    else
+      results =
+        Enum.reduce(groups, %{}, fn {source_id, var_defs}, acc ->
+          case fetch_json_source(source_id, var_defs) do
+            {:ok, data} ->
+              Map.merge(acc, data)
+
+            {:error, reason} ->
+              Logger.warning("Poller [custom/#{source_id}]: #{inspect(reason)}")
+              acc
+          end
+        end)
+
+      {:ok, results}
+    end
+  end
+
+  # Generic HTTP GET → JSON → extract field per variable definition.
+  # URL and API key are read from the api_configs table (or env var fallback)
+  # via TradingDesk.ApiConfig, the same mechanism as all other sources.
+  defp fetch_json_source(source_id, var_defs) do
+    url     = TradingDesk.ApiConfig.get_url(source_id, nil)
+    api_key = TradingDesk.ApiConfig.get_credential(source_id, "")
+
+    if url in [nil, ""] do
+      {:error, :source_url_not_configured}
+    else
+      headers =
+        if api_key not in [nil, ""] do
+          [{"Authorization", "Bearer #{api_key}"}, {"Accept", "application/json"}]
+        else
+          [{"Accept", "application/json"}]
+        end
+
+      case http_get(url, headers) do
+        {:ok, body} ->
+          case Jason.decode(body) do
+            {:ok, data} ->
+              values =
+                Enum.reduce(var_defs, %{}, fn var_def, acc ->
+                  path = var_def.response_path
+
+                  if path do
+                    raw = get_nested(data, String.split(path, "."))
+                    parsed = parse_dynamic_value(raw, var_def.type)
+                    if parsed != nil, do: Map.put(acc, var_def.key, parsed), else: acc
+                  else
+                    acc
+                  end
+                end)
+
+              {:ok, values}
+
+            _ ->
+              {:error, :json_parse_failed}
+          end
+
+        {:error, _} = err ->
+          err
+      end
+    end
+  end
+
+  # Walk a nested map/list using a list of string keys.
+  defp get_nested(data, []), do: data
+  defp get_nested(data, [key | rest]) when is_map(data), do: get_nested(Map.get(data, key), rest)
+  defp get_nested(_, _), do: nil
+
+  defp parse_dynamic_value(nil, _type), do: nil
+  defp parse_dynamic_value(v, "float") when is_number(v), do: v / 1.0
+  defp parse_dynamic_value(v, "boolean") when is_boolean(v), do: v
+  defp parse_dynamic_value(v, "boolean") when is_binary(v), do: v in ~w(true 1 yes)
+  defp parse_dynamic_value(v, _), do: v
+
+  # ──────────────────────────────────────────────────────────
+  # HELPERS (continued)
+  # ──────────────────────────────────────────────────────────
 
   defp source_label(:usgs), do: "USGS Water Services"
   defp source_label(:noaa), do: "NOAA Weather"
@@ -454,5 +555,6 @@ defmodule TradingDesk.Data.Poller do
   defp source_label(:vessel_tracking), do: "Vessel Tracking"
   defp source_label(:tides), do: "NOAA Tides"
   defp source_label(:forecast), do: "Weather & River Forecast"
+  defp source_label(:custom), do: "Custom / Dynamic Sources"
   defp source_label(other), do: other |> to_string() |> String.capitalize()
 end
