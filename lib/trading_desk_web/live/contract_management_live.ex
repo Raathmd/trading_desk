@@ -36,10 +36,13 @@ defmodule TradingDesk.ContractManagementLive do
     4 => "Clause Selection",
     5 => "Optimizer Validation",
     6 => "Review Summary",
-    7 => "Approval Submission"
+    7 => "Approval Submission",
+    8 => "Contract Ingestion"
   }
 
-  @total_steps 7
+  @total_steps 8
+
+  @seed_dir "priv/contracts/seed"
 
   @product_groups [
     {"ammonia_domestic", "NH3 Domestic Barge"},
@@ -115,6 +118,11 @@ defmodule TradingDesk.ContractManagementLive do
       |> assign(:submission_status, nil)
       |> assign(:submission_error, nil)
       |> assign(:flash_msg, nil)
+      # Step 8 — Contract Ingestion
+      |> assign(:saved_contract_path, nil)
+      |> assign(:ingestion_status, nil)
+      |> assign(:ingestion_result, nil)
+      |> assign(:ingestion_error, nil)
 
     {:ok, socket}
   end
@@ -150,6 +158,7 @@ defmodule TradingDesk.ContractManagementLive do
           <span>Optimize</span>
           <span>Review</span>
           <span>Approve</span>
+          <span>Ingest</span>
         </div>
       </div>
 
@@ -170,6 +179,7 @@ defmodule TradingDesk.ContractManagementLive do
           <% 5 -> %> <%= render_step_5(assigns) %>
           <% 6 -> %> <%= render_step_6(assigns) %>
           <% 7 -> %> <%= render_step_7(assigns) %>
+          <% 8 -> %> <%= render_step_8(assigns) %>
           <% _ -> %> <div>Unknown step</div>
         <% end %>
       </div>
@@ -177,7 +187,7 @@ defmodule TradingDesk.ContractManagementLive do
       <%!-- Navigation Buttons --%>
       <div style="display:flex;justify-content:space-between;margin-top:24px">
         <div>
-          <%= if @current_step > 1 do %>
+          <%= if @current_step > 1 and @current_step < 8 do %>
             <button
               phx-click="back"
               style="background:#1e293b;color:#c8d6e5;border:1px solid #334155;border-radius:6px;padding:10px 24px;cursor:pointer;font-family:inherit;font-size:13px"
@@ -187,7 +197,7 @@ defmodule TradingDesk.ContractManagementLive do
           <% end %>
         </div>
         <div>
-          <%= if @current_step < @total_steps do %>
+          <%= if @current_step < 7 do %>
             <button
               phx-click="next"
               style="background:#2563eb;color:#ffffff;border:none;border-radius:6px;padding:10px 24px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600"
@@ -195,7 +205,7 @@ defmodule TradingDesk.ContractManagementLive do
               Next &rarr;
             </button>
           <% end %>
-          <%= if @current_step == @total_steps && @submission_status != :submitted do %>
+          <%= if @current_step == 7 && @submission_status != :submitted do %>
             <button
               phx-click="submit_for_approval"
               style="background:#10b981;color:#ffffff;border:none;border-radius:6px;padding:10px 24px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600"
@@ -710,6 +720,139 @@ defmodule TradingDesk.ContractManagementLive do
     """
   end
 
+  defp render_step_8(assigns) do
+    ~H"""
+    <div>
+      <h2 style="font-size:18px;font-weight:600;color:#e2e8f0;margin:0 0 8px 0">
+        Contract Ingestion
+      </h2>
+      <p style="color:#64748b;font-size:13px;margin:0 0 24px 0">
+        Ingest the saved contract file into the active contracts store for solver integration.
+      </p>
+
+      <%= if @saved_contract_path do %>
+        <%!-- Show saved file info --%>
+        <div style="background:#080c14;border:1px solid #1e293b;border-radius:8px;padding:20px;margin-bottom:24px">
+          <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;margin-bottom:8px">Saved Contract File</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="background:#2563eb22;border:1px solid #2563eb55;border-radius:6px;padding:8px 12px">
+              <span style="font-size:13px;color:#2563eb;font-weight:600;font-family:'JetBrains Mono',monospace">
+                {Path.basename(@saved_contract_path)}
+              </span>
+            </div>
+            <span style="font-size:12px;color:#64748b">
+              priv/contracts/seed/
+            </span>
+          </div>
+        </div>
+
+        <%= case @ingestion_status do %>
+          <% :ingested -> %>
+            <%!-- Success --%>
+            <div style="text-align:center;padding:32px">
+              <div style="font-size:48px;margin-bottom:16px;color:#10b981">&#10003;</div>
+              <h3 style="font-size:18px;font-weight:600;color:#10b981;margin:0 0 8px 0">
+                Contract Ingested Successfully
+              </h3>
+              <p style="color:#94a3b8;font-size:13px;margin:0 0 24px 0">
+                The contract has been loaded into the active contracts store and is available for solver integration.
+              </p>
+
+              <%= if @ingestion_result do %>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:480px;margin:0 auto 24px">
+                  <div style="background:#080c14;border:1px solid #1e293b;border-radius:6px;padding:12px;text-align:center">
+                    <div style="font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:4px">Status</div>
+                    <div style="font-size:14px;font-weight:700;color:#10b981">
+                      {String.upcase(to_string(@ingestion_result.status))}
+                    </div>
+                  </div>
+                  <div style="background:#080c14;border:1px solid #1e293b;border-radius:6px;padding:12px;text-align:center">
+                    <div style="font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:4px">Clauses</div>
+                    <div style="font-size:14px;font-weight:700;color:#2563eb">
+                      {length(@ingestion_result.clauses || [])}
+                    </div>
+                  </div>
+                  <div style="background:#080c14;border:1px solid #1e293b;border-radius:6px;padding:12px;text-align:center">
+                    <div style="font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:4px">Contract ID</div>
+                    <div style="font-size:11px;font-weight:600;color:#c8d6e5;word-break:break-all">
+                      {String.slice(@ingestion_result.id || "N/A", 0..11)}
+                    </div>
+                  </div>
+                </div>
+              <% end %>
+
+              <button
+                phx-click="start_new_contract"
+                style="background:#2563eb;color:#ffffff;border:none;border-radius:6px;padding:10px 24px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600"
+              >
+                Start New Contract
+              </button>
+            </div>
+
+          <% :ingesting -> %>
+            <%!-- Loading --%>
+            <div style="text-align:center;padding:48px">
+              <div style="font-size:14px;color:#2563eb;margin-bottom:12px">
+                Ingesting contract into store...
+              </div>
+              <div style="width:200px;height:4px;background:#1e293b;border-radius:2px;margin:0 auto">
+                <div style="width:60%;height:100%;background:#2563eb;border-radius:2px;animation:pulse 1.5s infinite"></div>
+              </div>
+              <p style="color:#64748b;font-size:12px;margin-top:12px">
+                Parsing contract, detecting template family, and loading into solver constraint store...
+              </p>
+            </div>
+
+          <% :error -> %>
+            <%!-- Error --%>
+            <div style="text-align:center;padding:32px">
+              <div style="font-size:48px;margin-bottom:16px;color:#ef4444">&#10007;</div>
+              <h3 style="font-size:18px;font-weight:600;color:#ef4444;margin:0 0 8px 0">
+                Ingestion Failed
+              </h3>
+              <p style="color:#94a3b8;font-size:13px;margin:0 0 16px 0">
+                {@ingestion_error}
+              </p>
+              <button
+                phx-click="ingest_contract"
+                style="background:#2563eb;color:#ffffff;border:none;border-radius:6px;padding:10px 24px;cursor:pointer;font-family:inherit;font-size:13px"
+              >
+                Retry Ingestion
+              </button>
+            </div>
+
+          <% _ -> %>
+            <%!-- Ready to ingest --%>
+            <div style="text-align:center;padding:32px">
+              <div style="background:#080c14;border:1px solid #1e293b;border-radius:8px;padding:24px;max-width:520px;margin:0 auto">
+                <p style="color:#c8d6e5;font-size:14px;margin:0 0 8px 0">
+                  The contract has been saved to disk. Click below to ingest it into the active contracts store.
+                </p>
+                <p style="color:#64748b;font-size:12px;margin:0 0 24px 0">
+                  This will parse the contract text, detect the template family, extract clauses,
+                  and make it available as a solver constraint for the trading desk.
+                </p>
+                <button
+                  phx-click="ingest_contract"
+                  style="background:#10b981;color:#ffffff;border:none;border-radius:8px;padding:14px 32px;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600"
+                >
+                  Ingest into Contracts Store
+                </button>
+              </div>
+            </div>
+        <% end %>
+      <% else %>
+        <%!-- No saved file yet — shouldn't normally reach here --%>
+        <div style="text-align:center;padding:48px">
+          <p style="color:#64748b;font-size:13px">
+            No contract file found. Please go back and complete the approval step first.
+          </p>
+        </div>
+      <% end %>
+    </div>
+    """
+  end
+
   defp render_review_field(label, value) do
     assigns = %{label: label, value: value}
 
@@ -831,11 +974,16 @@ defmodule TradingDesk.ContractManagementLive do
           e -> Logger.warning("EventEmitter failed: #{inspect(e)}")
         end
 
+        # Save contract to disk in priv/contracts/seed/
+        saved_path = save_contract_to_disk(socket.assigns, contract.contract_reference)
+
         socket =
           socket
           |> assign(:submission_status, :submitted)
           |> assign(:negotiation_id, negotiation.id)
           |> assign(:contract_id, contract.id)
+          |> assign(:saved_contract_path, saved_path)
+          |> assign(:current_step, 8)
           |> assign(:flash_msg, nil)
 
         {:noreply, socket}
@@ -848,6 +996,48 @@ defmodule TradingDesk.ContractManagementLive do
 
         {:noreply, socket}
     end
+  end
+
+  # Step 8: Ingest contract into store
+  @impl true
+  def handle_event("ingest_contract", _params, socket) do
+    socket = assign(socket, :ingestion_status, :ingesting)
+    send(self(), :ingest_contract_async)
+    {:noreply, socket}
+  end
+
+  # Step 8: Start new contract (reset wizard)
+  @impl true
+  def handle_event("start_new_contract", _params, socket) do
+    socket =
+      socket
+      |> assign(:current_step, 1)
+      |> assign(:selected_product_group, nil)
+      |> assign(:counterparty, "")
+      |> assign(:commodity, "")
+      |> assign(:delivery_window_start, "")
+      |> assign(:delivery_window_end, "")
+      |> assign(:quantity, "")
+      |> assign(:quantity_unit, "MT")
+      |> assign(:proposed_price, "")
+      |> assign(:proposed_freight, "")
+      |> assign(:payment_term, "Net 30")
+      |> assign(:incoterm, "FOB")
+      |> assign(:selected_clauses, MapSet.new(["force_majeure", "payment_terms"]))
+      |> assign(:optimizer_result, nil)
+      |> assign(:optimizer_running, false)
+      |> assign(:optimizer_explanation, nil)
+      |> assign(:negotiation_id, nil)
+      |> assign(:contract_id, nil)
+      |> assign(:submission_status, nil)
+      |> assign(:submission_error, nil)
+      |> assign(:saved_contract_path, nil)
+      |> assign(:ingestion_status, nil)
+      |> assign(:ingestion_result, nil)
+      |> assign(:ingestion_error, nil)
+      |> assign(:flash_msg, nil)
+
+    {:noreply, socket}
   end
 
   # ── Handle Info (async optimizer) ────────────────────────
@@ -924,6 +1114,39 @@ defmodule TradingDesk.ContractManagementLive do
       |> assign(:optimizer_result, optimizer_result)
       |> assign(:optimizer_explanation, explanation)
       |> assign(:optimizer_running, false)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:ingest_contract_async, socket) do
+    path = socket.assigns.saved_contract_path
+
+    result =
+      try do
+        ingest_contract_file(path, socket.assigns)
+      rescue
+        e ->
+          Logger.warning("Contract ingestion failed: #{inspect(e)}")
+          {:error, Exception.message(e)}
+      catch
+        :exit, reason ->
+          Logger.warning("Contract ingestion exit: #{inspect(reason)}")
+          {:error, "Ingestion process timed out"}
+      end
+
+    socket =
+      case result do
+        {:ok, contract} ->
+          socket
+          |> assign(:ingestion_status, :ingested)
+          |> assign(:ingestion_result, contract)
+
+        {:error, reason} ->
+          socket
+          |> assign(:ingestion_status, :error)
+          |> assign(:ingestion_error, inspect(reason))
+      end
 
     {:noreply, socket}
   end
@@ -1195,6 +1418,204 @@ defmodule TradingDesk.ContractManagementLive do
   end
 
   # ── Optimizer Helpers ────────────────────────────────────
+
+  # ── Save Contract to Disk ────────────────────────────────
+
+  defp save_contract_to_disk(assigns, contract_ref) do
+    seed_path = Application.app_dir(:trading_desk, @seed_dir)
+    File.mkdir_p!(seed_path)
+
+    # Build filename from contract reference
+    safe_ref = contract_ref |> String.replace(~r/[^a-zA-Z0-9_-]/, "_") |> String.downcase()
+    filename = "#{safe_ref}.txt"
+    file_path = Path.join(seed_path, filename)
+
+    # Generate contract text in the same format as existing seed contracts
+    contract_text = generate_contract_text(assigns, contract_ref)
+    File.write!(file_path, contract_text)
+
+    Logger.info("Contract saved to disk: #{file_path}")
+    file_path
+  end
+
+  defp generate_contract_text(assigns, contract_ref) do
+    pg_label =
+      Enum.find_value(assigns.product_groups, assigns.selected_product_group, fn {id, label} ->
+        if id == assigns.selected_product_group, do: label
+      end)
+
+    today = Date.utc_today() |> Date.to_iso8601()
+
+    selected_clause_labels =
+      Enum.filter(assigns.clauses, fn c -> MapSet.member?(assigns.selected_clauses, c.id) end)
+
+    incoterm = assigns.incoterm || "FOB"
+    payment = assigns.payment_term || "Net 30"
+
+    # Determine direction based on product group naming conventions
+    direction = if String.contains?(assigns.selected_product_group, "domestic"), do: "SALE", else: "PURCHASE"
+    term_type = "SPOT"
+
+    sections = [
+      "#{String.upcase(assigns.commodity || "COMMODITY")} #{incoterm} #{direction} CONTRACT",
+      "",
+      "Contract No.: #{contract_ref}",
+      "Date: #{today}",
+      "Effective: #{assigns.delivery_window_start}",
+      "Term: #{assigns.delivery_window_start} through #{assigns.delivery_window_end}",
+      "",
+      "BETWEEN:",
+      "Trammo, Inc. (\"#{if direction == "PURCHASE", do: "Buyer", else: "Seller"}\")",
+      "AND:",
+      "#{assigns.counterparty} (\"#{if direction == "PURCHASE", do: "Seller", else: "Buyer"}\")",
+      "",
+      "#{term_type} #{incoterm} #{String.upcase(assigns.commodity || "")} #{direction} AGREEMENT",
+      "",
+      "1. PRODUCT AND SPECIFICATIONS",
+      "",
+      "Product: #{assigns.commodity}",
+      "Product Group: #{pg_label}",
+      "Product Specifications:",
+      "  As per standard industry specifications for #{assigns.commodity}.",
+      "",
+      "2. QUANTITY",
+      "",
+      "Quantity: #{assigns.quantity} #{assigns.quantity_unit} +/- 5% at #{if direction == "PURCHASE", do: "buyer", else: "seller"}'s option.",
+      "",
+      "3. INCOTERMS",
+      "",
+      "INCOTERMS 2020: #{incoterm}.",
+      "",
+      "4. SHIPMENTS AND NOMINATIONS",
+      "",
+      "Shipments / nominations: As mutually agreed between the parties.",
+      "Delivery Window: #{assigns.delivery_window_start} through #{assigns.delivery_window_end}.",
+      "",
+      "5. PRICE",
+      "",
+      "#{direction} Price: US $#{assigns.proposed_price} per #{assigns.quantity_unit} #{incoterm}.",
+      if(assigns.proposed_freight != "" and assigns.proposed_freight != nil,
+        do: "Freight: US $#{assigns.proposed_freight} per MT.",
+        else: nil),
+      "",
+      "6. PAYMENT",
+      "",
+      "Payment: #{payment} from bill of lading date.",
+      ""
+    ]
+
+    # Add selected clauses as numbered sections
+    clause_sections =
+      selected_clause_labels
+      |> Enum.with_index(7)
+      |> Enum.flat_map(fn {clause, idx} ->
+        [
+          "#{idx}. #{String.upcase(clause.label)}",
+          "",
+          clause.description,
+          ""
+        ]
+      end)
+
+    # Final section
+    closing = [
+      "#{7 + length(selected_clause_labels)}. GOVERNING LAW AND ARBITRATION",
+      "",
+      "Governing Law: This contract shall be governed by English law.",
+      "Arbitration: Any and all disputes shall be referred to arbitration in London",
+      "in accordance with LMAA terms.",
+      "",
+      "#{8 + length(selected_clause_labels)}. MISCELLANEOUS",
+      "",
+      "Miscellaneous: This contract constitutes the Entire Agreement between the",
+      "parties regarding the subject matter hereof.",
+      ""
+    ]
+
+    (sections ++ clause_sections ++ closing)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  # ── Contract Ingestion ─────────────────────────────────
+
+  defp ingest_contract_file(file_path, assigns) do
+    alias TradingDesk.Contracts.{Contract, Store}
+
+    text = File.read!(file_path)
+
+    # Determine counterparty type based on direction
+    cp_type =
+      if String.contains?(String.downcase(text), "purchase"),
+        do: :supplier,
+        else: :customer
+
+    # Parse open position from quantity
+    open_qty =
+      case Float.parse(assigns.quantity || "0") do
+        {qty, _} -> qty
+        :error -> 0.0
+      end
+
+    # Detect template family if available
+    {family_id, _family} =
+      try do
+        case TradingDesk.Contracts.TemplateRegistry.detect_family(text) do
+          {:ok, fid, fam} -> {fid, fam}
+          _ -> {nil, nil}
+        end
+      rescue
+        _ -> {nil, nil}
+      end
+
+    # Determine template type
+    is_purchase = cp_type == :supplier
+    template_type = if is_purchase, do: :spot_purchase, else: :spot_sale
+
+    # Parse incoterm
+    incoterm =
+      try do
+        assigns.incoterm |> String.downcase() |> String.to_existing_atom()
+      rescue
+        _ -> :fob
+      end
+
+    contract = %Contract{
+      counterparty: assigns.counterparty,
+      counterparty_type: cp_type,
+      product_group: :ammonia,
+      template_type: template_type,
+      incoterm: incoterm,
+      term_type: :spot,
+      company: :trammo_inc,
+      source_file: Path.basename(file_path),
+      source_format: :txt,
+      clauses: [],
+      family_id: family_id,
+      contract_number: "CTR-#{assigns.selected_product_group |> String.upcase() |> String.slice(0..1)}",
+      open_position: open_qty
+    }
+
+    case Store.ingest(contract) do
+      {:ok, ingested} ->
+        Store.update_status(ingested.id, :pending_review)
+        Store.update_status(ingested.id, :approved,
+          reviewed_by: assigns.current_user_email || "contract_wizard",
+          notes: "Approved via contract management wizard"
+        )
+
+        Logger.info(
+          "Contract ingested: #{assigns.counterparty} (#{cp_type}) #{incoterm} | " <>
+          "open=#{open_qty} MT | file=#{Path.basename(file_path)}"
+        )
+
+        {:ok, ingested}
+
+      error ->
+        Logger.error("Failed to ingest contract #{assigns.counterparty}: #{inspect(error)}")
+        error
+    end
+  end
 
   defp apply_contract_overrides(vars, assigns) do
     # Map proposed contract values to solver variables where applicable
