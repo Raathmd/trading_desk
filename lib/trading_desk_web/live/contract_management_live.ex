@@ -108,6 +108,11 @@ defmodule TradingDesk.ContractManagementLive do
       |> assign(:incoterm, "FOB")
       # Step 4
       |> assign(:selected_clauses, MapSet.new(["force_majeure", "payment_terms"]))
+      |> assign(:clause_constraints, %{})  # clause_id => %{parameter, operator, value, ...}
+      |> assign(:custom_clauses, [])       # list of %{id, label, description}
+      |> assign(:show_add_clause_form, false)
+      |> assign(:new_clause_label, "")
+      |> assign(:new_clause_description, "")
       # Step 5
       |> assign(:optimizer_result, nil)
       |> assign(:optimizer_running, false)
@@ -421,36 +426,245 @@ defmodule TradingDesk.ContractManagementLive do
   end
 
   defp render_step_4(assigns) do
+    all_clauses = assigns.clauses ++ assigns.custom_clauses
+
+    assigns = assign(assigns, :all_clauses, all_clauses)
+
     ~H"""
     <div>
       <h2 style="font-size:18px;font-weight:600;color:#e2e8f0;margin:0 0 8px 0">
-        Clause Selection
+        Clause Selection & Constraints
       </h2>
       <p style="color:#64748b;font-size:13px;margin:0 0 24px 0">
-        Select the clauses to include in this contract.
+        Select clauses and define constraints or conditions for each. Expand a selected clause to enter values.
       </p>
 
       <div style="display:flex;flex-direction:column;gap:12px">
-        <%= for clause <- @clauses do %>
-          <div
-            phx-click="toggle_clause"
-            phx-value-id={clause.id}
-            style={"display:flex;align-items:flex-start;gap:12px;background:#{if MapSet.member?(@selected_clauses, clause.id), do: "#2563eb11", else: "#080c14"};border:1px solid #{if MapSet.member?(@selected_clauses, clause.id), do: "#2563eb55", else: "#1e293b"};border-radius:8px;padding:16px;cursor:pointer"}
-          >
-            <div style={"width:20px;height:20px;border-radius:4px;border:2px solid #{if MapSet.member?(@selected_clauses, clause.id), do: "#2563eb", else: "#334155"};background:#{if MapSet.member?(@selected_clauses, clause.id), do: "#2563eb", else: "transparent"};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px"}>
-              <%= if MapSet.member?(@selected_clauses, clause.id) do %>
-                <span style="color:#fff;font-size:12px;font-weight:bold">&#10003;</span>
+        <%= for clause <- @all_clauses do %>
+          <% selected = MapSet.member?(@selected_clauses, clause.id) %>
+          <% constraints = Map.get(@clause_constraints, clause.id, %{}) %>
+          <% is_custom = String.starts_with?(clause.id, "custom_") %>
+          <div style={"background:#{if selected, do: "#2563eb08", else: "#080c14"};border:1px solid #{if selected, do: "#2563eb55", else: "#1e293b"};border-radius:8px;overflow:hidden"}>
+            <%!-- Clause header row — click to toggle --%>
+            <div
+              phx-click="toggle_clause"
+              phx-value-id={clause.id}
+              style="display:flex;align-items:flex-start;gap:12px;padding:16px;cursor:pointer"
+            >
+              <div style={"width:20px;height:20px;border-radius:4px;border:2px solid #{if selected, do: "#2563eb", else: "#334155"};background:#{if selected, do: "#2563eb", else: "transparent"};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px"}>
+                <%= if selected do %>
+                  <span style="color:#fff;font-size:12px;font-weight:bold">&#10003;</span>
+                <% end %>
+              </div>
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                  <span style="font-size:14px;font-weight:600;color:#e2e8f0">
+                    {clause.label}
+                  </span>
+                  <%= if is_custom do %>
+                    <span style="font-size:10px;background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b44;padding:2px 6px;border-radius:3px">CUSTOM</span>
+                  <% end %>
+                  <%= if selected && map_size(constraints) > 0 do %>
+                    <span style="font-size:10px;background:#10b98122;color:#10b981;border:1px solid #10b98144;padding:2px 6px;border-radius:3px">
+                      {map_size(constraints)} field(s)
+                    </span>
+                  <% end %>
+                </div>
+                <div style="font-size:12px;color:#64748b">
+                  {clause.description}
+                </div>
+              </div>
+              <%= if is_custom do %>
+                <div
+                  phx-click="remove_custom_clause"
+                  phx-value-id={clause.id}
+                  style="color:#ef4444;font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0"
+                  title="Remove custom clause"
+                >&#10005;</div>
               <% end %>
             </div>
-            <div>
-              <div style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:4px">
-                {clause.label}
+
+            <%!-- Constraint form — shown when clause is selected --%>
+            <%= if selected do %>
+              <div style="border-top:1px solid #1e293b;padding:16px;background:#0a0e17">
+                <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">
+                  Constraint / Condition Values
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+                  <%!-- Parameter --%>
+                  <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Parameter</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. nola_buy"
+                      value={constraints["parameter"] || ""}
+                      phx-blur="update_clause_constraint"
+                      phx-value-clause-id={clause.id}
+                      phx-value-field="parameter"
+                      style="width:100%;padding:8px 10px;background:#080c14;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:12px;font-family:inherit"
+                    />
+                  </div>
+                  <%!-- Operator --%>
+                  <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Operator</label>
+                    <select
+                      phx-change="update_clause_constraint"
+                      phx-value-clause-id={clause.id}
+                      phx-value-field="operator"
+                      name="value"
+                      style="width:100%;padding:8px 10px;background:#080c14;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:12px;font-family:inherit"
+                    >
+                      <option value="" selected={constraints["operator"] == nil || constraints["operator"] == ""}>--</option>
+                      <option value=">=" selected={constraints["operator"] == ">="}>&#8805; (at least)</option>
+                      <option value="<=" selected={constraints["operator"] == "<="}>&#8804; (at most)</option>
+                      <option value="==" selected={constraints["operator"] == "=="}>= (exactly)</option>
+                      <option value="between" selected={constraints["operator"] == "between"}>between</option>
+                    </select>
+                  </div>
+                  <%!-- Value --%>
+                  <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Value</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 355.00"
+                      value={constraints["value"] || ""}
+                      phx-blur="update_clause_constraint"
+                      phx-value-clause-id={clause.id}
+                      phx-value-field="value"
+                      style="width:100%;padding:8px 10px;background:#080c14;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:12px;font-family:inherit"
+                    />
+                  </div>
+                  <%!-- Value Upper (for between) --%>
+                  <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Value Upper</label>
+                    <input
+                      type="text"
+                      placeholder="upper bound"
+                      value={constraints["value_upper"] || ""}
+                      phx-blur="update_clause_constraint"
+                      phx-value-clause-id={clause.id}
+                      phx-value-field="value_upper"
+                      style="width:100%;padding:8px 10px;background:#080c14;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:12px;font-family:inherit"
+                    />
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-top:10px">
+                  <%!-- Unit --%>
+                  <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Unit</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. $/ton"
+                      value={constraints["unit"] || ""}
+                      phx-blur="update_clause_constraint"
+                      phx-value-clause-id={clause.id}
+                      phx-value-field="unit"
+                      style="width:100%;padding:8px 10px;background:#080c14;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:12px;font-family:inherit"
+                    />
+                  </div>
+                  <%!-- Penalty per unit --%>
+                  <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Penalty Rate</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 15.00"
+                      value={constraints["penalty_per_unit"] || ""}
+                      phx-blur="update_clause_constraint"
+                      phx-value-clause-id={clause.id}
+                      phx-value-field="penalty_per_unit"
+                      style="width:100%;padding:8px 10px;background:#080c14;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:12px;font-family:inherit"
+                    />
+                  </div>
+                  <%!-- Penalty cap --%>
+                  <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Penalty Cap</label>
+                    <input
+                      type="text"
+                      placeholder="max penalty"
+                      value={constraints["penalty_cap"] || ""}
+                      phx-blur="update_clause_constraint"
+                      phx-value-clause-id={clause.id}
+                      phx-value-field="penalty_cap"
+                      style="width:100%;padding:8px 10px;background:#080c14;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:12px;font-family:inherit"
+                    />
+                  </div>
+                  <%!-- Period --%>
+                  <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Period</label>
+                    <select
+                      phx-change="update_clause_constraint"
+                      phx-value-clause-id={clause.id}
+                      phx-value-field="period"
+                      name="value"
+                      style="width:100%;padding:8px 10px;background:#080c14;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:12px;font-family:inherit"
+                    >
+                      <option value="" selected={constraints["period"] == nil || constraints["period"] == ""}>--</option>
+                      <option value="spot" selected={constraints["period"] == "spot"}>Spot</option>
+                      <option value="monthly" selected={constraints["period"] == "monthly"}>Monthly</option>
+                      <option value="quarterly" selected={constraints["period"] == "quarterly"}>Quarterly</option>
+                      <option value="annual" selected={constraints["period"] == "annual"}>Annual</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div style="font-size:12px;color:#64748b">
-                {clause.description}
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+
+      <%!-- Add Custom Clause Section --%>
+      <div style="margin-top:24px;border-top:1px solid #1e293b;padding-top:24px">
+        <%= if @show_add_clause_form do %>
+          <div style="background:#080c14;border:1px solid #f59e0b44;border-radius:8px;padding:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <h3 style="font-size:14px;font-weight:600;color:#f59e0b;margin:0">Add Custom Clause</h3>
+              <div
+                phx-click="toggle_add_clause_form"
+                style="color:#64748b;cursor:pointer;font-size:18px"
+              >&#10005;</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div>
+                <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Clause Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Volume Rebate"
+                  value={@new_clause_label}
+                  phx-blur="update_new_clause_field"
+                  phx-value-field="label"
+                  style="width:100%;padding:10px 12px;background:#0d1117;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:13px;font-family:inherit"
+                />
+              </div>
+              <div>
+                <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Description *</label>
+                <textarea
+                  placeholder="Describe the clause terms, e.g. 'If annual volume exceeds 200,000 MT, buyer receives $5/MT rebate on excess'"
+                  phx-blur="update_new_clause_field"
+                  phx-value-field="description"
+                  style="width:100%;padding:10px 12px;background:#0d1117;border:1px solid #1e293b;border-radius:4px;color:#e2e8f0;font-size:13px;font-family:inherit;min-height:72px;resize:vertical"
+                >{@new_clause_description}</textarea>
+              </div>
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+                <button
+                  phx-click="toggle_add_clause_form"
+                  style="padding:8px 16px;background:transparent;border:1px solid #334155;border-radius:4px;color:#94a3b8;font-size:12px;cursor:pointer;font-family:inherit"
+                >Cancel</button>
+                <button
+                  phx-click="add_custom_clause"
+                  style="padding:8px 16px;background:#f59e0b;border:none;border-radius:4px;color:#000;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit"
+                >Add Clause</button>
               </div>
             </div>
           </div>
+        <% else %>
+          <button
+            phx-click="toggle_add_clause_form"
+            style="display:flex;align-items:center;gap:8px;padding:12px 20px;background:transparent;border:1px dashed #f59e0b55;border-radius:8px;color:#f59e0b;font-size:13px;cursor:pointer;font-family:inherit;width:100%"
+          >
+            <span style="font-size:18px">+</span>
+            <span>Add Custom Clause</span>
+          </button>
         <% end %>
       </div>
     </div>
@@ -558,11 +772,12 @@ defmodule TradingDesk.ContractManagementLive do
   end
 
   defp render_step_6(assigns) do
-    selected_clause_labels =
-      Enum.filter(assigns.clauses, fn c -> MapSet.member?(assigns.selected_clauses, c.id) end)
-      |> Enum.map(& &1.label)
+    all_clauses = assigns.clauses ++ assigns.custom_clauses
 
-    assigns = assign(assigns, :selected_clause_labels, selected_clause_labels)
+    selected_clause_details =
+      Enum.filter(all_clauses, fn c -> MapSet.member?(assigns.selected_clauses, c.id) end)
+
+    assigns = assign(assigns, :selected_clause_details, selected_clause_details)
 
     pg_label =
       Enum.find_value(assigns.product_groups, "N/A", fn {id, label} ->
@@ -615,16 +830,35 @@ defmodule TradingDesk.ContractManagementLive do
         </div>
       </div>
 
-      <%!-- Section: Clauses --%>
+      <%!-- Section: Clauses with Constraints --%>
       <div style="margin-bottom:24px">
         <h3 style="font-size:13px;color:#2563eb;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px 0;padding-bottom:8px;border-bottom:1px solid #1e293b">
-          Selected Clauses
+          Selected Clauses & Constraints
         </h3>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <%= for label <- @selected_clause_labels do %>
-            <span style="background:#2563eb22;color:#2563eb;border:1px solid #2563eb55;border-radius:4px;padding:4px 10px;font-size:12px">
-              {label}
-            </span>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <%= for clause <- @selected_clause_details do %>
+            <% constraints = Map.get(@clause_constraints, clause.id, %{}) %>
+            <% is_custom = String.starts_with?(clause.id, "custom_") %>
+            <div style="background:#080c14;border:1px solid #1e293b;border-radius:6px;padding:12px 16px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                <span style="font-size:13px;font-weight:600;color:#e2e8f0">{clause.label}</span>
+                <%= if is_custom do %>
+                  <span style="font-size:10px;background:#f59e0b22;color:#f59e0b;padding:1px 5px;border-radius:3px">CUSTOM</span>
+                <% end %>
+              </div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:6px">{clause.description}</div>
+              <%= if map_size(constraints) > 0 do %>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+                  <%= for {field, val} <- constraints do %>
+                    <span style="background:#2563eb15;border:1px solid #2563eb33;border-radius:3px;padding:2px 8px;font-size:11px;color:#94a3b8">
+                      <span style="color:#2563eb">{field}:</span> {val}
+                    </span>
+                  <% end %>
+                </div>
+              <% else %>
+                <span style="font-size:11px;color:#334155;font-style:italic">No constraints defined</span>
+              <% end %>
+            </div>
           <% end %>
         </div>
       </div>
@@ -914,6 +1148,98 @@ defmodule TradingDesk.ContractManagementLive do
       end
 
     {:noreply, assign(socket, :selected_clauses, updated)}
+  end
+
+  # Step 4: Update a constraint field for a clause
+  @impl true
+  def handle_event("update_clause_constraint", params, socket) do
+    clause_id = params["clause-id"]
+    field = params["field"]
+    # For select elements the value comes as "value", for inputs it comes from the input value
+    raw_value = params["value"] || ""
+
+    constraints = socket.assigns.clause_constraints
+    clause_map = Map.get(constraints, clause_id, %{})
+
+    updated_map =
+      if raw_value == "" do
+        Map.delete(clause_map, field)
+      else
+        Map.put(clause_map, field, raw_value)
+      end
+
+    updated_constraints =
+      if map_size(updated_map) == 0 do
+        Map.delete(constraints, clause_id)
+      else
+        Map.put(constraints, clause_id, updated_map)
+      end
+
+    {:noreply, assign(socket, :clause_constraints, updated_constraints)}
+  end
+
+  # Step 4: Toggle add-custom-clause form
+  @impl true
+  def handle_event("toggle_add_clause_form", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_add_clause_form, !socket.assigns.show_add_clause_form)
+     |> assign(:new_clause_label, "")
+     |> assign(:new_clause_description, "")}
+  end
+
+  # Step 4: Update new clause form fields
+  @impl true
+  def handle_event("update_new_clause_field", params, socket) do
+    field = params["field"]
+    value = params["value"] || ""
+
+    socket =
+      case field do
+        "label" -> assign(socket, :new_clause_label, value)
+        "description" -> assign(socket, :new_clause_description, value)
+        _ -> socket
+      end
+
+    {:noreply, socket}
+  end
+
+  # Step 4: Add a custom clause
+  @impl true
+  def handle_event("add_custom_clause", _params, socket) do
+    label = String.trim(socket.assigns.new_clause_label)
+    description = String.trim(socket.assigns.new_clause_description)
+
+    if label == "" or description == "" do
+      {:noreply, assign(socket, :flash_msg, "Clause name and description are required.")}
+    else
+      clause_id = "custom_#{:crypto.strong_rand_bytes(4) |> Base.hex_encode32(case: :lower, padding: false)}"
+
+      new_clause = %{id: clause_id, label: label, description: description}
+
+      socket =
+        socket
+        |> assign(:custom_clauses, socket.assigns.custom_clauses ++ [new_clause])
+        |> assign(:selected_clauses, MapSet.put(socket.assigns.selected_clauses, clause_id))
+        |> assign(:show_add_clause_form, false)
+        |> assign(:new_clause_label, "")
+        |> assign(:new_clause_description, "")
+        |> assign(:flash_msg, nil)
+
+      {:noreply, socket}
+    end
+  end
+
+  # Step 4: Remove a custom clause
+  @impl true
+  def handle_event("remove_custom_clause", %{"id" => clause_id}, socket) do
+    socket =
+      socket
+      |> assign(:custom_clauses, Enum.reject(socket.assigns.custom_clauses, &(&1.id == clause_id)))
+      |> assign(:selected_clauses, MapSet.delete(socket.assigns.selected_clauses, clause_id))
+      |> assign(:clause_constraints, Map.delete(socket.assigns.clause_constraints, clause_id))
+
+    {:noreply, socket}
   end
 
   # Step 5: Run optimizer
@@ -1447,8 +1773,12 @@ defmodule TradingDesk.ContractManagementLive do
 
     today = Date.utc_today() |> Date.to_iso8601()
 
-    selected_clause_labels =
-      Enum.filter(assigns.clauses, fn c -> MapSet.member?(assigns.selected_clauses, c.id) end)
+    all_clauses = assigns.clauses ++ Map.get(assigns, :custom_clauses, [])
+
+    selected_clause_list =
+      Enum.filter(all_clauses, fn c -> MapSet.member?(assigns.selected_clauses, c.id) end)
+
+    clause_constraints = Map.get(assigns, :clause_constraints, %{})
 
     incoterm = assigns.incoterm || "FOB"
     payment = assigns.payment_term || "Net 30"
@@ -1505,28 +1835,47 @@ defmodule TradingDesk.ContractManagementLive do
       ""
     ]
 
-    # Add selected clauses as numbered sections
+    # Add selected clauses as numbered sections with constraint details
     clause_sections =
-      selected_clause_labels
+      selected_clause_list
       |> Enum.with_index(7)
       |> Enum.flat_map(fn {clause, idx} ->
+        constraints = Map.get(clause_constraints, clause.id, %{})
+
+        constraint_lines =
+          if map_size(constraints) > 0 do
+            constraint_details =
+              constraints
+              |> Enum.reject(fn {_k, v} -> v == "" or is_nil(v) end)
+              |> Enum.map(fn {field, val} ->
+                "  #{format_constraint_field(field)}: #{val}"
+              end)
+
+            if constraint_details != [] do
+              ["Constraint Parameters:"] ++ constraint_details
+            else
+              []
+            end
+          else
+            []
+          end
+
         [
           "#{idx}. #{String.upcase(clause.label)}",
           "",
-          clause.description,
-          ""
-        ]
+          clause.description
+        ] ++ constraint_lines ++ [""]
       end)
 
     # Final section
     closing = [
-      "#{7 + length(selected_clause_labels)}. GOVERNING LAW AND ARBITRATION",
+      "#{7 + length(selected_clause_list)}. GOVERNING LAW AND ARBITRATION",
       "",
       "Governing Law: This contract shall be governed by English law.",
       "Arbitration: Any and all disputes shall be referred to arbitration in London",
       "in accordance with LMAA terms.",
       "",
-      "#{8 + length(selected_clause_labels)}. MISCELLANEOUS",
+      "#{8 + length(selected_clause_list)}. MISCELLANEOUS",
       "",
       "Miscellaneous: This contract constitutes the Entire Agreement between the",
       "parties regarding the subject matter hereof.",
@@ -1998,6 +2347,14 @@ defmodule TradingDesk.ContractManagementLive do
 
   defp format_number(%Decimal{} = d), do: Decimal.to_string(d) |> add_commas()
   defp format_number(n), do: to_string(n)
+
+  defp format_constraint_field(field) do
+    field
+    |> String.replace("_", " ")
+    |> String.split(" ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
+  end
 
   defp add_commas(str) do
     case String.split(str, ".") do
