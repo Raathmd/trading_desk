@@ -799,7 +799,7 @@ defmodule TradingDesk.ContractManagementLive do
                 <div style="width:60%;height:100%;background:#2563eb;border-radius:2px;animation:pulse 1.5s infinite"></div>
               </div>
               <p style="color:#64748b;font-size:12px;margin-top:12px">
-                Parsing contract, detecting template family, and loading into solver constraint store...
+                Running LLM clause extraction (Stage 1: data extraction, Stage 2: LP formulation)...
               </p>
             </div>
 
@@ -829,8 +829,9 @@ defmodule TradingDesk.ContractManagementLive do
                   The contract has been saved to disk. Click below to ingest it into the active contracts store.
                 </p>
                 <p style="color:#64748b;font-size:12px;margin:0 0 24px 0">
-                  This will parse the contract text, detect the template family, extract clauses,
-                  and make it available as a solver constraint for the trading desk.
+                  This will send the contract text through the LLM clause extraction pipeline
+                  (two-stage: structured data extraction, then LP constraint formulation),
+                  and ingest the resulting clauses into the contracts store for solver integration.
                 </p>
                 <button
                   phx-click="ingest_contract"
@@ -1541,10 +1542,12 @@ defmodule TradingDesk.ContractManagementLive do
 
   defp ingest_contract_file(file_path, assigns) do
     alias TradingDesk.Contracts.{Contract, Store}
+    alias TradingDesk.LLM.{Pool, ModelRegistry}
+    alias TradingDesk.Contracts.Clause
 
     text = File.read!(file_path)
 
-    # Determine counterparty type based on direction
+    # Determine counterparty type based on direction in the contract text
     cp_type =
       if String.contains?(String.downcase(text), "purchase"),
         do: :supplier,
@@ -1557,27 +1560,34 @@ defmodule TradingDesk.ContractManagementLive do
         :error -> 0.0
       end
 
-    # Detect template family if available
-    {family_id, _family} =
-      try do
-        case TradingDesk.Contracts.TemplateRegistry.detect_family(text) do
-          {:ok, fid, fam} -> {fid, fam}
-          _ -> {nil, nil}
-        end
-      rescue
-        _ -> {nil, nil}
-      end
+    # Extract clauses via LLM — the contract text is the source of truth
+    clauses = extract_clauses_from_contract(text)
 
     # Determine template type
     is_purchase = cp_type == :supplier
     template_type = if is_purchase, do: :spot_purchase, else: :spot_sale
 
-    # Parse incoterm
+    # Parse incoterm from the actual contract text
     incoterm =
       try do
         assigns.incoterm |> String.downcase() |> String.to_existing_atom()
       rescue
         _ -> :fob
+      end
+
+    # Detect company from contract text
+    company =
+      cond do
+        String.contains?(text, "Trammo SAS") -> :trammo_sas
+        String.contains?(text, "Trammo DMCC") -> :trammo_dmcc
+        true -> :trammo_inc
+      end
+
+    # Extract contract number from text
+    contract_number =
+      case Regex.run(~r/Contract\s+No\.?\s*:?\s*((?:TRAMMO|CTR)-[A-Z0-9_-]+)/i, text) do
+        [_, number] -> number
+        _ -> nil
       end
 
     contract = %Contract{
@@ -1587,12 +1597,12 @@ defmodule TradingDesk.ContractManagementLive do
       template_type: template_type,
       incoterm: incoterm,
       term_type: :spot,
-      company: :trammo_inc,
+      company: company,
       source_file: Path.basename(file_path),
       source_format: :txt,
-      clauses: [],
-      family_id: family_id,
-      contract_number: "CTR-#{assigns.selected_product_group |> String.upcase() |> String.slice(0..1)}",
+      clauses: clauses,
+      family_id: nil,
+      contract_number: contract_number,
       open_position: open_qty
     }
 
@@ -1601,12 +1611,12 @@ defmodule TradingDesk.ContractManagementLive do
         Store.update_status(ingested.id, :pending_review)
         Store.update_status(ingested.id, :approved,
           reviewed_by: assigns.current_user_email || "contract_wizard",
-          notes: "Approved via contract management wizard"
+          notes: "Approved via contract management wizard with #{length(clauses)} LLM-extracted clauses"
         )
 
         Logger.info(
           "Contract ingested: #{assigns.counterparty} (#{cp_type}) #{incoterm} | " <>
-          "open=#{open_qty} MT | file=#{Path.basename(file_path)}"
+          "open=#{open_qty} MT | clauses=#{length(clauses)} | file=#{Path.basename(file_path)}"
         )
 
         {:ok, ingested}
@@ -1616,6 +1626,278 @@ defmodule TradingDesk.ContractManagementLive do
         error
     end
   end
+
+  # ── LLM Clause Extraction ─────────────────────────────
+
+  defp extract_clauses_from_contract(contract_text) do
+    alias TradingDesk.LLM.{Pool, ModelRegistry}
+    alias TradingDesk.Contracts.Clause
+
+    extractor = ModelRegistry.extractor()
+    reasoner = ModelRegistry.reasoner()
+
+    result =
+      cond do
+        is_nil(extractor) and is_nil(reasoner) ->
+          Logger.warning("No LLM models registered, ingesting without clause extraction")
+          {:ok, []}
+
+        is_nil(extractor) ->
+          # Single-stage with reasoner only
+          prompt = build_extraction_prompt(contract_text)
+          case Pool.generate(reasoner.id, prompt, max_tokens: 8192) do
+            {:ok, raw} -> parse_extracted_clauses(raw)
+            {:error, reason} ->
+              Logger.warning("LLM clause extraction failed: #{inspect(reason)}")
+              {:ok, []}
+          end
+
+        true ->
+          # Two-stage pipeline: Stage 1 (extractor) → Stage 2 (reasoner/extractor)
+          case extract_structured_data(contract_text, extractor) do
+            {:ok, structured_json} ->
+              formulate_lp_constraints(structured_json, reasoner || extractor)
+
+            {:error, reason} ->
+              Logger.warning("Stage 1 extraction failed: #{inspect(reason)}, trying single-stage")
+              prompt = build_extraction_prompt(contract_text)
+              model = reasoner || extractor
+              case Pool.generate(model.id, prompt, max_tokens: 8192) do
+                {:ok, raw} -> parse_extracted_clauses(raw)
+                {:error, _} -> {:ok, []}
+              end
+          end
+      end
+
+    case result do
+      {:ok, clauses} -> clauses
+      {:error, _} -> []
+    end
+  end
+
+  # Stage 1: Extract structured data from contract text (fast model)
+  defp extract_structured_data(contract_text, model) do
+    alias TradingDesk.LLM.Pool
+
+    max_chars = 50_000
+    truncated = if String.length(contract_text) > max_chars do
+      String.slice(contract_text, 0, max_chars) <> "\n[...truncated...]"
+    else
+      contract_text
+    end
+
+    prompt = """
+    You are a contract data extraction system. Read this commodity trading contract
+    and extract ALL structured data into the JSON format below.
+
+    Do NOT interpret, reason about, or formulate constraints. Simply read and structure
+    what is written in the contract.
+
+    Return ONLY valid JSON:
+    {"contract_data": {
+      "quantities": { "annual_qty_mt": null, "tolerance_pct": null, "min_cargoes": null, "cargo_size_mt": null, "cargo_tolerance_pct": null },
+      "pricing": { "base_price_usd_per_mt": null, "price_floor": null, "price_ceiling": null, "escalation": null, "benchmark": null },
+      "delivery_schedule": { "start_date": null, "end_date": null, "frequency": null, "nomination_days": null, "laycan_window_days": null, "max_liftings_per_month": null },
+      "logistics": { "loading_rate_mt_per_day": null, "discharge_rate": null, "laytime_hours": null, "demurrage_usd_per_day": null, "despatch_usd_per_day": null },
+      "payment": { "terms_days": null, "instrument": null, "late_penalty_pct": null },
+      "quality": { "purity_min_pct": null, "water_max_pct": null, "oil_max_ppm": null, "temp_max": null },
+      "penalties": [{ "type": null, "trigger": null, "rate": null, "rate_unit": null, "cap_usd": null }],
+      "take_or_pay": { "minimum_pct": null, "shortfall_penalty_usd_per_mt": null },
+      "force_majeure": { "triggers": [], "notice_days": null, "suspension_rights": null },
+      "insurance": { "required": null, "type": null },
+      "legal": { "governing_law": null, "arbitration_venue": null },
+      "optionality": { "extension_option": null, "volume_flex_pct": null, "price_reopener": null },
+      "parties": { "seller": null, "buyer": null, "incoterm": null }
+    }}
+
+    Omit any section not found in the contract. Use null for unknown values.
+    Extract exact numbers and dates as written.
+
+    CONTRACT TEXT:
+    #{truncated}
+    """
+
+    case Pool.generate(model.id, prompt, max_tokens: 8192) do
+      {:ok, raw_text} ->
+        json_str = extract_json_block(raw_text)
+        case Jason.decode(json_str) do
+          {:ok, %{"contract_data" => _} = data} -> {:ok, data}
+          {:ok, data} when is_map(data) -> {:ok, %{"contract_data" => data}}
+          {:error, reason} -> {:error, {:json_parse_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Stage 2: Formulate LP constraints from structured data (smart model)
+  defp formulate_lp_constraints(structured_json, model) do
+    alias TradingDesk.LLM.Pool
+
+    json_text = Jason.encode!(structured_json, pretty: true)
+
+    prompt = """
+    You are an expert LP (Linear Programming) formulation analyst for commodity trading.
+
+    Below is structured data extracted from a commodity trading contract.
+    Formulate LP constraints ONLY for the data present. Do not invent values.
+
+    EXTRACTED CONTRACT DATA:
+    #{json_text}
+
+    Return ONLY valid JSON: {"clauses": [...]}
+
+    Each clause must have:
+    - "clause_id": SHORT_UPPERCASE_ID describing the constraint
+    - "category": one of "quantity", "delivery_schedule", "pricing", "payment", "logistics", "quality_spec", "penalty", "take_or_pay", "demurrage", "force_majeure", "insurance", "legal", "operational"
+    - "description": plain-English operational meaning
+    - "parameter": solver variable name (e.g. "annual_qty", "cargo_size", "nola_buy")
+    - "operator": ">=", "<=", "==", "between"
+    - "value": numeric value (lower bound for "between")
+    - "value_upper": upper bound (only for "between")
+    - "unit": "$/ton", "tons", "days", etc.
+    - "penalty_rate": $/ton or $/day penalty for violation (if applicable)
+    - "penalty_cap": maximum penalty exposure in $ (if applicable)
+    - "period": "monthly"/"quarterly"/"annual"/"per_cargo"
+    - "confidence": "high"/"medium"/"low"
+    - "source_text": the extracted data point this constraint is derived from
+
+    IMPORTANT:
+    - Be concise. One clause per obligation.
+    - For a bounded range, use a SINGLE "between" clause.
+    - Keep descriptions short (one sentence).
+    """
+
+    case Pool.generate(model.id, prompt, max_tokens: 8192) do
+      {:ok, raw_text} ->
+        parse_extracted_clauses(raw_text)
+
+      {:error, reason} ->
+        Logger.warning("Stage 2 LP formulation failed: #{inspect(reason)}")
+        {:ok, []}
+    end
+  end
+
+  # Single-stage extraction prompt (fallback when only one model available)
+  defp build_extraction_prompt(contract_text) do
+    max_chars = 12_000
+    truncated = if String.length(contract_text) > max_chars do
+      String.slice(contract_text, 0, max_chars) <> "\n[...truncated...]"
+    else
+      contract_text
+    end
+
+    """
+    You are an expert LP (Linear Programming) formulation analyst for commodity trading.
+
+    Extract ALL clauses from this commodity trading contract and formulate
+    LP constraints for a solver. For each obligation, produce a formal constraint
+    with solver variable names, operators, and bounds.
+
+    Return ONLY valid JSON: {"clauses": [...]}
+
+    Each clause must have:
+    - "clause_id": SHORT_UPPERCASE_ID describing the constraint
+    - "category": one of "quantity", "delivery_schedule", "pricing", "payment", "logistics", "quality_spec", "penalty", "take_or_pay", "demurrage", "force_majeure", "insurance", "legal", "operational"
+    - "source_text": exact quote from the contract
+    - "description": plain-English operational meaning
+    - "parameter": solver variable name if applicable
+    - "operator": ">=", "<=", "==", "between"
+    - "value": numeric value (lower bound for "between")
+    - "value_upper": upper bound (only for "between")
+    - "unit": "$/ton", "tons", "days", etc.
+    - "penalty_rate": $/ton or $/day penalty for violation
+    - "penalty_cap": maximum penalty exposure in $
+    - "period": "monthly"/"quarterly"/"annual"/"per_cargo"
+    - "confidence": "high"/"medium"/"low"
+
+    CONTRACT TEXT:
+    #{truncated}
+    """
+  end
+
+  # Parse LLM JSON response into %Clause{} structs
+  defp parse_extracted_clauses(raw_text) do
+    alias TradingDesk.Contracts.Clause
+
+    json_str = extract_json_block(raw_text)
+    now = DateTime.utc_now()
+
+    case Jason.decode(json_str) do
+      {:ok, %{"clauses" => clauses}} when is_list(clauses) ->
+        built = Enum.map(clauses, fn c ->
+          extracted_fields =
+            %{}
+            |> maybe_put_field("parameter", c["parameter"])
+            |> maybe_put_field("operator", c["operator"])
+            |> maybe_put_field("value", c["value"])
+            |> maybe_put_field("value_upper", c["value_upper"])
+            |> maybe_put_field("unit", c["unit"])
+            |> maybe_put_field("penalty_per_unit", c["penalty_rate"])
+            |> maybe_put_field("penalty_cap", c["penalty_cap"])
+            |> maybe_put_field("period", c["period"])
+            |> maybe_put_field("source_text", c["source_text"] || "")
+
+          category_str = c["category"] || "condition"
+
+          %Clause{
+            id: Clause.generate_id(),
+            clause_id: c["clause_id"],
+            type: map_clause_category(category_str),
+            category: String.to_atom(String.downcase(category_str)),
+            description: c["description"] || c["source_text"] || "",
+            confidence: safe_confidence(c["confidence"]),
+            extracted_fields: extracted_fields,
+            extracted_at: now
+          }
+        end)
+
+        {:ok, built}
+
+      {:ok, _} -> {:error, :no_clauses_in_response}
+      {:error, reason} -> {:error, {:json_parse_failed, reason}}
+    end
+  end
+
+  defp extract_json_block(text) do
+    cond do
+      String.contains?(text, "```json") ->
+        text |> String.split("```json") |> Enum.at(1, "") |> String.split("```") |> List.first("") |> String.trim()
+      String.contains?(text, "```") ->
+        text |> String.split("```") |> Enum.at(1, "") |> String.trim()
+      true ->
+        String.trim(text)
+    end
+  end
+
+  defp maybe_put_field(map, _key, nil), do: map
+  defp maybe_put_field(map, key, value), do: Map.put_new(map, key, value)
+
+  defp map_clause_category(cat) when is_binary(cat) do
+    case String.downcase(cat) do
+      "quantity" -> :obligation
+      "delivery_schedule" -> :delivery
+      "pricing" -> :price_term
+      "payment" -> :payment
+      "logistics" -> :delivery
+      "quality_spec" -> :compliance
+      "penalty" -> :penalty
+      "take_or_pay" -> :penalty
+      "demurrage" -> :penalty
+      "force_majeure" -> :legal
+      "insurance" -> :legal
+      "legal" -> :legal
+      "operational" -> :operational
+      _ -> :condition
+    end
+  end
+  defp map_clause_category(_), do: :condition
+
+  defp safe_confidence(nil), do: :high
+  defp safe_confidence(s) when is_binary(s), do: String.to_atom(String.downcase(s))
+  defp safe_confidence(a) when is_atom(a), do: a
+  defp safe_confidence(_), do: :high
 
   defp apply_contract_overrides(vars, assigns) do
     # Map proposed contract values to solver variables where applicable
