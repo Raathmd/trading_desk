@@ -46,13 +46,22 @@ defmodule TradingDesk.Variables.VariableDefinition do
     field :display_order,   :integer, default: 0
     field :active,          :boolean, default: true
 
+    # Monte Carlo perturbation parameters
+    field :delta_threshold,       :float
+    field :perturbation_stddev,   :float
+    field :perturbation_min,      :float
+    field :perturbation_max,      :float
+    field :perturbation_flip_prob, :float
+
     timestamps()
   end
 
   @required ~w(product_group key label)a
   @optional ~w(unit group_name type source_type source_id fetch_mode module_name
                response_path file_column default_value min_val max_val step
-               solver_position display_order active)a
+               solver_position display_order active
+               delta_threshold perturbation_stddev perturbation_min perturbation_max
+               perturbation_flip_prob)a
 
   def changeset(struct, attrs) do
     struct
@@ -63,7 +72,8 @@ defmodule TradingDesk.Variables.VariableDefinition do
     |> validate_inclusion(:type,        ~w(float boolean),            message: "must be float or boolean")
     |> validate_inclusion(:source_type, ~w(api manual file),          message: "must be api, manual, or file")
     |> validate_inclusion(:fetch_mode,  ~w(module json_get manual file), message: "must be module, json_get, manual, or file")
-    |> validate_inclusion(:group_name,  ~w(environment operations commercial), message: "must be environment, operations, or commercial")
+    |> validate_inclusion(:group_name,  ~w(environment operations commercial market freight macro quality),
+         message: "must be environment, operations, commercial, market, freight, macro, or quality")
     |> unique_constraint([:product_group, :key])
   end
 end

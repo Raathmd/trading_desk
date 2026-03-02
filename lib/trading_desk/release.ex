@@ -24,6 +24,7 @@ defmodule TradingDesk.Release do
   | NH3ContractSeed        | First deploy or after contract data reset       |
   | tracked_vessels seed   | First deploy; safe to re-run (upsert-based)     |
   | users seed             | First deploy; safe to re-run (upsert-based)     |
+  | ProductGroupFramesSeed | First deploy; safe to re-run (upsert-based)     |
 
   ## Local (dev) seeding via Mix:
       mix run priv/repo/seeds/users.exs
@@ -74,6 +75,9 @@ defmodule TradingDesk.Release do
 
     Logger.info("Seeds: running users script")
     run_script("priv/repo/seeds/users.exs")
+
+    Logger.info("Seeds: starting ProductGroupFramesSeed")
+    TradingDesk.Seeds.ProductGroupFramesSeed.run()
 
     Logger.info("Seeds: all complete")
     :ok

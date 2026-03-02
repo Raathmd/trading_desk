@@ -33,4 +33,8 @@ Logger.info("Seeds: api_configs")
 Code.require_file("priv/repo/seeds/api_configs_seed.exs")
 TradingDesk.Seeds.ApiConfigsSeed.run()
 
+Logger.info("Seeds: product_group_frames")
+Code.require_file("priv/repo/seeds/product_group_frames_seed.exs")
+TradingDesk.Seeds.ProductGroupFramesSeed.run()
+
 Logger.info("Seeds: all complete")

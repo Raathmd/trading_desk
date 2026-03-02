@@ -7,6 +7,12 @@ defmodule TradingDesk.ProductGroup do
   the solver operates on, what routes exist, which API sources feed data, and
   how contracts map to solver parameters.
 
+  ## Data Source
+
+  Frame definitions are loaded from the database (`product_group_configs`,
+  `variable_definitions`, `route_definitions`, `constraint_definitions` tables)
+  via `TradingDesk.ProductGroup.FrameStore`.
+
   ## Solver Frame
 
   A solver frame is a map with these keys:
@@ -19,7 +25,6 @@ defmodule TradingDesk.ProductGroup do
     - `:routes` — list of route definitions (origin → destination)
     - `:constraints` — list of constraint definitions
     - `:api_sources` — map of source_key → API module + config
-    - `:perturbation` — Monte Carlo perturbation parameters per variable
     - `:signal_thresholds` — thresholds for go/no-go signal classification
     - `:contract_term_map` — maps contract clause_ids to solver parameters
     - `:location_anchors` — maps location names to solver parameter keys
@@ -44,26 +49,12 @@ defmodule TradingDesk.ProductGroup do
 
   ## Adding a New Product Group
 
-  Create a module that implements the `TradingDesk.ProductGroup.Frame` behaviour
-  and register it in the `@registry` below.
+  Insert rows into `product_group_configs`, `variable_definitions`,
+  `route_definitions`, and `constraint_definitions` via the admin UI or seeds.
+  Call `ProductGroup.invalidate_cache/0` to refresh the cache.
   """
 
-  alias TradingDesk.ProductGroup.Frames
-
-  # ──────────────────────────────────────────────────────────
-  # REGISTRY
-  # ──────────────────────────────────────────────────────────
-
-  @registry %{
-    ammonia_domestic:        Frames.AmmoniaDomestic,
-    sulphur_international:   Frames.SulphurInternational,
-    petcoke:                 Frames.Petcoke,
-    ammonia_international:   Frames.AmmoniaInternational,
-    # Legacy aliases — map old atom to new canonical id
-    ammonia:                 Frames.AmmoniaDomestic,
-    uan:                     Frames.AmmoniaDomestic,   # placeholder until UAN frame built
-    urea:                    Frames.AmmoniaDomestic    # placeholder until urea frame built
-  }
+  alias TradingDesk.ProductGroup.FrameStore
 
   # ──────────────────────────────────────────────────────────
   # PUBLIC API
@@ -72,36 +63,29 @@ defmodule TradingDesk.ProductGroup do
   @doc "Get the full solver frame for a product group."
   @spec frame(atom()) :: map() | nil
   def frame(product_group) do
-    case Map.get(@registry, product_group) do
-      nil -> nil
-      module -> module.frame()
+    case FrameStore.frame(product_group) do
+      nil ->
+        # Try resolving aliases
+        case FrameStore.resolve_alias(product_group) do
+          nil -> nil
+          canonical -> FrameStore.frame(canonical)
+        end
+
+      frame ->
+        frame
     end
   end
 
   @doc "List all registered product group IDs (excluding aliases)."
   @spec list() :: [atom()]
   def list do
-    @registry
-    |> Enum.uniq_by(fn {_k, v} -> v end)
-    |> Enum.map(fn {k, _v} -> k end)
-    |> Enum.sort()
+    FrameStore.list()
   end
 
   @doc "List all product groups with display info."
   @spec list_with_info() :: [map()]
   def list_with_info do
-    list()
-    |> Enum.map(fn id ->
-      f = frame(id)
-      %{
-        id: id,
-        name: f[:name],
-        product: f[:product],
-        transport_mode: f[:transport_mode],
-        variable_count: length(f[:variables]),
-        route_count: length(f[:routes])
-      }
-    end)
+    FrameStore.list_with_info()
   end
 
   @doc "Get variable definitions for a product group."
@@ -268,12 +252,13 @@ defmodule TradingDesk.ProductGroup do
   @doc "Check if a product group is registered."
   @spec registered?(atom()) :: boolean()
   def registered?(product_group) do
-    Map.has_key?(@registry, product_group)
+    FrameStore.exists?(product_group)
   end
 
-  @doc "Get the frame module for a product group."
-  @spec frame_module(atom()) :: module() | nil
-  def frame_module(product_group) do
-    Map.get(@registry, product_group)
-  end
+  @doc "Invalidate cached frames. Call after editing product group config."
+  @spec invalidate_cache() :: :ok
+  def invalidate_cache, do: FrameStore.invalidate()
+
+  @spec invalidate_cache(atom()) :: :ok
+  def invalidate_cache(product_group), do: FrameStore.invalidate(product_group)
 end
