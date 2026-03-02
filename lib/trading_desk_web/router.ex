@@ -43,6 +43,7 @@ defmodule TradingDesk.Router do
     live "/decisions",  DecisionsLive
     live "/contracts/manage", ContractManagementLive
     live "/backfill", HistoricalBackfillLive
+    live "/admin/seeds", FrameSeedLive
   end
 
   # ── SAP integration endpoints (no browser auth needed) ───────────────────

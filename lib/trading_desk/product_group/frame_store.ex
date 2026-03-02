@@ -134,6 +134,132 @@ defmodule TradingDesk.ProductGroup.FrameStore do
   end
 
   # ──────────────────────────────────────────────────────────
+  # WRITE — DB mutations + cache invalidation + seed export
+  # ──────────────────────────────────────────────────────────
+
+  @doc "Upsert a product group config. Invalidates cache and exports seed."
+  def upsert_config(attrs) do
+    result =
+      %ProductGroupConfig{}
+      |> ProductGroupConfig.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: {:replace_all_except, [:id, :inserted_at]},
+        conflict_target: [:key]
+      )
+
+    case result do
+      {:ok, config} ->
+        invalidate(String.to_atom(config.key))
+        async_export()
+        {:ok, config}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Upsert a route definition. Invalidates cache and exports seed."
+  def upsert_route(attrs) do
+    result =
+      %RouteDefinition{}
+      |> RouteDefinition.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: {:replace_all_except, [:id, :inserted_at]},
+        conflict_target: [:product_group, :key]
+      )
+
+    case result do
+      {:ok, route} ->
+        invalidate(String.to_atom(route.product_group))
+        async_export()
+        {:ok, route}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Upsert a constraint definition. Invalidates cache and exports seed."
+  def upsert_constraint(attrs) do
+    result =
+      %ConstraintDefinition{}
+      |> ConstraintDefinition.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: {:replace_all_except, [:id, :inserted_at]},
+        conflict_target: [:product_group, :key]
+      )
+
+    case result do
+      {:ok, constraint} ->
+        invalidate(String.to_atom(constraint.product_group))
+        async_export()
+        {:ok, constraint}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Upsert a variable definition. Invalidates cache and exports seed."
+  def upsert_variable(attrs) do
+    alias TradingDesk.Variables.VariableStore
+    result = VariableStore.upsert(attrs)
+
+    case result do
+      {:ok, var} ->
+        invalidate(String.to_atom(var.product_group))
+        async_export()
+        {:ok, var}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Delete a route definition by id."
+  def delete_route(id) do
+    route = Repo.get!(RouteDefinition, id)
+    result = Repo.delete(route)
+
+    case result do
+      {:ok, deleted} ->
+        invalidate(String.to_atom(deleted.product_group))
+        async_export()
+        {:ok, deleted}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Delete a constraint definition by id."
+  def delete_constraint(id) do
+    constraint = Repo.get!(ConstraintDefinition, id)
+    result = Repo.delete(constraint)
+
+    case result do
+      {:ok, deleted} ->
+        invalidate(String.to_atom(deleted.product_group))
+        async_export()
+        {:ok, deleted}
+
+      error ->
+        error
+    end
+  end
+
+  # Export seed file asynchronously so it doesn't block the request.
+  defp async_export do
+    Task.start(fn ->
+      try do
+        TradingDesk.ProductGroup.SeedExporter.export!()
+      rescue
+        _ -> :ok
+      end
+    end)
+  end
+
+  # ──────────────────────────────────────────────────────────
   # PRIVATE — DB loading + frame assembly
   # ──────────────────────────────────────────────────────────
 
