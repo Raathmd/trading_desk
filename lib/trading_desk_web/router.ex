@@ -38,8 +38,9 @@ defmodule TradingDesk.Router do
     live "/desk",      ScenarioLive
     live "/whatif",    WhatifLive
     live "/contracts", ContractsLive
-    live "/variables", VariableManagerLive
-    live "/decisions", DecisionsLive
+    live "/variables",  VariableManagerLive
+    live "/api-config", ApiConfigLive
+    live "/decisions",  DecisionsLive
     live "/contracts/manage", ContractManagementLive
     live "/backfill", HistoricalBackfillLive
   end
