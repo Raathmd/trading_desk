@@ -865,10 +865,18 @@ defmodule TradingDesk.VariableManagerLive do
   end
 
   defp partition_updates(updates) do
-    struct_keys = Map.keys(%TradingDesk.Variables{}) |> Enum.map(&to_string/1)
+    # Use solver_position from DB to determine which keys are core solver variables
+    solver_key_set =
+      try do
+        VariableStore.solver_keys()
+        |> Enum.map(fn {key_str, _type} -> key_str end)
+        |> MapSet.new()
+      rescue
+        _ -> Map.keys(%TradingDesk.Variables{}) |> Enum.map(&to_string/1) |> MapSet.new()
+      end
 
     Enum.reduce(updates, {%{}, %{}}, fn {key, val}, {struct_acc, extra_acc} ->
-      if key in struct_keys do
+      if MapSet.member?(solver_key_set, key) do
         {Map.put(struct_acc, String.to_existing_atom(key), val), extra_acc}
       else
         {struct_acc, Map.put(extra_acc, key, val)}

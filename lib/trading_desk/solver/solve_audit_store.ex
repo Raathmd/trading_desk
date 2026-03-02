@@ -390,7 +390,14 @@ defmodule TradingDesk.Solver.SolveAuditStore do
     prev_vars = prev.variables || %{}
     curr_vars = current.variables || %{}
 
-    TradingDesk.Variables.metadata()
+    variable_meta =
+      try do
+        TradingDesk.Variables.VariableStore.metadata()
+      rescue
+        _ -> TradingDesk.Variables.metadata()
+      end
+
+    variable_meta
     |> Enum.reduce(%{}, fn meta, acc ->
       key = meta.key
       prev_val = Map.get(prev_vars, key)

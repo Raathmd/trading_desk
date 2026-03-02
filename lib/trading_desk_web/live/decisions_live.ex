@@ -320,9 +320,14 @@ defmodule TradingDesk.DecisionsLive do
   end
 
   defp build_variable_meta do
-    Variables.metadata()
+    TradingDesk.Variables.VariableStore.metadata()
     |> Enum.map(fn m -> {to_string(m.key), m} end)
     |> Map.new()
+  rescue
+    _ ->
+      Variables.metadata()
+      |> Enum.map(fn m -> {to_string(m.key), m} end)
+      |> Map.new()
   end
 
   defp var_label(key_str, meta) do

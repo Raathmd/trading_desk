@@ -141,4 +141,108 @@ defmodule TradingDesk.Variables.VariableStore do
     |> Enum.filter(& &1.active)
     |> Map.new(fn v -> {v.key, v.default_value} end)
   end
+
+  @doc """
+  Default values as atom-keyed map for initializing LiveState.
+
+  Returns `%{atom_key => default_value}` for all active variables in the given
+  product group (defaults to "global").  Boolean-typed variables return `false`
+  instead of `0.0`.
+  """
+  def defaults_atom_map(product_group \\ "global") do
+    list_for_group(product_group)
+    |> Enum.filter(& &1.active)
+    |> Map.new(fn v ->
+      val = if v.type == "boolean", do: v.default_value != 0.0, else: v.default_value
+      {String.to_atom(v.key), val}
+    end)
+  end
+
+  @doc """
+  Variable metadata in the same format as `TradingDesk.Variables.metadata/0`.
+
+  Returns a list of maps with `:key`, `:label`, `:unit`, `:min`, `:max`, `:step`,
+  `:source`, `:group`, and `:type` — compatible with all existing UI consumers.
+  """
+  def metadata(product_group \\ "global") do
+    list_for_group(product_group)
+    |> Enum.filter(& &1.active)
+    |> Enum.map(fn v ->
+      %{
+        key:    String.to_atom(v.key),
+        label:  v.label,
+        unit:   v.unit || "",
+        min:    v.min_val,
+        max:    v.max_val,
+        step:   v.step,
+        source: if(v.source_id, do: String.to_atom(v.source_id), else: :manual),
+        group:  String.to_atom(v.group_name),
+        type:   if(v.type == "boolean", do: :boolean, else: :float)
+      }
+    end)
+  end
+
+  @doc """
+  Variable keys that have a solver_position, ordered by position.
+
+  Used by `to_binary` to dynamically build the Zig solver binary payload
+  from a values map instead of a hardcoded struct.
+  """
+  def solver_keys(product_group \\ "global") do
+    Repo.all(from v in VariableDefinition,
+      where: v.product_group == ^product_group and
+             v.active == true and
+             not is_nil(v.solver_position),
+      order_by: [asc: v.solver_position],
+      select: {v.key, v.type})
+  end
+
+  @doc """
+  Active API variables grouped by source_id.
+
+  Returns `%{source_id => [%VariableDefinition{}, ...]}` for all API-sourced
+  variables.  Used by the Poller to know which keys to expect from each source.
+  """
+  def api_vars_by_source(product_group \\ "global") do
+    Repo.all(from v in VariableDefinition,
+      where: v.product_group == ^product_group and
+             v.source_type == "api" and
+             v.active == true)
+    |> Enum.group_by(& &1.source_id)
+  end
+
+  @doc """
+  API source metadata for the scenario dashboard API status tab.
+
+  Returns a map keyed by source atom with description, variables list, etc.,
+  built entirely from the variable_definitions table.
+  """
+  def api_source_metadata(product_group \\ "global") do
+    by_source = api_vars_by_source(product_group)
+
+    Map.new(by_source, fn {source_id, var_defs} ->
+      {String.to_atom(source_id),
+       %{
+         variables: Enum.map(var_defs, & &1.key),
+         module:    List.first(Enum.map(var_defs, & &1.module_name) |> Enum.reject(&is_nil/1))
+       }}
+    end)
+  end
+
+  @doc """
+  Keys expected from a specific poller source.
+
+  Returns a list of atom keys that the Poller should extract when polling
+  the given source_id.
+  """
+  def keys_for_source(source_id) when is_binary(source_id) do
+    Repo.all(from v in VariableDefinition,
+      where: v.source_id == ^source_id and v.active == true,
+      select: v.key)
+    |> Enum.map(&String.to_atom/1)
+  end
+
+  def keys_for_source(source_id) when is_atom(source_id) do
+    keys_for_source(Atom.to_string(source_id))
+  end
 end

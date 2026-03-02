@@ -27,6 +27,7 @@ defmodule TradingDesk.Data.Poller do
 
   alias TradingDesk.Config.DeltaConfig
   alias TradingDesk.Data.API
+  alias TradingDesk.Variables.VariableStore
 
   # Default intervals used before DeltaConfig loads
   @fallback_intervals %{
@@ -151,10 +152,9 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:usgs) do
     case API.USGS.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:river_stage, :river_flow])}
+        {:ok, Map.take(data, expected_keys("usgs", [:river_stage, :river_flow]))}
 
       {:error, _reason} ->
-        # Fallback: try direct HTTP with old parser
         poll_usgs_fallback()
     end
   end
@@ -162,7 +162,7 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:noaa) do
     case API.NOAA.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:temp_f, :wind_mph, :vis_mi, :precip_in])}
+        {:ok, Map.take(data, expected_keys("noaa", [:temp_f, :wind_mph, :vis_mi, :precip_in]))}
 
       {:error, _reason} ->
         poll_noaa_fallback()
@@ -172,10 +172,9 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:usace) do
     case API.USACE.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:lock_hrs])}
+        {:ok, Map.take(data, expected_keys("usace", [:lock_hrs]))}
 
       {:error, _reason} ->
-        # USACE API often requires special access; use defaults
         {:ok, %{lock_hrs: 12.0}}
     end
   end
@@ -183,10 +182,9 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:eia) do
     case API.EIA.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:nat_gas])}
+        {:ok, Map.take(data, expected_keys("eia", [:nat_gas]))}
 
       {:error, _reason} ->
-        # No fallback available — keep last known value
         {:error, :eia_not_available}
     end
   end
@@ -194,10 +192,10 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:market) do
     case API.Market.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:nola_buy, :sell_stl, :sell_mem])}
+        keys = expected_keys("delivered_prices", [:nola_buy, :sell_stl, :sell_mem])
+        {:ok, Map.take(data, keys)}
 
       {:error, _reason} ->
-        # Market feeds are subscription-based; keep last known
         {:error, :market_not_available}
     end
   end
@@ -205,7 +203,7 @@ defmodule TradingDesk.Data.Poller do
   defp poll_source(:broker) do
     case API.Broker.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem])}
+        {:ok, Map.take(data, expected_keys("broker", [:fr_mer_stl, :fr_mer_mem, :fr_nio_stl, :fr_nio_mem]))}
 
       {:error, _reason} ->
         {:error, :broker_not_available}
@@ -213,14 +211,21 @@ defmodule TradingDesk.Data.Poller do
   end
 
   defp poll_source(:internal) do
+    default_keys = [:inv_mer, :inv_nio, :mer_outage, :nio_outage, :barge_count, :working_cap]
+
+    # Merge keys from all internal-category sources (insight, tms, sap, internal)
+    db_keys =
+      ~w(insight tms sap internal)
+      |> Enum.flat_map(&VariableStore.keys_for_source/1)
+      |> Enum.uniq()
+
+    keys = Enum.uniq(default_keys ++ db_keys)
+
     case API.Internal.fetch() do
       {:ok, data} ->
-        {:ok, Map.take(data, [:inv_mer, :inv_nio, :mer_outage, :nio_outage,
-                               :barge_count, :working_cap])}
+        {:ok, Map.take(data, keys)}
 
       {:error, _reason} ->
-        # Internal systems fallback — use seed values.
-        # working_cap is 0 so the trader must explicitly set it per product group.
         {:ok, %{
           inv_mer: 12_000.0,
           inv_nio: 8_000.0,
@@ -434,6 +439,17 @@ defmodule TradingDesk.Data.Poller do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  # Reads expected keys from the variable_definitions table for a source_id.
+  # Falls back to the provided hardcoded defaults if the DB is unavailable.
+  defp expected_keys(source_id, fallback_keys) do
+    case VariableStore.keys_for_source(source_id) do
+      [] -> fallback_keys
+      db_keys -> Enum.uniq(fallback_keys ++ db_keys)
+    end
+  rescue
+    _ -> fallback_keys
+  end
 
   defp http_get(url), do: http_get(url, [])
 

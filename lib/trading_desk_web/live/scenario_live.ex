@@ -5480,68 +5480,35 @@ defmodule TradingDesk.ScenarioLive do
     ]
   end
 
-  # Variable/description metadata for each poller source — shown in the API tab.
-  @api_source_metadata %{
-    usgs: %{
-      description: "US Geological Survey — river stage & discharge at 4 Mississippi gauges",
-      api_endpoint: "https://waterservices.usgs.gov/nwis/iv/",
-      variables:    ~w(river_stage river_flow_cfs air_gap_clearance),
-      product_groups: ~w(ammonia_domestic)
-    },
-    noaa: %{
-      description: "NOAA Weather API — temperature, wind, visibility, precipitation",
-      api_endpoint: "https://api.weather.gov/",
-      variables:    ~w(temp_f wind_mph visibility_mi precip_in),
-      product_groups: ~w(ammonia_domestic petcoke)
-    },
-    usace: %{
-      description: "US Army Corps of Engineers — lock status, delays, draft limits",
-      api_endpoint: "https://corpslocks.usace.army.mil/",
-      variables:    ~w(lock_delay_hours draft_limit_ft),
-      product_groups: ~w(ammonia_domestic)
-    },
-    eia: %{
-      description: "EIA — Henry Hub natural gas spot price",
-      api_endpoint: "https://api.eia.gov/v2/",
-      variables:    ~w(nat_gas),
-      product_groups: ~w(ammonia_domestic ammonia_international)
-    },
-    market: %{
-      description: "Internal pricing — NOLA barge, delivered spot, spread vs CF",
-      api_endpoint: "(internal feed / broker reports)",
-      variables:    ~w(nola_barge_price delivered_spot nola_cf_spread),
-      product_groups: ~w(ammonia_domestic ammonia_international sulphur_international petcoke)
-    },
-    broker: %{
-      description: "Broker freight feeds — barge freight rate, tow rate, demurrage",
-      api_endpoint: "(broker network / email feeds)",
-      variables:    ~w(barge_freight_rate tow_rate demurrage_rate),
-      product_groups: ~w(ammonia_domestic)
-    },
-    internal: %{
-      description: "Internal systems — inventory, barge count, plant outages, working capital",
-      api_endpoint: "(SAP / ops systems)",
-      variables:    ~w(inventory_mt barge_count plant_outage working_capital),
-      product_groups: ~w(ammonia_domestic ammonia_international sulphur_international petcoke)
-    },
-    vessel_tracking: %{
-      description: "AIS via AISStream — position, speed, ETA for Trammo tracked fleet",
-      api_endpoint: "wss://stream.aisstream.io/v0/stream",
-      variables:    ~w(vessel_lat vessel_lon vessel_speed vessel_eta),
-      product_groups: ~w(ammonia_domestic ammonia_international)
-    },
-    tides: %{
-      description: "NOAA Tides & Currents — water level, tidal range, current speed",
-      api_endpoint: "https://api.tidesandcurrents.noaa.gov/api/prod/",
-      variables:    ~w(water_level_ft tidal_range_ft current_speed_kn),
-      product_groups: ~w(ammonia_domestic)
-    },
-    forecast: %{
-      description: "NWS Extended Forecast — D+1 to D+5 river stage and weather outlook",
-      api_endpoint: "https://api.weather.gov/",
-      variables:    ~w(forecast_river_stage forecast_precip_in forecast_temp_f),
-      product_groups: ~w(ammonia_domestic)
-    }
+  # Static descriptions per poller source — shown in the API tab.
+  # Variable lists are now read from the variable_definitions table at runtime.
+  @api_source_descriptions %{
+    usgs:             %{description: "US Geological Survey — river stage & discharge at 4 Mississippi gauges",
+                        api_endpoint: "https://waterservices.usgs.gov/nwis/iv/"},
+    noaa:             %{description: "NOAA Weather API — temperature, wind, visibility, precipitation",
+                        api_endpoint: "https://api.weather.gov/"},
+    usace:            %{description: "US Army Corps of Engineers — lock status & delays",
+                        api_endpoint: "https://corpslocks.usace.army.mil/"},
+    eia:              %{description: "EIA — Henry Hub natural gas spot price",
+                        api_endpoint: "https://api.eia.gov/v2/"},
+    delivered_prices: %{description: "Market pricing — NOLA barge, delivered spot prices",
+                        api_endpoint: "(internal feed / broker reports)"},
+    broker:           %{description: "Broker freight feeds — barge freight rates per route",
+                        api_endpoint: "(broker network / email feeds)"},
+    insight:          %{description: "Insight TMS — terminal inventory & outage status",
+                        api_endpoint: "(Insight API)"},
+    tms:              %{description: "Fleet TMS — barge count & fleet management",
+                        api_endpoint: "(TMS API)"},
+    sap:              %{description: "SAP S/4HANA FI — working capital",
+                        api_endpoint: "(SAP API)"},
+    internal:         %{description: "Internal systems — inventory, barge count, working capital",
+                        api_endpoint: "(SAP / ops systems)"},
+    vessel_tracking:  %{description: "AIS via AISStream — position, speed for tracked fleet",
+                        api_endpoint: "wss://stream.aisstream.io/v0/stream"},
+    tides:            %{description: "NOAA Tides & Currents — water level, tidal range, currents",
+                        api_endpoint: "https://api.tidesandcurrents.noaa.gov/api/prod/"},
+    forecast:         %{description: "NWS Extended Forecast — D+1 to D+5 river stage & weather",
+                        api_endpoint: "https://api.weather.gov/"}
   }
 
   defp load_api_status do
@@ -5553,16 +5520,20 @@ defmodule TradingDesk.ScenarioLive do
       enabled: false, thresholds: %{}, min_solve_interval_ms: 300_000, n_scenarios: 1000
     })
 
+    # Read variable→source mapping from the variable_definitions table
+    db_source_meta = safe_call(fn -> TradingDesk.Variables.VariableStore.api_source_metadata() end, %{})
+
     # Enrich each poller source with variable metadata and description
     enriched_sources =
       poller_status.sources
       |> Enum.map(fn src ->
-        meta = Map.get(@api_source_metadata, src.source, %{})
+        desc = Map.get(@api_source_descriptions, src.source, %{})
+        db_meta = Map.get(db_source_meta, src.source, %{})
         Map.merge(src, %{
-          description:    meta[:description] || "",
-          api_endpoint:   meta[:api_endpoint] || "",
-          variables_fed:  meta[:variables] || [],
-          product_groups: meta[:product_groups] || []
+          description:    desc[:description] || "",
+          api_endpoint:   desc[:api_endpoint] || "",
+          variables_fed:  db_meta[:variables] || [],
+          product_groups: []
         })
       end)
 

@@ -102,22 +102,30 @@ defmodule TradingDesk.Data.LiveState do
 
   @impl true
   def init(_) do
+    vars = load_defaults_from_db()
+
     state = %{
-      vars: %TradingDesk.Variables{
-        river_stage: 14.2, lock_hrs: 20.0, temp_f: 28.0, wind_mph: 18.0,
-        vis_mi: 0.5, precip_in: 1.2,
-        inv_mer: 12_000.0, inv_nio: 8_000.0,
-        mer_outage: true, nio_outage: false, barge_count: 14.0,
-        nola_buy: 320.0, sell_stl: 410.0, sell_mem: 385.0,
-        fr_mer_stl: 55.0, fr_mer_mem: 32.0, fr_nio_stl: 58.0, fr_nio_mem: 34.0,
-        nat_gas: 2.80, working_cap: 4_200_000.0
-      },
+      vars: vars,
       extra_vars:    %{},
       updated_at:    %{},
       supplementary: %{}
     }
 
     {:ok, state}
+  end
+
+  # Load default values from the variable_definitions table.
+  # Falls back to a hardcoded struct if the DB is unavailable.
+  defp load_defaults_from_db do
+    db_defaults = TradingDesk.Variables.VariableStore.defaults_atom_map("global")
+
+    if map_size(db_defaults) > 0 do
+      struct(TradingDesk.Variables, db_defaults)
+    else
+      %TradingDesk.Variables{}
+    end
+  rescue
+    _ -> %TradingDesk.Variables{}
   end
 
   # ──────────────────────────────────────────────────────────
