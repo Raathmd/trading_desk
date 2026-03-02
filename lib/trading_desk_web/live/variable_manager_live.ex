@@ -867,13 +867,9 @@ defmodule TradingDesk.VariableManagerLive do
   defp partition_updates(updates) do
     # Use solver_position from DB to determine which keys are core solver variables
     solver_key_set =
-      try do
-        VariableStore.solver_keys()
-        |> Enum.map(fn {key_str, _type} -> key_str end)
-        |> MapSet.new()
-      rescue
-        _ -> Map.keys(%TradingDesk.Variables{}) |> Enum.map(&to_string/1) |> MapSet.new()
-      end
+      VariableStore.solver_keys()
+      |> Enum.map(fn {key_str, _type} -> key_str end)
+      |> MapSet.new()
 
     Enum.reduce(updates, {%{}, %{}}, fn {key, val}, {struct_acc, extra_acc} ->
       if MapSet.member?(solver_key_set, key) do

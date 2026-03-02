@@ -29,4 +29,8 @@ Logger.info("Seeds: variable_definitions")
 Code.require_file("priv/repo/seeds/variable_definitions_seed.exs")
 TradingDesk.Seeds.VariableDefinitionsSeed.run()
 
+Logger.info("Seeds: api_configs")
+Code.require_file("priv/repo/seeds/api_configs_seed.exs")
+TradingDesk.Seeds.ApiConfigsSeed.run()
+
 Logger.info("Seeds: all complete")

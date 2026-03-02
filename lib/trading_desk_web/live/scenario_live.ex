@@ -5480,37 +5480,6 @@ defmodule TradingDesk.ScenarioLive do
     ]
   end
 
-  # Static descriptions per poller source — shown in the API tab.
-  # Variable lists are now read from the variable_definitions table at runtime.
-  @api_source_descriptions %{
-    usgs:             %{description: "US Geological Survey — river stage & discharge at 4 Mississippi gauges",
-                        api_endpoint: "https://waterservices.usgs.gov/nwis/iv/"},
-    noaa:             %{description: "NOAA Weather API — temperature, wind, visibility, precipitation",
-                        api_endpoint: "https://api.weather.gov/"},
-    usace:            %{description: "US Army Corps of Engineers — lock status & delays",
-                        api_endpoint: "https://corpslocks.usace.army.mil/"},
-    eia:              %{description: "EIA — Henry Hub natural gas spot price",
-                        api_endpoint: "https://api.eia.gov/v2/"},
-    delivered_prices: %{description: "Market pricing — NOLA barge, delivered spot prices",
-                        api_endpoint: "(internal feed / broker reports)"},
-    broker:           %{description: "Broker freight feeds — barge freight rates per route",
-                        api_endpoint: "(broker network / email feeds)"},
-    insight:          %{description: "Insight TMS — terminal inventory & outage status",
-                        api_endpoint: "(Insight API)"},
-    tms:              %{description: "Fleet TMS — barge count & fleet management",
-                        api_endpoint: "(TMS API)"},
-    sap:              %{description: "SAP S/4HANA FI — working capital",
-                        api_endpoint: "(SAP API)"},
-    internal:         %{description: "Internal systems — inventory, barge count, working capital",
-                        api_endpoint: "(SAP / ops systems)"},
-    vessel_tracking:  %{description: "AIS via AISStream — position, speed for tracked fleet",
-                        api_endpoint: "wss://stream.aisstream.io/v0/stream"},
-    tides:            %{description: "NOAA Tides & Currents — water level, tidal range, currents",
-                        api_endpoint: "https://api.tidesandcurrents.noaa.gov/api/prod/"},
-    forecast:         %{description: "NWS Extended Forecast — D+1 to D+5 river stage & weather",
-                        api_endpoint: "https://api.weather.gov/"}
-  }
-
   defp load_api_status do
     poller_status = TradingDesk.Data.Poller.status()
     sap_status = TradingDesk.Contracts.SapRefreshScheduler.status()
@@ -5523,15 +5492,19 @@ defmodule TradingDesk.ScenarioLive do
     # Read variable→source mapping from the variable_definitions table
     db_source_meta = safe_call(fn -> TradingDesk.Variables.VariableStore.api_source_metadata() end, %{})
 
-    # Enrich each poller source with variable metadata and description
+    # Read API endpoint URLs and descriptions from the api_configs table
+    api_entries = safe_call(fn -> TradingDesk.ApiConfig.get_entries("global") end, %{})
+
+    # Enrich each poller source with data from both DB tables
     enriched_sources =
       poller_status.sources
       |> Enum.map(fn src ->
-        desc = Map.get(@api_source_descriptions, src.source, %{})
+        source_str = to_string(src.source)
+        entry = Map.get(api_entries, source_str, %{})
         db_meta = Map.get(db_source_meta, src.source, %{})
         Map.merge(src, %{
-          description:    desc[:description] || "",
-          api_endpoint:   desc[:api_endpoint] || "",
+          description:    entry["notes"] || "",
+          api_endpoint:   entry["url"] || "",
           variables_fed:  db_meta[:variables] || [],
           product_groups: []
         })
